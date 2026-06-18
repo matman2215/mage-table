@@ -1,0 +1,1289 @@
+const http = require("node:http");
+const fs = require("node:fs");
+const path = require("node:path");
+const crypto = require("node:crypto");
+
+const port = Number(process.env.PORT || 3000);
+const publicDir = __dirname;
+const rooms = new Map();
+const scryfallCache = new Map();
+const scryfallTokenSearchCache = new Map();
+let lastScryfallRequestAt = 0;
+const phases = ["Untap", "Upkeep", "Draw", "Main 1", "Combat", "Main 2", "End"];
+
+function id(prefix) {
+  return `${prefix}-${crypto.randomBytes(5).toString("hex")}`;
+}
+
+function sendJson(res, status, data) {
+  const body = JSON.stringify(data);
+  res.writeHead(status, {
+    "Content-Type": "application/json",
+    "Content-Length": Buffer.byteLength(body),
+  });
+  res.end(body);
+}
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk;
+      if (body.length > 1_000_000) {
+        reject(new Error("Request body too large"));
+        req.destroy();
+      }
+    });
+    req.on("end", () => {
+      try {
+        resolve(body ? JSON.parse(body) : {});
+      } catch {
+        reject(new Error("Invalid JSON"));
+      }
+    });
+  });
+}
+
+function addLog(room, message, actor = null, detail = null) {
+  room.log.unshift({
+    id: id("log"),
+    message,
+    at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+  });
+  room.log = room.log.slice(0, 80);
+  if (!actor) return;
+  room.eventSeq = (Number(room.eventSeq) || 0) + 1;
+  room.events = room.events || [];
+  room.events.push({
+    id: id("event"),
+    seq: room.eventSeq,
+    turn: Number(room.turnNumber) || 1,
+    activeSeat: Number(room.activePlayer) || 0,
+    actorSeat: actor.seat,
+    actorName: actor.name,
+    message,
+    detail,
+    at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+  });
+  room.events = room.events.slice(-240);
+}
+
+function createRoom(name, playerCount, origin) {
+  const room = {
+    id: id("room"),
+    name,
+    activePlayer: 0,
+    phase: phases[0],
+    prioritySeat: 0,
+    priorityMode: "turn",
+    turnNumber: 1,
+    eventSeq: 0,
+    events: [],
+    playtestOpponent: {
+      name: "Playtest Opponent",
+      commander: "Simulation",
+      life: 40,
+    },
+    settings: {
+      friendlyMulligans: true,
+      darkMode: false,
+    },
+    stack: [],
+    chat: [],
+    log: [],
+    players: Array.from({ length: playerCount }, (_, seat) => ({
+      id: id("player"),
+      token: id("seat"),
+      seat,
+      name: `Player ${seat + 1}`,
+      commander: "",
+      isHost: seat === 0,
+      deckLoaded: false,
+      deckStats: null,
+      libraryPreview: null,
+      mulliganPending: false,
+      mulliganCount: 0,
+      life: 40,
+      commanderTax: 0,
+      playerCounters: {},
+      library: [],
+      hand: [],
+      commanderZone: [],
+      battlefield: [],
+      graveyard: [],
+      exile: [],
+    })),
+  };
+  addLog(room, `${name} created with ${playerCount} seats.`);
+  rooms.set(room.id, room);
+  return viewRoom(room, room.players[0].token, origin);
+}
+
+function viewRoom(room, token, origin) {
+  const currentPlayer = room.players.find((player) => player.token === token);
+  if (!currentPlayer) return null;
+  return {
+    id: room.id,
+    name: room.name,
+    activePlayer: room.activePlayer,
+    phase: room.phase,
+    prioritySeat: Number(room.prioritySeat ?? room.activePlayer) || 0,
+    priorityMode: room.priorityMode || "turn",
+    turnNumber: Number(room.turnNumber) || 1,
+    eventSeq: Number(room.eventSeq) || 0,
+    settings: room.settings || { friendlyMulligans: true, darkMode: false },
+    currentSeat: currentPlayer.seat,
+    selfUrl: `${origin}/?room=${encodeURIComponent(room.id)}&token=${encodeURIComponent(currentPlayer.token)}`,
+    currentPlayer: {
+      seat: currentPlayer.seat,
+      name: currentPlayer.name,
+      commander: currentPlayer.commander,
+      isHost: currentPlayer.isHost,
+      deckLoaded: currentPlayer.deckLoaded,
+      deckStats: currentPlayer.deckStats,
+      libraryPreview: currentPlayer.libraryPreview,
+      library: currentPlayer.library,
+      mulliganPending: Boolean(currentPlayer.mulliganPending),
+      mulliganCount: Number(currentPlayer.mulliganCount) || 0,
+    },
+    hand: currentPlayer.hand,
+    stack: room.stack,
+    chat: room.chat,
+    playtestOpponent: room.players.length === 1 ? room.playtestOpponent : null,
+    reveals: room.players
+      .filter((player) => player.libraryPreview?.mode === "reveal" && player.libraryPreview.cards?.length)
+      .map((player) => ({
+        seat: player.seat,
+        name: player.name,
+        cards: player.libraryPreview.cards,
+      })),
+    events: room.events || [],
+    log: room.log,
+    invites: currentPlayer.isHost
+      ? room.players
+          .filter((player) => player.seat !== currentPlayer.seat)
+          .map((player) => ({
+            seat: player.seat,
+            name: player.name,
+            url: `${origin}/?room=${encodeURIComponent(room.id)}&token=${encodeURIComponent(player.token)}`,
+          }))
+      : [],
+    players: room.players.map((player) => ({
+      seat: player.seat,
+      name: player.name,
+      commander: player.commander,
+      deckLoaded: player.deckLoaded,
+      deckStats: player.deckStats,
+      life: player.life,
+      commanderTax: Number(player.commanderTax) || 0,
+      playerCounters: player.playerCounters || {},
+      libraryCount: player.library.length,
+      handCount: player.hand.length,
+      commanderZone: player.commanderZone,
+      battlefield: player.battlefield,
+      graveyard: player.graveyard,
+      exile: player.exile,
+    })),
+  };
+}
+
+function parseDeckList(text) {
+  const entries = [];
+  const errors = [];
+  String(text || "")
+    .split(/\r?\n/)
+    .forEach((rawLine, index) => {
+      const line = cleanDeckLine(rawLine);
+      if (!line) return;
+      const match = line.match(/^(?:SB:\s*)?(\d+)\s*[xX]?\s+(.+)$/i);
+      if (!match) {
+        errors.push(`Line ${index + 1}: expected quantity then card name.`);
+        return;
+      }
+      const count = Number(match[1]);
+      const name = normalizeCardName(match[2]);
+      if (!Number.isInteger(count) || count <= 0) {
+        errors.push(`Line ${index + 1}: invalid quantity.`);
+        return;
+      }
+      if (!name) {
+        errors.push(`Line ${index + 1}: missing card name.`);
+        return;
+      }
+      entries.push({ count, name });
+    });
+  return { entries, errors };
+}
+
+function cleanDeckLine(rawLine) {
+  return String(rawLine || "")
+    .replace(/^\s*(commander|deck|sideboard|maybeboard)\s*:?\s*$/i, "")
+    .replace(/\s+#.*$/, "")
+    .trim();
+}
+
+function normalizeCardName(rawName) {
+  return String(rawName || "")
+    .replace(/\s+\[[^\]]+\]\s*$/g, "")
+    .replace(/\s+\*[A-Z]*\*\s*$/i, "")
+    .replace(/\s+\{[^}]+\}\s*$/g, "")
+    .replace(/\s+\([A-Z0-9]{2,6}\)(?:\s+\d+[a-z]?)?\s*$/i, "")
+    .replace(/\s+[A-Z0-9]{2,6}-?\d+[a-z]?\s*$/i, "")
+    .trim();
+}
+
+function cardImages(card) {
+  const imageSource = card.image_uris || card.card_faces?.find((face) => face.image_uris)?.image_uris;
+  return {
+    small: imageSource?.small || "",
+    normal: imageSource?.normal || "",
+    large: imageSource?.large || "",
+    artCrop: imageSource?.art_crop || "",
+  };
+}
+
+async function fetchScryfallCard(name) {
+  const key = name.toLowerCase();
+  if (scryfallCache.has(key)) return scryfallCache.get(key);
+  let response = await requestScryfallNamed("exact", name);
+  if (!response.ok) {
+    response = await requestScryfallNamed("fuzzy", name);
+  }
+  if (!response.ok) throw new Error(`Scryfall could not find "${name}".`);
+  const card = await response.json();
+  const summary = summarizeScryfallCard(card);
+  scryfallCache.set(key, summary);
+  return summary;
+}
+
+function summarizeScryfallCard(card) {
+  const summary = {
+    scryfallId: card.id,
+    name: card.name,
+    typeLine: card.type_line || "",
+    manaCost: card.mana_cost || "",
+    oracleText: card.oracle_text || card.card_faces?.map((face) => face.oracle_text).filter(Boolean).join("\n---\n") || "",
+    images: cardImages(card),
+    isLand: /\bLand\b/.test(card.type_line || ""),
+    power: card.power || "",
+    toughness: card.toughness || "",
+  };
+  return summary;
+}
+
+function requestScryfallNamed(mode, name) {
+  const url = `https://api.scryfall.com/cards/named?${mode}=${encodeURIComponent(name)}`;
+  return throttledScryfallFetch(url);
+}
+
+async function throttledScryfallFetch(url, options = {}, attempt = 1) {
+  const elapsed = Date.now() - lastScryfallRequestAt;
+  if (elapsed < 100) {
+    await sleep(100 - elapsed);
+  }
+  lastScryfallRequestAt = Date.now();
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      "Accept": "application/json",
+      "Content-Type": "application/json",
+      "User-Agent": "MageTablePrototype/0.1",
+      ...(options.headers || {}),
+    },
+    signal: AbortSignal.timeout(12000),
+  });
+  if (response.status === 429 && attempt < 4) {
+    const retryAfter = Number(response.headers.get("retry-after"));
+    await sleep(Number.isFinite(retryAfter) ? retryAfter * 1000 : 750);
+    return throttledScryfallFetch(url, options, attempt + 1);
+  }
+  return response;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchScryfallCollection(names) {
+  const results = new Map();
+  for (let i = 0; i < names.length; i += 75) {
+    const chunk = names.slice(i, i + 75);
+    const response = await throttledScryfallFetch("https://api.scryfall.com/cards/collection", {
+      method: "POST",
+      body: JSON.stringify({
+        identifiers: chunk.map((name) => ({ name })),
+      }),
+    });
+    if (!response.ok) continue;
+    const payload = await response.json();
+    for (const card of payload.data || []) {
+      const summary = summarizeScryfallCard(card);
+      addCollectionAliases(results, card, summary);
+    }
+  }
+  return results;
+}
+
+async function searchScryfallTokens(query) {
+  const searchText = String(query || "").trim().slice(0, 120);
+  const cacheKey = searchText.toLowerCase();
+  if (scryfallTokenSearchCache.has(cacheKey)) return scryfallTokenSearchCache.get(cacheKey);
+  const scryfallQuery = ["is:token", "type:creature", searchText].filter(Boolean).join(" ");
+  const url = `https://api.scryfall.com/cards/search?order=name&unique=prints&q=${encodeURIComponent(scryfallQuery)}`;
+  const response = await throttledScryfallFetch(url);
+  if (!response.ok) {
+    if (response.status === 404) return [];
+    throw new Error("Scryfall token search failed");
+  }
+  const payload = await response.json();
+  const cards = (payload.data || [])
+    .filter((card) => card.layout === "token" || /Token/i.test(card.type_line || ""))
+    .slice(0, 36)
+    .map(summarizeScryfallCard);
+  scryfallTokenSearchCache.set(cacheKey, cards);
+  return cards;
+}
+
+function addCollectionAliases(results, card, summary) {
+  const aliases = [card.name, summary.name];
+  for (const face of card.card_faces || []) {
+    if (face.name) aliases.push(face.name);
+  }
+  for (const alias of aliases) {
+    results.set(alias.toLowerCase(), summary);
+  }
+}
+
+async function buildDeck(text, ownerSeat) {
+  const parsed = parseDeckList(text);
+  if (parsed.errors.length > 0) {
+    throw new Error(parsed.errors.slice(0, 5).join(" "));
+  }
+
+  const cards = [];
+  const notFound = [];
+  const unique = [];
+  const byName = new Map();
+  const requestedNames = [...new Set(parsed.entries.map((entry) => entry.name))];
+  const batchCards = await fetchScryfallCollection(requestedNames);
+  let total = 0;
+  let land = 0;
+  let nonland = 0;
+
+  for (const entry of parsed.entries) {
+    let cardData = batchCards.get(entry.name.toLowerCase());
+    if (!cardData) {
+      try {
+        cardData = await fetchScryfallCard(entry.name);
+      } catch {
+        cardData = null;
+      }
+    }
+    if (!cardData) {
+      notFound.push(entry.name);
+      cardData = {
+        scryfallId: "",
+        name: entry.name,
+        typeLine: "",
+        manaCost: "",
+        oracleText: "",
+        images: {},
+        isLand: false,
+      };
+    }
+
+    total += entry.count;
+    if (cardData.isLand) land += entry.count;
+    else nonland += entry.count;
+
+    byName.set(cardData.name, (byName.get(cardData.name) || 0) + entry.count);
+
+    for (let i = 0; i < entry.count; i += 1) {
+      cards.push({
+        id: id("card"),
+        name: cardData.name,
+        typeLine: cardData.typeLine,
+        manaCost: cardData.manaCost,
+        oracleText: cardData.oracleText,
+        imageUrl: cardData.images.normal || cardData.images.small || "",
+        artUrl: cardData.images.artCrop || "",
+        isLand: cardData.isLand,
+        tapped: false,
+        owner: ownerSeat,
+        counters: emptyCounters(),
+      });
+    }
+  }
+
+  for (const [name, count] of byName.entries()) {
+    unique.push({ name, count });
+  }
+
+  return {
+    cards,
+    stats: {
+      total,
+      land,
+      nonland,
+      unique: unique.length,
+      notFound,
+      entries: unique.sort((a, b) => a.name.localeCompare(b.name)),
+    },
+  };
+}
+
+function shuffle(cards) {
+  const copy = [...cards];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = crypto.randomInt(i + 1);
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+function prepareForNonBattlefield(card) {
+  if (!card) return card;
+  card.tapped = false;
+  delete card.position;
+  return card;
+}
+
+function getPublicZone(player, zone) {
+  if (!["commanderZone", "battlefield", "graveyard", "exile"].includes(zone)) {
+    throw new Error("That zone is not public");
+  }
+  return player[zone];
+}
+
+function getOwnedZone(actor, target, zone) {
+  if (target.seat !== actor.seat && ["hand", "library"].includes(zone)) {
+    throw new Error("You cannot access another player's private zone");
+  }
+  if (zone === "hand" || zone === "library") return target[zone];
+  return getPublicZone(target, zone);
+}
+
+function moveCard(actor, target, fromZone, toZone, cardId, destinationPlayer = target, position = null) {
+  const source = getOwnedZone(actor, target, fromZone);
+  const destination = getOwnedZone(actor, destinationPlayer, toZone);
+  const index = source.findIndex((card) => card.id === cardId);
+  if (index === -1) throw new Error("Card not found");
+  const [card] = source.splice(index, 1);
+  if (fromZone === "library" && target.libraryPreview) {
+    target.libraryPreview.cards = target.libraryPreview.cards.filter((item) => item.id !== cardId);
+    if (target.libraryPreview.cards.length === 0) target.libraryPreview = null;
+  }
+  if (fromZone === "commanderZone") card.isCommander = true;
+  if (toZone === "commanderZone" && !isCommanderCard(destinationPlayer, card)) {
+    source.splice(index, 0, card);
+    throw new Error("Only the specified commander can be moved to the command zone.");
+  }
+  if (toZone === "battlefield") {
+    if (fromZone !== "battlefield") card.tapped = false;
+    card.position = clampPosition(position || card.position || nextBattlefieldPosition(destination.length));
+  } else {
+    prepareForNonBattlefield(card);
+  }
+  if (toZone === "library") destination.unshift(card);
+  else destination.push(card);
+  return card;
+}
+
+function emptyCounters() {
+  return {
+    powerToughness: 0,
+    power: 0,
+    toughness: 0,
+    plusOne: 0,
+    minusOne: 0,
+    plusX: {},
+    minusX: {},
+  };
+}
+
+function normalizeCounters(counters = {}) {
+  const legacyTotal = legacyCounterTotal(counters);
+  return {
+    powerToughness: Number(counters.powerToughness) || legacyTotal,
+    power: Number(counters.power) || 0,
+    toughness: Number(counters.toughness) || 0,
+    plusOne: Math.max(0, Number(counters.plusOne) || 0),
+    minusOne: Math.max(0, Number(counters.minusOne) || 0),
+    plusX: normalizeCounterMap(counters.plusX),
+    minusX: normalizeCounterMap(counters.minusX),
+  };
+}
+
+function legacyCounterTotal(counters = {}) {
+  let total = 0;
+  total += Number(counters.plusOne) || 0;
+  total -= Number(counters.minusOne) || 0;
+  Object.entries(counters.plusX || {}).forEach(([value, count]) => {
+    total += (Number(value) || 0) * (Number(count) || 0);
+  });
+  Object.entries(counters.minusX || {}).forEach(([value, count]) => {
+    total -= (Number(value) || 0) * (Number(count) || 0);
+  });
+  return total;
+}
+
+function normalizeCounterMap(map = {}) {
+  return Object.fromEntries(
+    Object.entries(map)
+      .map(([value, count]) => [String(Math.max(1, Math.min(99, Number(value) || 1))), Math.max(0, Number(count) || 0)])
+      .filter(([, count]) => count > 0),
+  );
+}
+
+function copyBattlefieldToken(actor, cardId, position = null) {
+  const source = actor.battlefield.find((card) => card.id === cardId);
+  if (!source) throw new Error("Card not found");
+  const token = {
+    ...source,
+    id: id("token"),
+    name: `${source.name} Token`,
+    owner: actor.seat,
+    tapped: false,
+    isToken: true,
+    tokenSourceId: source.id,
+    counters: emptyCounters(),
+    position: clampPosition(position || offsetPosition(source.position) || nextBattlefieldPosition(actor.battlefield.length)),
+  };
+  actor.battlefield.push(token);
+  return token;
+}
+
+function createBattlefieldToken(actor, tokenData = {}, position = null) {
+  const name = String(tokenData.name || "Token").trim().slice(0, 80) || "Token";
+  const power = String(tokenData.power || "").trim().slice(0, 8);
+  const toughness = String(tokenData.toughness || "").trim().slice(0, 8);
+  const printedType = String(tokenData.typeLine || "").trim().slice(0, 140);
+  const typeLine = printedType || "Token Creature";
+  const token = {
+    id: id("token"),
+    name,
+    typeLine,
+    manaCost: "",
+    oracleText: String(tokenData.oracleText || "").trim().slice(0, 1200),
+    imageUrl: String(tokenData.imageUrl || "").trim(),
+    artUrl: String(tokenData.artUrl || "").trim(),
+    isLand: false,
+    tapped: false,
+    owner: actor.seat,
+    isToken: true,
+    power,
+    toughness,
+    counters: emptyCounters(),
+    position: clampPosition(position || nextBattlefieldPosition(actor.battlefield.length)),
+  };
+  actor.battlefield.push(token);
+  return token;
+}
+
+function offsetPosition(position) {
+  if (!position) return null;
+  const x = Number(position.x);
+  const y = Number(position.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  return { x: x + 28, y: y + 28, unit: position.unit || "px" };
+}
+
+function adjustBattlefieldCounter(actor, cardId, counterType, value = 1, delta = 1) {
+  const card = actor.battlefield.find((item) => item.id === cardId);
+  if (!card) throw new Error("Card not found");
+  card.counters = normalizeCounters(card.counters);
+  const amount = Math.max(-20, Math.min(20, Number(delta) || 1));
+  const xValue = String(Math.max(1, Math.min(99, Number(value) || 1)));
+  if (counterType === "powerToughness" || counterType === "pt") {
+    card.counters.powerToughness = Math.max(-99, Math.min(99, card.counters.powerToughness + amount));
+    card.counters.plusOne = 0;
+    card.counters.minusOne = 0;
+    card.counters.plusX = {};
+    card.counters.minusX = {};
+  } else if (counterType === "power") {
+    card.counters.power = Math.max(-99, Math.min(99, card.counters.power + amount));
+  } else if (counterType === "toughness") {
+    card.counters.toughness = Math.max(-99, Math.min(99, card.counters.toughness + amount));
+  } else if (counterType === "plusOne") card.counters.plusOne = Math.max(0, card.counters.plusOne + amount);
+  else if (counterType === "minusOne") card.counters.minusOne = Math.max(0, card.counters.minusOne + amount);
+  else if (counterType === "plusX") {
+    card.counters.plusX[xValue] = Math.max(0, (card.counters.plusX[xValue] || 0) + amount);
+    if (card.counters.plusX[xValue] === 0) delete card.counters.plusX[xValue];
+  } else if (counterType === "minusX") {
+    card.counters.minusX[xValue] = Math.max(0, (card.counters.minusX[xValue] || 0) + amount);
+    if (card.counters.minusX[xValue] === 0) delete card.counters.minusX[xValue];
+  } else if (counterType === "clear") {
+    card.counters = emptyCounters();
+  } else {
+    throw new Error("Invalid counter type");
+  }
+  return card;
+}
+
+function adjustPlayerCounter(player, counterName, delta = 1) {
+  const name = String(counterName || "").trim().slice(0, 32);
+  if (!name) throw new Error("Counter name is required.");
+  const amount = Math.max(-20, Math.min(20, Number(delta) || 1));
+  player.playerCounters = player.playerCounters || {};
+  const nextValue = Math.max(0, Math.min(999, (Number(player.playerCounters[name]) || 0) + amount));
+  if (nextValue === 0) delete player.playerCounters[name];
+  else player.playerCounters[name] = nextValue;
+  return { name, value: nextValue };
+}
+
+function adjustCommanderTax(player, delta = 1) {
+  const amount = Math.max(-20, Math.min(20, Number(delta) || 1));
+  player.commanderTax = Math.max(0, Math.min(99, (Number(player.commanderTax) || 0) + amount));
+  return player.commanderTax;
+}
+
+function removeBattlefieldToken(actor, cardId) {
+  const index = actor.battlefield.findIndex((card) => card.id === cardId);
+  if (index === -1) throw new Error("Card not found");
+  const card = actor.battlefield[index];
+  if (!card.isToken) throw new Error("Only token copies can be removed completely.");
+  actor.battlefield.splice(index, 1);
+  return card;
+}
+
+function isCommanderCard(player, card) {
+  if (card.isCommander && card.owner === player.seat) return true;
+  const commander = String(player.commander || "").trim().toLowerCase();
+  const cardName = String(card.name || "").trim().toLowerCase();
+  if (!commander || !cardName) return false;
+  return cardName === commander || cardName.split(" // ").some((face) => face.trim() === commander);
+}
+
+function clampPosition(position, isTapped = false) {
+  if (position?.unit === "px") {
+    return {
+      x: Math.max(0, Math.min(10000, Math.round(Number(position.x) || 0))),
+      y: Math.max(0, Math.min(10000, Math.round(Number(position.y) || 0))),
+      unit: "px",
+    };
+  }
+  const x = Math.max(0, Math.min(86, Number(position?.x) || 4));
+  const y = Math.max(0, Math.min(62, Number(position?.y) || 8));
+  return {
+    x,
+    y,
+  };
+}
+
+function nextBattlefieldPosition(count) {
+  const column = count % 8;
+  const row = Math.floor(count / 8) % 5;
+  return {
+    x: 12 + column * 96,
+    y: 12 + row * 132,
+    unit: "px",
+  };
+}
+
+function stackFromZone(room, actor, target, fromZone, cardId) {
+  const source = getOwnedZone(actor, target, fromZone);
+  const index = source.findIndex((card) => card.id === cardId);
+  if (index === -1) throw new Error("Card not found");
+  const [card] = source.splice(index, 1);
+  room.stack.push(card);
+  return card;
+}
+
+function drawCards(player, count) {
+  const drawn = player.library.splice(0, Math.min(count, player.library.length));
+  drawn.forEach(prepareForNonBattlefield);
+  player.hand.push(...drawn);
+  player.libraryPreview = null;
+  return drawn;
+}
+
+function drawOpeningHand(player, count = 7) {
+  const drawn = player.library.splice(0, Math.min(count, player.library.length));
+  drawn.forEach(prepareForNonBattlefield);
+  player.hand = drawn;
+  player.libraryPreview = null;
+  return drawn;
+}
+
+function mulliganPlayer(room, actor) {
+  if (!actor.deckLoaded) throw new Error("Load a deck before taking a mulligan.");
+  actor.hand.forEach(prepareForNonBattlefield);
+  actor.library.push(...actor.hand);
+  actor.hand = [];
+  actor.library = shuffle(actor.library);
+  const friendlyMulligans = room.settings?.friendlyMulligans !== false;
+  const handSize = friendlyMulligans ? 7 : Math.max(1, 7 - Math.max(0, actor.mulliganCount));
+  const drawn = drawOpeningHand(actor, handSize);
+  actor.mulliganCount = (Number(actor.mulliganCount) || 0) + 1;
+  actor.mulliganPending = true;
+  addLog(room, `${actor.name} took a mulligan and drew ${drawn.length} card${drawn.length === 1 ? "" : "s"}.`, actor);
+}
+
+async function pullCommanderCard(cards, commanderName, ownerSeat) {
+  const name = String(commanderName || "").trim();
+  if (!name) return [];
+  const normalized = name.toLowerCase();
+  const index = cards.findIndex((card) => {
+    const cardName = card.name.toLowerCase();
+    return cardName === normalized || cardName.split(" // ").some((face) => face === normalized);
+  });
+  if (index !== -1) {
+    const [card] = cards.splice(index, 1);
+    card.isCommander = true;
+    return [card];
+  }
+  try {
+    const cardData = await fetchScryfallCard(name);
+    return [{
+      id: id("card"),
+      name: cardData.name,
+      typeLine: cardData.typeLine,
+      manaCost: cardData.manaCost,
+      oracleText: cardData.oracleText,
+      imageUrl: cardData.images.normal || cardData.images.small || "",
+      artUrl: cardData.images.artCrop || "",
+      isLand: cardData.isLand,
+      tapped: false,
+      owner: ownerSeat,
+      isCommander: true,
+      counters: emptyCounters(),
+    }];
+  } catch {
+    return [{
+      id: id("card"),
+      name,
+      typeLine: "Commander",
+      manaCost: "",
+      oracleText: "",
+      imageUrl: "",
+      artUrl: "",
+      isLand: false,
+      tapped: false,
+      owner: ownerSeat,
+      isCommander: true,
+      counters: emptyCounters(),
+    }];
+  }
+}
+
+function applyLibraryAction(room, actor, body) {
+  const count = Math.max(1, Math.min(20, Number(body.count) || 1));
+  switch (body.mode) {
+    case "shuffle": {
+      actor.library = shuffle(actor.library);
+      actor.libraryPreview = null;
+      addLog(room, `${actor.name} shuffled their library.`, actor);
+      break;
+    }
+    case "draw": {
+      const drawn = drawCards(actor, count);
+      addLog(room, `${actor.name} drew ${drawn.length} card${drawn.length === 1 ? "" : "s"}.`, actor);
+      break;
+    }
+    case "mill": {
+      const milled = actor.library.splice(0, Math.min(count, actor.library.length));
+      milled.forEach(prepareForNonBattlefield);
+      actor.graveyard.push(...milled);
+      actor.libraryPreview = null;
+      addLog(room, `${actor.name} milled ${milled.length} card${milled.length === 1 ? "" : "s"}.`, actor);
+      break;
+    }
+    case "reveal": {
+      const revealed = actor.library.slice(0, Math.min(count, actor.library.length));
+      actor.libraryPreview = { mode: "reveal", cards: revealed };
+      addLog(room, `${actor.name} revealed the top ${revealed.length} card${revealed.length === 1 ? "" : "s"} of their library.`, actor);
+      break;
+    }
+    case "scry":
+    case "surveil": {
+      const cards = actor.library.slice(0, Math.min(count, actor.library.length));
+      actor.libraryPreview = { mode: body.mode, cards };
+      addLog(room, `${actor.name} ${body.mode === "scry" ? "scried" : "surveilled"} ${cards.length}.`, actor);
+      break;
+    }
+    case "search": {
+      const query = String(body.query || "").trim().toLowerCase();
+      if (!query) throw new Error("Search text is required");
+      const index = actor.library.findIndex((card) => card.name.toLowerCase().includes(query));
+      if (index === -1) throw new Error("No matching card found in library");
+      const [card] = actor.library.splice(index, 1);
+      prepareForNonBattlefield(card);
+      actor.hand.push(card);
+      actor.library = shuffle(actor.library);
+      actor.libraryPreview = null;
+      addLog(room, `${actor.name} searched their library for a card, put it into hand, and shuffled.`, actor);
+      break;
+    }
+    case "searchById": {
+      const index = actor.library.findIndex((card) => card.id === body.cardId);
+      if (index === -1) throw new Error("No matching card found in library");
+      const [card] = actor.library.splice(index, 1);
+      const destination = String(body.destination || "hand");
+      if (destination === "battlefield") {
+        card.tapped = false;
+        card.position = clampPosition(nextBattlefieldPosition(actor.battlefield.length));
+        actor.battlefield.push(card);
+      } else if (destination === "graveyard") {
+        prepareForNonBattlefield(card);
+        actor.graveyard.push(card);
+      } else {
+        prepareForNonBattlefield(card);
+        actor.hand.push(card);
+      }
+      actor.library = shuffle(actor.library);
+      actor.libraryPreview = null;
+      addLog(room, `${actor.name} searched their library for a card, put it into ${destination}, and shuffled.`, actor);
+      break;
+    }
+    default:
+      throw new Error("Unknown library action");
+  }
+}
+
+function applyPreviewCardAction(room, actor, body) {
+  if (!actor.libraryPreview) throw new Error("No active library preview");
+  const cardId = body.cardId;
+  const index = actor.library.findIndex((card) => card.id === cardId);
+  if (index === -1) throw new Error("Card not found");
+  const [card] = actor.library.splice(index, 1);
+  if (body.destination === "bottom") {
+    prepareForNonBattlefield(card);
+    actor.library.push(card);
+  }
+  else if (body.destination === "hand") {
+    prepareForNonBattlefield(card);
+    actor.hand.push(card);
+  }
+  else if (body.destination === "battlefield") {
+    card.tapped = false;
+    card.position = clampPosition(nextBattlefieldPosition(actor.battlefield.length));
+    actor.battlefield.push(card);
+  }
+  else if (body.destination === "exile") {
+    prepareForNonBattlefield(card);
+    actor.exile.push(card);
+  }
+  else if (body.destination === "graveyard") {
+    prepareForNonBattlefield(card);
+    actor.graveyard.push(card);
+  }
+  else {
+    prepareForNonBattlefield(card);
+    actor.library.unshift(card);
+  }
+  actor.libraryPreview.cards = actor.libraryPreview.cards.filter((item) => item.id !== cardId);
+  if (actor.libraryPreview.cards.length === 0) actor.libraryPreview = null;
+  const destination = ["hand", "battlefield", "graveyard", "exile"].includes(body.destination)
+    ? body.destination
+    : `${body.destination || "top"} of library`;
+  addLog(room, `${actor.name} moved a previewed card to ${destination}.`, actor, {
+    kind: "move",
+    cardName: card.name,
+    fromZone: "library preview",
+    toZone: destination,
+    position: card.position || null,
+    tapped: Boolean(card.tapped),
+  });
+}
+
+function reorderLibraryPreview(room, actor, body) {
+  if (!actor.libraryPreview?.cards?.length) throw new Error("No active library preview");
+  const cardId = body.cardId;
+  const beforeCardId = body.beforeCardId;
+  const cards = [...actor.libraryPreview.cards];
+  const fromIndex = cards.findIndex((card) => card.id === cardId);
+  if (fromIndex === -1) throw new Error("Card not found in preview");
+  const [card] = cards.splice(fromIndex, 1);
+  const beforeIndex = beforeCardId ? cards.findIndex((item) => item.id === beforeCardId) : -1;
+  if (beforeIndex === -1) cards.push(card);
+  else cards.splice(beforeIndex, 0, card);
+  actor.libraryPreview.cards = cards;
+  const previewIds = new Set(cards.map((item) => item.id));
+  const remaining = actor.library.filter((item) => !previewIds.has(item.id));
+  actor.library = [...cards, ...remaining];
+  addLog(room, `${actor.name} reordered their library preview.`, actor);
+}
+
+function assertActivePlayer(room, actor) {
+  if (room.players[room.activePlayer]?.seat !== actor.seat) {
+    throw new Error("It is not your turn.");
+  }
+}
+
+function playerHasPriority(room, actor) {
+  return Number(room.prioritySeat ?? room.activePlayer) === actor.seat;
+}
+
+function playerCanAct(room, actor) {
+  return room.players[room.activePlayer]?.seat === actor.seat || playerHasPriority(room, actor);
+}
+
+function assertCanAct(room, actor) {
+  if (!playerCanAct(room, actor)) {
+    throw new Error("You do not have priority.");
+  }
+}
+
+function nextSeat(room, seat) {
+  if (room.players.length <= 1) return 0;
+  return (Number(seat) + 1) % room.players.length;
+}
+
+function resetPriority(room) {
+  room.prioritySeat = room.activePlayer;
+  room.priorityMode = "turn";
+}
+
+async function applyAction(room, actor, body) {
+  switch (body.type) {
+    case "setPhase": {
+      assertCanAct(room, actor);
+      if (!phases.includes(body.phase)) throw new Error("Invalid phase");
+      room.phase = body.phase;
+      addLog(room, `Phase changed to ${body.phase}.`, actor);
+      break;
+    }
+    case "turn": {
+      assertActivePlayer(room, actor);
+      room.activePlayer = (room.activePlayer + 1) % room.players.length;
+      room.turnNumber = (Number(room.turnNumber) || 1) + 1;
+      room.phase = phases[0];
+      resetPriority(room);
+      addLog(room, `Turn moved to ${room.players[room.activePlayer].name}.`, actor);
+      break;
+    }
+    case "combatPass": {
+      assertActivePlayer(room, actor);
+      if (room.players.length <= 1) throw new Error("Combat priority is only available in multiplayer.");
+      room.priorityMode = "combat";
+      room.prioritySeat = nextSeat(room, actor.seat);
+      addLog(room, `${actor.name} passed priority for blockers to ${room.players[room.prioritySeat].name}.`, actor);
+      break;
+    }
+    case "takePriority": {
+      if (room.players.length <= 1) throw new Error("Instant priority is only available in multiplayer.");
+      if (actor.seat === room.activePlayer) {
+        room.priorityMode = "turn";
+        room.prioritySeat = actor.seat;
+      } else {
+        room.priorityMode = "instant";
+        room.prioritySeat = actor.seat;
+      }
+      addLog(room, `${actor.name} took priority${room.priorityMode === "instant" ? " for an instant-speed action" : ""}.`, actor);
+      break;
+    }
+    case "passPriority": {
+      if (room.players.length <= 1) throw new Error("Priority passing is only available in multiplayer.");
+      if (!playerHasPriority(room, actor)) throw new Error("You do not have priority.");
+      const next = nextSeat(room, actor.seat);
+      room.prioritySeat = next;
+      if (next === room.activePlayer) room.priorityMode = "turn";
+      addLog(room, `${actor.name} passed priority to ${room.players[next].name}.`, actor);
+      break;
+    }
+    case "life": {
+      const target = room.players[Number(body.seat)];
+      if (!target) throw new Error("Invalid player");
+      if (target.seat !== actor.seat && !playerCanAct(room, actor)) {
+        throw new Error("You can only change another player's life when you have the turn or priority.");
+      }
+      target.life += Number(body.delta);
+      addLog(room, `${target.name} life changed to ${target.life}.`, actor, { kind: "life", seat: target.seat, value: target.life });
+      break;
+    }
+    case "playtestLife": {
+      if (room.players.length !== 1) throw new Error("Playtest life is only available in single player.");
+      room.playtestOpponent = room.playtestOpponent || { name: "Playtest Opponent", commander: "Simulation", life: 40 };
+      room.playtestOpponent.life += Number(body.delta);
+      addLog(room, `${room.playtestOpponent.name} life changed to ${room.playtestOpponent.life}.`, actor, {
+        kind: "life",
+        seat: "playtest",
+        value: room.playtestOpponent.life,
+      });
+      break;
+    }
+    case "playerCounter": {
+      const target = room.players[Number(body.seat)];
+      if (!target) throw new Error("Invalid player");
+      if (target.seat !== actor.seat) throw new Error("You can only change your own player counters.");
+      const counter = adjustPlayerCounter(target, body.counterName, body.delta);
+      addLog(room, `${target.name} ${counter.name} counter changed to ${counter.value}.`, actor);
+      break;
+    }
+    case "commanderTax": {
+      const target = room.players[Number(body.seat)];
+      if (!target) throw new Error("Invalid player");
+      if (target.seat !== actor.seat) throw new Error("You can only change your own commander tax.");
+      const tax = adjustCommanderTax(target, body.delta);
+      addLog(room, `${target.name} commander tax changed to ${tax}.`, actor);
+      break;
+    }
+    case "chat": {
+      const text = String(body.text || "").trim().slice(0, 240);
+      if (!text) throw new Error("Message is required");
+      room.chat.push({
+        id: id("chat"),
+        seat: actor.seat,
+        name: actor.name,
+        text,
+        at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      });
+      room.chat = room.chat.slice(-200);
+      break;
+    }
+    case "updateSettings": {
+      room.settings = room.settings || {};
+      room.settings.friendlyMulligans = body.friendlyMulligans !== false;
+      room.settings.darkMode = Boolean(body.darkMode);
+      addLog(room, `${actor.name} updated room settings.`, actor);
+      break;
+    }
+    case "loadDeck": {
+      const playerName = String(body.name || "").trim();
+      const commander = String(body.commander || "").trim();
+      if (playerName) actor.name = playerName.slice(0, 32);
+      actor.commander = commander.slice(0, 80);
+      const deck = await buildDeck(body.text, actor.seat);
+      actor.commanderZone = await pullCommanderCard(deck.cards, actor.commander, actor.seat);
+      actor.library = shuffle(deck.cards);
+      actor.mulliganCount = 0;
+      actor.mulliganPending = true;
+      drawOpeningHand(actor, 7);
+      actor.libraryPreview = null;
+      actor.deckStats = deck.stats;
+      actor.deckLoaded = true;
+      const commanderText = actor.commanderZone.length ? " Commander moved to command zone." : "";
+      addLog(room, `${actor.name} loaded ${deck.stats.total} cards, shuffled, and reviewed an opening hand of ${actor.hand.length}.${commanderText}`, actor);
+      break;
+    }
+    case "mulligan": {
+      mulliganPlayer(room, actor);
+      break;
+    }
+    case "keepHand": {
+      if (!actor.deckLoaded) throw new Error("Load a deck before keeping a hand.");
+      actor.mulliganPending = false;
+      addLog(room, `${actor.name} kept their opening hand.`, actor);
+      break;
+    }
+    case "draw": {
+      assertCanAct(room, actor);
+      const count = Math.max(1, Math.min(20, Number(body.count) || 1));
+      const drawn = drawCards(actor, count);
+      addLog(room, `${actor.name} drew ${drawn.length} card${drawn.length === 1 ? "" : "s"}.`, actor);
+      break;
+    }
+    case "libraryAction": {
+      assertCanAct(room, actor);
+      applyLibraryAction(room, actor, body);
+      break;
+    }
+    case "clearLibraryPreview": {
+      assertCanAct(room, actor);
+      actor.libraryPreview = null;
+      break;
+    }
+    case "previewCardAction": {
+      assertCanAct(room, actor);
+      applyPreviewCardAction(room, actor, body);
+      break;
+    }
+    case "reorderPreview": {
+      assertCanAct(room, actor);
+      reorderLibraryPreview(room, actor, body);
+      break;
+    }
+    case "handToLibrary": {
+      assertCanAct(room, actor);
+      const index = actor.hand.findIndex((card) => card.id === body.cardId);
+      if (index === -1) throw new Error("Card not found");
+      const [card] = actor.hand.splice(index, 1);
+      prepareForNonBattlefield(card);
+      if (body.position === "top") actor.library.unshift(card);
+      else actor.library.push(card);
+      addLog(room, `${actor.name} put a card from hand ${body.position === "top" ? "on top of" : "on bottom of"} their library.`, actor);
+      break;
+    }
+    case "moveCard": {
+      assertCanAct(room, actor);
+      const target = room.players[Number(body.seat)];
+      const destinationPlayer = room.players[Number(body.toSeat ?? body.seat)];
+      if (!target || !destinationPlayer) throw new Error("Invalid player");
+      if (target.seat !== actor.seat || destinationPlayer.seat !== actor.seat) {
+        throw new Error("You can only edit your own board state.");
+      }
+      const card = moveCard(actor, target, body.fromZone, body.toZone, body.cardId, destinationPlayer, body.position);
+      addLog(room, `${actor.name} moved ${card.name} to ${body.toZone}.`, actor, {
+        kind: "move",
+        cardName: card.name,
+        fromZone: body.fromZone,
+        toZone: body.toZone,
+        position: card.position || null,
+        tapped: Boolean(card.tapped),
+      });
+      break;
+    }
+    case "copyBattlefieldToken": {
+      assertCanAct(room, actor);
+      const token = copyBattlefieldToken(actor, body.cardId, body.position);
+      addLog(room, `${actor.name} created a token copy of ${token.name.replace(/\s+Token$/, "")}.`, actor);
+      break;
+    }
+    case "createToken": {
+      assertCanAct(room, actor);
+      const token = createBattlefieldToken(actor, body.tokenData, body.position);
+      addLog(room, `${actor.name} created ${token.name}.`, actor);
+      break;
+    }
+    case "adjustCounter": {
+      assertCanAct(room, actor);
+      const card = adjustBattlefieldCounter(actor, body.cardId, body.counterType, body.value, body.delta);
+      addLog(room, `${actor.name} adjusted counters on ${card.name}.`, actor, { kind: "counter", cardName: card.name, counters: card.counters });
+      break;
+    }
+    case "removeBattlefieldToken": {
+      assertCanAct(room, actor);
+      const card = removeBattlefieldToken(actor, body.cardId);
+      addLog(room, `${actor.name} removed ${card.name} from the battlefield.`, actor);
+      break;
+    }
+    case "tap": {
+      assertCanAct(room, actor);
+      if (body.zone !== "battlefield") throw new Error("Only battlefield cards can be tapped.");
+      const target = room.players[Number(body.seat)];
+      if (!target) throw new Error("Invalid player");
+      if (target.seat !== actor.seat) throw new Error("You can only edit your own board state.");
+      const zone = getPublicZone(target, body.zone);
+      const index = zone.findIndex((item) => item.id === body.cardId);
+      const card = zone[index];
+      if (!card) throw new Error("Card not found");
+      card.tapped = !card.tapped;
+      if (body.zone === "battlefield") {
+        card.position = clampPosition(card.position, card.tapped);
+        zone.splice(index, 1);
+        zone.push(card);
+      }
+      addLog(room, `${actor.name} ${card.tapped ? "tapped" : "untapped"} ${card.name}.`, actor, {
+        kind: "tap",
+        cardName: card.name,
+        tapped: Boolean(card.tapped),
+        zone: body.zone,
+        position: card.position || null,
+      });
+      break;
+    }
+    case "toStack": {
+      assertCanAct(room, actor);
+      const target = room.players[Number(body.seat)];
+      if (!target) throw new Error("Invalid player");
+      const card = stackFromZone(room, actor, target, body.fromZone, body.cardId);
+      addLog(room, `${actor.name} put ${card.name} on the stack.`, actor);
+      break;
+    }
+    case "resolveStack": {
+      assertCanAct(room, actor);
+      const index = room.stack.findIndex((card) => card.id === body.cardId);
+      if (index === -1) throw new Error("Card not found");
+      const [card] = room.stack.splice(index, 1);
+      const owner = room.players[card.owner];
+      const destination = getPublicZone(owner, body.toZone);
+      if (body.toZone === "battlefield") {
+        card.tapped = false;
+        card.position = clampPosition(nextBattlefieldPosition(owner.battlefield.length));
+      } else {
+        prepareForNonBattlefield(card);
+      }
+      destination.push(card);
+      addLog(room, `${card.name} resolved to ${body.toZone}.`, actor);
+      break;
+    }
+    case "removeStack": {
+      assertCanAct(room, actor);
+      const index = room.stack.findIndex((card) => card.id === body.cardId);
+      if (index === -1) throw new Error("Card not found");
+      const [card] = room.stack.splice(index, 1);
+      addLog(room, `${card.name} was removed from the stack.`, actor);
+      break;
+    }
+    case "addStack": {
+      assertCanAct(room, actor);
+      const name = String(body.name || "").trim();
+      if (!name) throw new Error("Name is required");
+      room.stack.push({ id: id("stack"), name, tapped: false, owner: actor.seat });
+      addLog(room, `${actor.name} added ${name} to the stack.`, actor);
+      break;
+    }
+    default:
+      throw new Error("Unknown action");
+  }
+}
+
+function serveStatic(req, res) {
+  const requestUrl = new URL(req.url, `http://${req.headers.host}`);
+  const pathname = requestUrl.pathname === "/" ? "/index.html" : requestUrl.pathname;
+  const safePath = path.normalize(decodeURIComponent(pathname)).replace(/^(\.\.[/\\])+/, "");
+  const filePath = path.join(publicDir, safePath);
+  if (!filePath.startsWith(publicDir)) {
+    res.writeHead(403);
+    res.end("Forbidden");
+    return;
+  }
+  fs.readFile(filePath, (error, content) => {
+    if (error) {
+      res.writeHead(404);
+      res.end("Not found");
+      return;
+    }
+    const ext = path.extname(filePath);
+    const type = { ".html": "text/html", ".css": "text/css", ".js": "text/javascript" }[ext] || "text/plain";
+    res.writeHead(200, { "Content-Type": type });
+    res.end(content);
+  });
+}
+
+const server = http.createServer(async (req, res) => {
+  try {
+    const requestUrl = new URL(req.url, `http://${req.headers.host}`);
+    const origin = `http://${req.headers.host}`;
+
+    if (req.method === "POST" && requestUrl.pathname === "/api/rooms") {
+      const body = await readBody(req);
+      const playerCount = Math.max(1, Math.min(4, Number(body.playerCount) || 1));
+      return sendJson(res, 201, createRoom(String(body.name || "Mage Table").slice(0, 40), playerCount, origin));
+    }
+
+    const roomMatch = requestUrl.pathname.match(/^\/api\/rooms\/([^/]+)$/);
+    if (req.method === "GET" && roomMatch) {
+      const room = rooms.get(roomMatch[1]);
+      const token = requestUrl.searchParams.get("token");
+      const view = room && viewRoom(room, token, origin);
+      if (!view) return sendJson(res, 404, { error: "Room or seat not found" });
+      return sendJson(res, 200, view);
+    }
+
+    if (req.method === "GET" && requestUrl.pathname === "/api/scryfall/tokens") {
+      const query = requestUrl.searchParams.get("q") || "";
+      const cards = await searchScryfallTokens(query);
+      return sendJson(res, 200, { cards });
+    }
+
+    const actionMatch = requestUrl.pathname.match(/^\/api\/rooms\/([^/]+)\/actions$/);
+    if (req.method === "POST" && actionMatch) {
+      const room = rooms.get(actionMatch[1]);
+      if (!room) return sendJson(res, 404, { error: "Room not found" });
+      const body = await readBody(req);
+      const actor = room.players.find((player) => player.token === body.token);
+      if (!actor) return sendJson(res, 403, { error: "Invalid seat token" });
+      await applyAction(room, actor, body);
+      return sendJson(res, 200, viewRoom(room, actor.token, origin));
+    }
+
+    return serveStatic(req, res);
+  } catch (error) {
+    return sendJson(res, 400, { error: error.message });
+  }
+});
+
+server.listen(port, "0.0.0.0", () => {
+  console.log(`Mage Table running on port ${port}`);
+});

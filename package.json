@@ -1,0 +1,14 @@
+{
+  "name": "mage-table",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Manual multiplayer Magic-style card table.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check app.js && node --check server.js"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

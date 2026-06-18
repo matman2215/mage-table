@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Mage Table</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>Mage Table</h1>
+        </div>
+        <div class="room-actions">
+          <button id="chatButton" class="top-icon-button" type="button" title="Chat" aria-label="Chat">Chat <span id="chatBadge" class="chat-badge hidden">0</span></button>
+          <button id="showInvitesButton" class="top-icon-button hidden" type="button" title="Settings and links" aria-label="Settings and links">&#9881;</button>
+          <button id="newRoomButton" type="button">New Room</button>
+        </div>
+      </header>
+
+      <section id="setupPanel" class="setup-panel">
+        <div class="setup-copy">
+          <h2>Create a Room</h2>
+        </div>
+        <form id="roomForm" class="room-form">
+          <label>
+            Room name
+            <input id="roomNameInput" type="text" maxlength="40" value="Friday Commander">
+          </label>
+          <label>
+            Players
+            <select id="playerCountInput">
+              <option>1</option>
+              <option>2</option>
+              <option>3</option>
+              <option selected>4</option>
+            </select>
+          </label>
+          <button type="submit">Create Invite Links</button>
+        </form>
+      </section>
+
+      <section id="tablePanel" class="table-panel hidden">
+        <aside class="sidebar">
+          <button id="sidebarToggle" class="sidebar-toggle" type="button" title="Collapse controls" aria-label="Collapse controls">Hide</button>
+          <div class="panel">
+            <h2 id="roomTitle">Room</h2>
+            <div id="currentSeatBadge" class="current-seat-badge">Seat</div>
+            <label>
+              Your seat
+              <select id="seatSelect"></select>
+            </label>
+            <div class="turn-card">
+              <span>Active Turn</span>
+              <strong id="activePlayerText">Player 1</strong>
+              <span id="turnCountText" class="turn-count-text">Turn 1</span>
+            </div>
+          </div>
+
+          <div class="panel">
+            <h2>Deck Import</h2>
+            <textarea id="deckInput" rows="8" placeholder="1 Sol Ring&#10;1 Island&#10;4 Lightning Bolt"></textarea>
+            <div id="deckStats" class="deck-stats hidden"></div>
+            <div class="button-row">
+              <button id="loadDeckButton" type="button">Load to Library</button>
+            </div>
+          </div>
+
+          <div class="panel">
+            <h2>Action Log</h2>
+            <div id="actionLog" class="action-log"></div>
+          </div>
+        </aside>
+
+        <section class="play-area">
+          <div id="playersGrid" class="players-grid"></div>
+
+          <div class="zone-row">
+            <section class="zone private-zone">
+              <div class="zone-header">
+                <h2 id="handTitle">Your Hand</h2>
+                <span id="handCount">0 cards</span>
+              </div>
+              <div id="handZone" class="card-grid"></div>
+            </section>
+          </div>
+        </section>
+      </section>
+    </main>
+    <div id="loadingIndicator" class="loading-indicator hidden">
+      <span class="spinner"></span>
+    </div>
+
+    <div id="turnDock" class="turn-dock hidden">
+      <button id="boardReferenceButton" class="secondary" type="button">Boards</button>
+      <button id="instantButton" class="secondary" type="button">Instant</button>
+      <button id="combatPassButton" class="secondary" type="button">Combat Pass</button>
+      <button id="passPriorityButton" class="secondary" type="button">Pass Priority</button>
+      <button id="drawButton" type="button">Draw</button>
+      <button id="endTurnButton" type="button">End Turn</button>
+    </div>
+
+    <section id="deckSetupOverlay" class="setup-overlay hidden">
+      <form id="deckSetupForm" class="setup-card">
+        <div>
+          <span id="deckSetupRoom" class="eyebrow">Room</span>
+          <h2>Join the Table</h2>
+        </div>
+        <label>
+          Player name
+          <input id="playerNameInput" type="text" maxlength="32" placeholder="Player name">
+        </label>
+        <label>
+          Commander
+          <input id="commanderInput" type="text" maxlength="80" placeholder="Atraxa, Praetors' Voice">
+        </label>
+        <label>
+          Deck list
+          <textarea id="setupDeckInput" rows="14" placeholder="1 Sol Ring&#10;1 Command Tower&#10;1 Arcane Signet"></textarea>
+        </label>
+        <div id="setupDeckStats" class="deck-stats hidden"></div>
+        <button type="submit">Load Deck and Sit Down</button>
+      </form>
+    </section>
+
+    <dialog id="inviteDialog">
+      <form method="dialog" class="dialog-card invite-dialog-card">
+        <div>
+          <h2>Settings and Links</h2>
+          <p>Hosts can copy invite links here. Everyone can adjust local display settings.</p>
+        </div>
+        <div id="inviteList" class="invite-list"></div>
+        <details class="settings-details">
+          <summary>Card Scale</summary>
+          <label>
+            Card size
+            <input id="uiScaleInput" type="range" min="80" max="200" step="5" value="100">
+          </label>
+          <div class="scale-readout"><span id="uiScaleValue">100%</span></div>
+        </details>
+        <details class="settings-details">
+          <summary>Transparency</summary>
+          <label>
+            Popup opacity
+            <input id="popupOpacityInput" type="range" min="45" max="100" step="5" value="94">
+          </label>
+          <div class="scale-readout"><span id="popupOpacityValue">94%</span></div>
+          <label>
+            Game controls opacity
+            <input id="controlsOpacityInput" type="range" min="35" max="100" step="5" value="72">
+          </label>
+          <div class="scale-readout"><span id="controlsOpacityValue">72%</span></div>
+        </details>
+        <details class="settings-details">
+          <summary>Room Settings</summary>
+          <label class="toggle-row">
+            <input id="friendlyMulligansInput" type="checkbox" checked>
+            Friendly mulligans
+          </label>
+          <p class="settings-note">When off, only the first mulligan is free.</p>
+          <label class="toggle-row">
+            <input id="darkModeInput" type="checkbox">
+            Dark mode
+          </label>
+        </details>
+        <button id="continueFromInvitesButton" value="continue" type="submit">Continue</button>
+      </form>
+    </dialog>
+
+    <dialog id="chatDialog">
+      <form method="dialog" class="dialog-card chat-dialog-card">
+        <div>
+          <h2>Table Chat</h2>
+        </div>
+        <div id="chatMessages" class="chat-messages"></div>
+        <div class="chat-input-row">
+          <input id="chatInput" type="text" maxlength="240" placeholder="Message">
+          <button id="sendChatButton" type="button">Send</button>
+        </div>
+        <button value="cancel" type="submit">Close</button>
+      </form>
+    </dialog>
+
+    <dialog id="boardReferenceDialog">
+      <form method="dialog" class="dialog-card board-reference-dialog-card">
+        <div>
+          <h2>Board Reference</h2>
+          <p id="boardReferenceSummary">Other players</p>
+        </div>
+        <div id="boardReferenceList" class="board-reference-list"></div>
+        <button value="cancel" type="submit">Close</button>
+      </form>
+    </dialog>
+
+    <dialog id="recapDialog">
+      <form method="dialog" class="dialog-card recap-dialog-card">
+        <div>
+          <h2>Table Recap</h2>
+          <p id="recapSummary">Moves while you were away</p>
+        </div>
+        <article id="recapStep" class="recap-step"></article>
+        <div class="recap-controls">
+          <button id="recapPreviousButton" class="secondary" type="button">Previous</button>
+          <span id="recapProgress">1 of 1</span>
+          <button id="recapNextButton" type="button">Next</button>
+          <button id="recapDoneButton" type="button">Done</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="cardDialog">
+      <form method="dialog" class="dialog-card">
+        <h2 id="dialogTitle">Card</h2>
+        <div id="dialogActions" class="dialog-actions"></div>
+        <button value="cancel" type="submit">Close</button>
+      </form>
+    </dialog>
+
+    <dialog id="mulliganDialog">
+      <form method="dialog" class="dialog-card mulligan-dialog-card">
+        <div>
+          <h2>Opening Hand</h2>
+          <p id="mulliganSummary">Review your first seven cards.</p>
+        </div>
+        <div id="mulliganCards" class="library-search-cards"></div>
+        <div class="button-row mulligan-actions">
+          <button id="keepHandButton" type="button">Keep Hand</button>
+          <button id="mulliganButton" class="secondary" type="button">Mulligan</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="zoneDialog">
+      <form method="dialog" class="dialog-card zone-dialog-card">
+        <div>
+          <h2 id="zoneDialogTitle">Zone</h2>
+          <p id="zoneDialogSummary">0 cards</p>
+        </div>
+        <div id="zoneDialogCards" class="zone-dialog-cards"></div>
+        <button value="cancel" type="submit">Close</button>
+      </form>
+    </dialog>
+
+    <dialog id="libraryDialog">
+      <form method="dialog" class="dialog-card library-dialog-card">
+        <div>
+          <h2>Library</h2>
+          <p id="librarySummary">0 cards</p>
+        </div>
+        <div id="libraryPreview" class="library-preview hidden"></div>
+        <div id="libraryActions" class="dialog-actions"></div>
+        <button value="cancel" type="submit">Close</button>
+      </form>
+    </dialog>
+
+    <dialog id="librarySearchDialog">
+      <form method="dialog" class="dialog-card library-search-dialog-card">
+        <div>
+          <h2>Search Library</h2>
+          <p id="librarySearchSummary">0 cards</p>
+        </div>
+        <input id="librarySearchInput" type="search" placeholder="Filter cards">
+        <div id="librarySearchCards" class="library-search-cards"></div>
+        <button value="cancel" type="submit">Close</button>
+      </form>
+    </dialog>
+
+    <dialog id="librarySearchActionDialog">
+      <form method="dialog" class="dialog-card">
+        <h2 id="librarySearchActionTitle">Library Card</h2>
+        <div id="librarySearchActionButtons" class="dialog-actions"></div>
+        <button value="cancel" type="submit">Close</button>
+      </form>
+    </dialog>
+
+    <dialog id="tokenDialog">
+      <form method="dialog" class="dialog-card token-dialog-card">
+        <div>
+          <h2>Create Token</h2>
+          <p id="tokenDialogSummary">Battlefield token</p>
+        </div>
+        <div class="token-search-row">
+          <input id="tokenSearchInput" type="search" placeholder="Search Scryfall token creatures">
+          <button id="tokenSearchButton" type="button">Search</button>
+        </div>
+        <p id="tokenSearchSummary" class="dialog-note">Press Enter to search token creatures.</p>
+        <div id="tokenSearchCards" class="library-search-cards"></div>
+        <div class="manual-token-panel">
+          <h2>Custom Token</h2>
+          <div class="manual-token-grid">
+            <label>
+              Name
+              <input id="customTokenNameInput" type="text" maxlength="80" placeholder="Zombie">
+            </label>
+            <label>
+              Type
+              <input id="customTokenTypeInput" type="text" maxlength="120" placeholder="Token Creature - Zombie">
+            </label>
+            <label>
+              Power
+              <input id="customTokenPowerInput" type="text" maxlength="8" placeholder="2">
+            </label>
+            <label>
+              Toughness
+              <input id="customTokenToughnessInput" type="text" maxlength="8" placeholder="2">
+            </label>
+          </div>
+          <button id="createCustomTokenButton" type="button">Create Custom Token</button>
+        </div>
+        <button value="cancel" type="submit">Close</button>
+      </form>
+    </dialog>
+
+    <script src="app.js"></script>
+  </body>
+</html>
