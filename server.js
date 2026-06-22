@@ -1840,10 +1840,23 @@ function serveStatic(req, res) {
   });
 }
 
+function firstForwardedValue(value) {
+  return String(value || "").split(",")[0].trim();
+}
+
+function requestOrigin(req) {
+  const forwardedProto = firstForwardedValue(req.headers["x-forwarded-proto"]);
+  const protocol = forwardedProto === "https" || forwardedProto === "http"
+    ? forwardedProto
+    : req.socket.encrypted ? "https" : "http";
+  const host = firstForwardedValue(req.headers["x-forwarded-host"]) || req.headers.host;
+  return `${protocol}://${host}`;
+}
+
 const server = http.createServer(async (req, res) => {
   try {
-    const requestUrl = new URL(req.url, `http://${req.headers.host}`);
-    const origin = `http://${req.headers.host}`;
+    const origin = requestOrigin(req);
+    const requestUrl = new URL(req.url, origin);
 
     if (req.method === "POST" && requestUrl.pathname === "/api/rooms") {
       const body = await readBody(req);

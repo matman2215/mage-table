@@ -206,6 +206,12 @@ function tokenFromUrl() {
   return new URLSearchParams(window.location.search).get("token") || "";
 }
 
+function sameOriginRoomUrl(value, { absolute = false } = {}) {
+  const incoming = new URL(value, window.location.origin);
+  const path = `${incoming.pathname}${incoming.search}${incoming.hash}`;
+  return absolute ? new URL(path, window.location.origin).toString() : path;
+}
+
 function roomPasswordStorageKey(roomId) {
   return `mage-table-room-password:${roomId}`;
 }
@@ -498,17 +504,18 @@ function renderInvites() {
     els.inviteList.append(empty);
   }
   state.invites.forEach((invite) => {
+    const inviteUrl = sameOriginRoomUrl(invite.url, { absolute: true });
     const item = document.createElement("div");
     item.className = "invite-item";
     const label = document.createElement("div");
     label.className = "invite-seat";
     label.innerHTML = `<strong>${escapeHtml(invite.name)}</strong><span>Seat ${invite.seat + 1} board link</span>`;
     const code = document.createElement("code");
-    code.textContent = invite.url;
+    code.textContent = inviteUrl;
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = "Copy";
-    button.addEventListener("click", () => copyText(invite.url));
+    button.addEventListener("click", () => copyText(inviteUrl));
     item.append(label, code, button);
     els.inviteList.append(item);
   });
@@ -3340,7 +3347,7 @@ els.roomForm.addEventListener("submit", async (event) => {
       }),
     });
     storeRoomPassword(room.id, els.roomPasswordInput.value);
-    history.replaceState(null, "", room.selfUrl);
+    history.replaceState(null, "", sameOriginRoomUrl(room.selfUrl));
     forceInviteDialog = true;
     await refreshState();
   } catch (error) {
@@ -3393,7 +3400,7 @@ els.inviteDialog.addEventListener("close", () => {
 els.seatSelect.addEventListener("change", () => {
   const invite = state.invites.find((item) => item.seat === Number(els.seatSelect.value));
   if (!invite) return;
-  history.replaceState(null, "", invite.url);
+  history.replaceState(null, "", sameOriginRoomUrl(invite.url));
   refreshState();
 });
 
