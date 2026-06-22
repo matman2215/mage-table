@@ -6,16 +6,16 @@
     <title>Mage Table</title>
     <link rel="stylesheet" href="styles.css">
   </head>
-  <body>
+  <body class="dark-mode">
     <main class="app-shell">
       <header class="topbar">
-        <div>
-          <h1>Mage Table</h1>
-        </div>
+        <div class="brand-mark" aria-label="Mage Table">MT</div>
         <div class="room-actions">
-          <button id="chatButton" class="top-icon-button" type="button" title="Chat" aria-label="Chat">Chat <span id="chatBadge" class="chat-badge hidden">0</span></button>
+          <button id="chatButton" class="top-icon-button" type="button" title="Chat" aria-label="Chat">&#9993;<span id="chatBadge" class="chat-badge hidden">0</span></button>
+          <button id="diceButton" class="top-icon-button hidden" type="button" title="Dice" aria-label="Open dice roller"><span aria-hidden="true">&#9856;</span></button>
+          <button id="randomFirstPlayerButton" class="top-icon-button hidden" type="button" title="Choose random first player" aria-label="Choose random first player"><span aria-hidden="true">&#8644;</span></button>
           <button id="showInvitesButton" class="top-icon-button hidden" type="button" title="Settings and links" aria-label="Settings and links">&#9881;</button>
-          <button id="newRoomButton" type="button">New Room</button>
+          <button id="newRoomButton" class="top-icon-button" type="button" title="New room" aria-label="New room">+</button>
         </div>
       </header>
 
@@ -29,9 +29,16 @@
             <input id="roomNameInput" type="text" maxlength="40" value="Friday Commander">
           </label>
           <label>
+            Room password (optional)
+            <input id="roomPasswordInput" type="password" maxlength="128" autocomplete="new-password" placeholder="No password">
+          </label>
+          <label class="toggle-row setup-toggle-row">
+            <input id="singlePlayerInput" type="checkbox">
+            Single player gameplay
+          </label>
+          <label id="playerCountLabel">
             Players
             <select id="playerCountInput">
-              <option>1</option>
               <option>2</option>
               <option>3</option>
               <option selected>4</option>
@@ -91,6 +98,49 @@
     <div id="loadingIndicator" class="loading-indicator hidden">
       <span class="spinner"></span>
     </div>
+    <div id="turnReminderStack" class="turn-reminder-stack">
+      <button id="drawReminder" class="draw-reminder hidden" type="button">Draw for turn</button>
+      <section id="untapReminder" class="turn-reminder untap-reminder hidden" role="status">
+        <button id="untapAllButton" type="button">Untap battlefield</button>
+        <button id="dismissUntapButton" class="notice-dismiss" type="button" title="Dismiss" aria-label="Dismiss untap reminder">x</button>
+      </section>
+    </div>
+
+    <section id="dicePopover" class="action-popover dice-popover hidden" role="dialog" aria-labelledby="dicePopoverTitle">
+      <header class="popover-header">
+        <h2 id="dicePopoverTitle">Dice</h2>
+        <button id="closeDiceButton" class="popover-close" type="button" title="Close" aria-label="Close dice roller">x</button>
+      </header>
+      <label>
+        Dice count
+        <input id="diceCountInput" type="number" min="1" max="20" step="1" value="1">
+      </label>
+      <div class="dice-button-grid">
+        <button class="die-roll-button" type="button" data-die="4" title="Roll d4"><span class="die-shape die-d4">4</span><span>d4</span></button>
+        <button class="die-roll-button" type="button" data-die="6" title="Roll d6"><span class="die-shape die-d6">6</span><span>d6</span></button>
+        <button class="die-roll-button" type="button" data-die="8" title="Roll d8"><span class="die-shape die-d8">8</span><span>d8</span></button>
+        <button class="die-roll-button" type="button" data-die="10" title="Roll d10"><span class="die-shape die-d10">10</span><span>d10</span></button>
+        <button class="die-roll-button" type="button" data-die="12" title="Roll d12"><span class="die-shape die-d12">12</span><span>d12</span></button>
+        <button class="die-roll-button" type="button" data-die="20" title="Roll d20"><span class="die-shape die-d20">20</span><span>d20</span></button>
+        <button class="die-roll-button" type="button" data-die="100" title="Roll d100"><span class="die-shape die-d100">%</span><span>d100</span></button>
+      </div>
+      <div class="random-roll-row">
+        <label>
+          Random 0 to
+          <input id="randomMaxInput" type="number" min="0" max="1000000" step="1" value="10">
+        </label>
+        <button id="randomRollButton" type="button">Roll</button>
+      </div>
+      <div id="diceResult" class="dice-result">No rolls yet</div>
+    </section>
+
+    <section id="diceNotice" class="table-notice dice-notice hidden" role="status">
+      <div>
+        <strong id="diceNoticeTitle">Dice roll</strong>
+        <span id="diceNoticeResult"></span>
+      </div>
+      <button id="dismissDiceNoticeButton" class="notice-dismiss" type="button" title="Dismiss" aria-label="Dismiss dice result">x</button>
+    </section>
 
     <div id="turnDock" class="turn-dock hidden">
       <button id="boardReferenceButton" class="secondary" type="button">Boards</button>
@@ -160,11 +210,33 @@
           </label>
           <p class="settings-note">When off, only the first mulligan is free.</p>
           <label class="toggle-row">
-            <input id="darkModeInput" type="checkbox">
+            <input id="darkModeInput" type="checkbox" checked>
             Dark mode
           </label>
         </details>
+        <details class="settings-details">
+          <summary>Keybinds</summary>
+          <div id="keybindList" class="keybind-list"></div>
+          <button id="resetKeybindsButton" class="secondary keybind-reset" type="button">Reset defaults</button>
+        </details>
         <button id="continueFromInvitesButton" value="continue" type="submit">Continue</button>
+      </form>
+    </dialog>
+
+    <dialog id="roomPasswordDialog">
+      <form id="roomPasswordForm" method="dialog" class="dialog-card password-dialog-card">
+        <div>
+          <h2>Room Password</h2>
+          <p id="roomPasswordMessage" class="dialog-note">Enter the password to join this room.</p>
+        </div>
+        <label>
+          Password
+          <input id="joinRoomPasswordInput" type="password" maxlength="128" autocomplete="current-password">
+        </label>
+        <div class="dialog-actions">
+          <button value="cancel" class="secondary" type="submit">Cancel</button>
+          <button id="submitRoomPasswordButton" value="unlock" type="submit">Join Room</button>
+        </div>
       </form>
     </dialog>
 
@@ -251,6 +323,23 @@
         <div id="libraryPreview" class="library-preview hidden"></div>
         <div id="libraryActions" class="dialog-actions"></div>
         <button value="cancel" type="submit">Close</button>
+      </form>
+    </dialog>
+
+    <dialog id="countDialog">
+      <form id="countDialogForm" method="dialog" class="dialog-card count-dialog-card">
+        <div>
+          <h2 id="countDialogTitle">Choose Count</h2>
+          <p id="countDialogSummary" class="dialog-note">How many cards?</p>
+        </div>
+        <label>
+          Count
+          <input id="countDialogInput" type="number" min="1" max="20" step="1" value="1">
+        </label>
+        <div class="dialog-actions">
+          <button id="countDialogCancelButton" class="secondary" value="cancel" type="submit">Cancel</button>
+          <button id="countDialogSubmitButton" value="default" type="submit">Confirm</button>
+        </div>
       </form>
     </dialog>
 

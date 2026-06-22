@@ -5,9 +5,24 @@ const els = {
   tablePanel: document.querySelector("#tablePanel"),
   roomForm: document.querySelector("#roomForm"),
   roomNameInput: document.querySelector("#roomNameInput"),
+  roomPasswordInput: document.querySelector("#roomPasswordInput"),
+  singlePlayerInput: document.querySelector("#singlePlayerInput"),
+  playerCountLabel: document.querySelector("#playerCountLabel"),
   playerCountInput: document.querySelector("#playerCountInput"),
   inviteList: document.querySelector("#inviteList"),
   sidebarToggle: document.querySelector("#sidebarToggle"),
+  diceButton: document.querySelector("#diceButton"),
+  randomFirstPlayerButton: document.querySelector("#randomFirstPlayerButton"),
+  dicePopover: document.querySelector("#dicePopover"),
+  closeDiceButton: document.querySelector("#closeDiceButton"),
+  diceCountInput: document.querySelector("#diceCountInput"),
+  randomMaxInput: document.querySelector("#randomMaxInput"),
+  randomRollButton: document.querySelector("#randomRollButton"),
+  diceResult: document.querySelector("#diceResult"),
+  diceNotice: document.querySelector("#diceNotice"),
+  diceNoticeTitle: document.querySelector("#diceNoticeTitle"),
+  diceNoticeResult: document.querySelector("#diceNoticeResult"),
+  dismissDiceNoticeButton: document.querySelector("#dismissDiceNoticeButton"),
   chatButton: document.querySelector("#chatButton"),
   chatBadge: document.querySelector("#chatBadge"),
   chatDialog: document.querySelector("#chatDialog"),
@@ -41,6 +56,10 @@ const els = {
   deckStats: document.querySelector("#deckStats"),
   loadDeckButton: document.querySelector("#loadDeckButton"),
   drawButton: document.querySelector("#drawButton"),
+  drawReminder: document.querySelector("#drawReminder"),
+  untapReminder: document.querySelector("#untapReminder"),
+  untapAllButton: document.querySelector("#untapAllButton"),
+  dismissUntapButton: document.querySelector("#dismissUntapButton"),
   actionLog: document.querySelector("#actionLog"),
   playersGrid: document.querySelector("#playersGrid"),
   handTitle: document.querySelector("#handTitle"),
@@ -67,6 +86,8 @@ const els = {
   controlsOpacityValue: document.querySelector("#controlsOpacityValue"),
   friendlyMulligansInput: document.querySelector("#friendlyMulligansInput"),
   darkModeInput: document.querySelector("#darkModeInput"),
+  keybindList: document.querySelector("#keybindList"),
+  resetKeybindsButton: document.querySelector("#resetKeybindsButton"),
   continueFromInvitesButton: document.querySelector("#continueFromInvitesButton"),
   deckSetupOverlay: document.querySelector("#deckSetupOverlay"),
   deckSetupForm: document.querySelector("#deckSetupForm"),
@@ -80,6 +101,12 @@ const els = {
   librarySummary: document.querySelector("#librarySummary"),
   libraryPreview: document.querySelector("#libraryPreview"),
   libraryActions: document.querySelector("#libraryActions"),
+  countDialog: document.querySelector("#countDialog"),
+  countDialogForm: document.querySelector("#countDialogForm"),
+  countDialogTitle: document.querySelector("#countDialogTitle"),
+  countDialogSummary: document.querySelector("#countDialogSummary"),
+  countDialogInput: document.querySelector("#countDialogInput"),
+  countDialogSubmitButton: document.querySelector("#countDialogSubmitButton"),
   librarySearchDialog: document.querySelector("#librarySearchDialog"),
   librarySearchSummary: document.querySelector("#librarySearchSummary"),
   librarySearchInput: document.querySelector("#librarySearchInput"),
@@ -98,11 +125,19 @@ const els = {
   customTokenPowerInput: document.querySelector("#customTokenPowerInput"),
   customTokenToughnessInput: document.querySelector("#customTokenToughnessInput"),
   createCustomTokenButton: document.querySelector("#createCustomTokenButton"),
+  roomPasswordDialog: document.querySelector("#roomPasswordDialog"),
+  roomPasswordForm: document.querySelector("#roomPasswordForm"),
+  roomPasswordMessage: document.querySelector("#roomPasswordMessage"),
+  joinRoomPasswordInput: document.querySelector("#joinRoomPasswordInput"),
+  submitRoomPasswordButton: document.querySelector("#submitRoomPasswordButton"),
 };
 
 let state = null;
 let currentToken = "";
 let pollTimer = null;
+let roomEvents = null;
+let roomEventsKey = "";
+let queuedRoomUpdateSeq = 0;
 let forceInviteDialog = false;
 let loadedDeckSetupFor = "";
 let pendingRequests = 0;
@@ -113,6 +148,8 @@ let battlefieldLayerSize = null;
 let hoveredZoomCard = null;
 let zoomOverlay = null;
 let battlefieldPointerDrag = null;
+let battlefieldGroupDrag = null;
+let battlefieldSelectionDrag = null;
 let pendingTokenPosition = null;
 let tokenSearchResults = [];
 let recapSessionKey = "";
@@ -120,6 +157,18 @@ let recapEvents = [];
 let recapIndex = 0;
 let draggedPreviewCardId = "";
 let stateSnapshot = "";
+let observedTurnKey = "";
+let pendingTurnDrawPrompt = "";
+let pendingTurnUntapPrompt = "";
+let drawFlashTimer = null;
+let openLifeMenuKey = "";
+let boardReferenceSeat = null;
+let dismissedCombatSnapshotId = "";
+let dismissedDiceNoticeId = "";
+let lastDiceResult = "No rolls yet";
+let pendingCountPrompt = null;
+let keybindCaptureAction = "";
+const selectedBattlefieldCards = new Set();
 const playerCounterSelections = new Map();
 const dismissedReveals = new Set();
 const revealSeenAt = new Map();
@@ -132,7 +181,22 @@ const cardScaleKey = "mage-table-card-scale";
 const cardScaleUserKey = "mage-table-card-scale-user";
 const popupOpacityKey = "mage-table-popup-opacity";
 const controlsOpacityKey = "mage-table-controls-opacity";
-const playerCounterOptions = ["Commander Damage", "Poison", "Energy", "Experience", "Oil", "Charge", "Rad", "Storm"];
+const keybindStorageKey = "mage-table-keybinds";
+const basePlayerCounterOptions = ["Poison", "Energy", "Experience", "Oil", "Charge", "Rad", "Storm"];
+const keybindDefinitions = [
+  { id: "selectAll", label: "Select all battlefield cards", defaultBinding: "a" },
+  { id: "passPriority", label: "Pass priority", defaultBinding: "p" },
+  { id: "takePriority", label: "Take instant priority", defaultBinding: "i" },
+  { id: "combatPass", label: "Pass combat priority", defaultBinding: "c" },
+  { id: "endTurn", label: "End turn", defaultBinding: "e" },
+  { id: "draw", label: "Draw top card", defaultBinding: "d" },
+  { id: "toggleTap", label: "Toggle tap or untap", defaultBinding: "t" },
+  { id: "cascade", label: "Cascade selected cards", defaultBinding: "o" },
+  { id: "equip", label: "Equip selected equipment", defaultBinding: "x" },
+  { id: "undo", label: "Undo", defaultBinding: "ctrl+z" },
+  { id: "redo", label: "Redo", defaultBinding: "ctrl+y" },
+];
+let keybinds = loadKeybinds();
 
 function roomIdFromUrl() {
   return new URLSearchParams(window.location.search).get("room") || "";
@@ -140,6 +204,21 @@ function roomIdFromUrl() {
 
 function tokenFromUrl() {
   return new URLSearchParams(window.location.search).get("token") || "";
+}
+
+function roomPasswordStorageKey(roomId) {
+  return `mage-table-room-password:${roomId}`;
+}
+
+function roomPasswordFor(roomId = roomIdFromUrl()) {
+  return roomId ? sessionStorage.getItem(roomPasswordStorageKey(roomId)) || "" : "";
+}
+
+function storeRoomPassword(roomId, password) {
+  if (!roomId) return;
+  const key = roomPasswordStorageKey(roomId);
+  if (password) sessionStorage.setItem(key, password);
+  else sessionStorage.removeItem(key);
 }
 
 async function api(path, options = {}) {
@@ -151,7 +230,10 @@ async function api(path, options = {}) {
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(data.error || "Request failed");
+      const error = new Error(data.error || "Request failed");
+      error.status = response.status;
+      error.code = data.code || "";
+      throw error;
     }
     return data;
   } finally {
@@ -242,17 +324,25 @@ async function refreshState({ quiet = false } = {}) {
   currentToken = tokenFromUrl();
   if (!roomId || !currentToken) {
     state = null;
+    closeRoomEvents();
     render();
     return;
   }
   try {
-    const nextState = await api(`/api/rooms/${roomId}?token=${encodeURIComponent(currentToken)}`);
+    const password = roomPasswordFor(roomId);
+    const nextState = await api(`/api/rooms/${roomId}?token=${encodeURIComponent(currentToken)}&password=${encodeURIComponent(password)}`);
     const nextSnapshot = JSON.stringify(nextState);
     if (quiet && stateSnapshot === nextSnapshot) return;
     state = nextState;
     stateSnapshot = nextSnapshot;
+    queuedRoomUpdateSeq = 0;
+    connectRoomEvents();
     render();
   } catch (error) {
+    if (["PASSWORD_REQUIRED", "INVALID_PASSWORD"].includes(error.code)) {
+      showRoomPasswordDialog(error.message);
+      return;
+    }
     if (!quiet) alert(error.message);
   }
 }
@@ -261,17 +351,78 @@ async function sendAction(type, payload = {}) {
   if (!state) return;
   state = await api(`/api/rooms/${state.id}/actions`, {
     method: "POST",
-    body: JSON.stringify({ token: currentToken, type, ...payload }),
+    body: JSON.stringify({ token: currentToken, password: roomPasswordFor(state.id), type, ...payload }),
   });
   stateSnapshot = JSON.stringify(state);
+  queuedRoomUpdateSeq = 0;
+  connectRoomEvents();
   render();
+  return state;
 }
 
 function startPolling() {
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(() => {
-    if (state && !battlefieldPointerDrag) refreshState({ quiet: true });
-  }, 2000);
+    if (state && !localInteractionActive()) refreshState({ quiet: true });
+  }, 30000);
+}
+
+function connectRoomEvents() {
+  if (!state || typeof EventSource === "undefined") return;
+  const key = `${state.id}:${currentToken}:${roomPasswordFor(state.id)}`;
+  if (roomEvents && roomEventsKey === key) return;
+  closeRoomEvents();
+  roomEventsKey = key;
+  const password = roomPasswordFor(state.id);
+  roomEvents = new EventSource(`/api/rooms/${state.id}/stream?token=${encodeURIComponent(currentToken)}&password=${encodeURIComponent(password)}`);
+  roomEvents.addEventListener("room-update", (event) => {
+    let payload = null;
+    try {
+      payload = JSON.parse(event.data || "{}");
+    } catch {
+      return;
+    }
+    const nextSeq = Number(payload.updateSeq) || 0;
+    if (!nextSeq || nextSeq <= (Number(state?.updateSeq) || 0)) return;
+    if (localInteractionActive()) {
+      queuedRoomUpdateSeq = Math.max(queuedRoomUpdateSeq, nextSeq);
+      scheduleQueuedRefresh();
+      return;
+    }
+    refreshState({ quiet: true });
+  });
+  roomEvents.onerror = () => {
+    scheduleQueuedRefresh(1500);
+  };
+}
+
+function closeRoomEvents() {
+  if (!roomEvents) return;
+  roomEvents.close();
+  roomEvents = null;
+  roomEventsKey = "";
+}
+
+function scheduleQueuedRefresh(delay = 350) {
+  window.setTimeout(() => {
+    if (!state || !queuedRoomUpdateSeq || localInteractionActive()) {
+      if (state && queuedRoomUpdateSeq) scheduleQueuedRefresh(600);
+      return;
+    }
+    queuedRoomUpdateSeq = 0;
+    refreshState({ quiet: true });
+  }, delay);
+}
+
+function localInteractionActive() {
+  return Boolean(
+    battlefieldPointerDrag ||
+    battlefieldGroupDrag ||
+    battlefieldSelectionDrag ||
+    document.querySelector("dialog[open]") ||
+    document.querySelector("input:focus, textarea:focus, select:focus") ||
+    document.querySelector(".life-menu[open]"),
+  );
 }
 
 function render() {
@@ -280,10 +431,23 @@ function render() {
     battlefieldLayerSize = null;
     recapSessionKey = "";
     stateSnapshot = "";
-    document.body.classList.remove("dark-mode");
+    observedTurnKey = "";
+    pendingTurnDrawPrompt = "";
+    pendingTurnUntapPrompt = "";
+    selectedBattlefieldCards.clear();
+    boardReferenceSeat = null;
+    lastDiceResult = "No rolls yet";
+    if (els.diceResult) els.diceResult.textContent = lastDiceResult;
+    document.body.classList.add("dark-mode");
     els.setupPanel.classList.remove("hidden");
     els.tablePanel.classList.add("hidden");
     els.turnDock.classList.add("hidden");
+    els.drawReminder.classList.add("hidden");
+    els.untapReminder.classList.add("hidden");
+    els.diceButton.classList.add("hidden");
+    els.randomFirstPlayerButton.classList.add("hidden");
+    els.dicePopover.classList.add("hidden");
+    els.diceNotice.classList.add("hidden");
     els.showInvitesButton.classList.add("hidden");
     els.deckSetupOverlay.classList.add("hidden");
     if (els.mulliganDialog.open) els.mulliganDialog.close();
@@ -299,6 +463,8 @@ function render() {
   els.roomTitle.textContent = state.name;
   els.currentSeatBadge.textContent = `You are ${state.currentPlayer.name} - Seat ${state.currentSeat + 1}`;
   els.showInvitesButton.classList.remove("hidden");
+  els.diceButton.classList.remove("hidden");
+  els.randomFirstPlayerButton.classList.toggle("hidden", !state.currentPlayer.isHost || state.players.length < 2);
   renderInvites();
   renderRoomSettings();
   renderDeckSetup();
@@ -309,11 +475,14 @@ function render() {
   renderDeckStats();
   renderLog();
   renderChat();
+  renderDiceNotice();
+  renderKeybindSettings();
   renderBoardReference();
   if (els.libraryDialog.open) renderLibraryDialog();
   if (els.librarySearchDialog.open) renderLibrarySearchDialog();
   renderMulliganDialog();
   maybeOpenRecapDialog();
+  maybePromptTurnStart();
   requestAnimationFrame(() => {
     lockBattlefieldCanvas();
     positionTurnDock();
@@ -350,13 +519,13 @@ function renderInvites() {
 }
 
 function applyTheme() {
-  document.body.classList.toggle("dark-mode", Boolean(state?.settings?.darkMode));
+  document.body.classList.toggle("dark-mode", state ? state.settings?.darkMode !== false : true);
 }
 
 function renderRoomSettings() {
   const settings = state.settings || {};
   els.friendlyMulligansInput.checked = settings.friendlyMulligans !== false;
-  els.darkModeInput.checked = Boolean(settings.darkMode);
+  els.darkModeInput.checked = settings.darkMode !== false;
   els.friendlyMulligansInput.disabled = false;
   els.darkModeInput.disabled = false;
 }
@@ -379,19 +548,71 @@ function renderMulliganDialog() {
   if (!els.mulliganDialog.open) els.mulliganDialog.showModal();
 }
 
-function cardPreviewElement(card) {
+function maybePromptTurnStart() {
+  if (!state) return;
+  const turnKey = `${state.id}:${state.activePlayer}:${Number(state.turnNumber) || 1}`;
+  if (!observedTurnKey) {
+    observedTurnKey = turnKey;
+    return;
+  }
+  if (turnKey === observedTurnKey) return;
+  observedTurnKey = turnKey;
+  if (!isMyTurn() || !state.currentPlayer.deckLoaded || state.currentPlayer.mulliganPending) {
+    clearDrawButtonFlash();
+    dismissUntapReminder();
+    return;
+  }
+  const promptKey = `${turnKey}:${state.currentSeat}`;
+  if (pendingTurnDrawPrompt !== promptKey) {
+    pendingTurnDrawPrompt = promptKey;
+    flashDrawButton();
+  }
+  if (pendingTurnUntapPrompt !== promptKey) {
+    pendingTurnUntapPrompt = promptKey;
+    els.untapReminder.classList.remove("hidden");
+  }
+}
+
+function flashDrawButton() {
+  els.drawButton.classList.add("draw-button-flash");
+  els.drawButton.title = "Draw for turn";
+  els.drawReminder.classList.remove("hidden");
+  els.drawReminder.classList.add("draw-button-flash");
+  if (drawFlashTimer) clearTimeout(drawFlashTimer);
+  drawFlashTimer = setTimeout(clearDrawButtonFlash, 20000);
+}
+
+function clearDrawButtonFlash() {
+  els.drawButton.classList.remove("draw-button-flash");
+  els.drawButton.removeAttribute("title");
+  els.drawReminder.classList.add("hidden");
+  els.drawReminder.classList.remove("draw-button-flash");
+  if (drawFlashTimer) clearTimeout(drawFlashTimer);
+  drawFlashTimer = null;
+}
+
+function dismissUntapReminder() {
+  els.untapReminder.classList.add("hidden");
+}
+
+function displayCardElement(card, label = "Card", zoomZone = "preview") {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "card preview-only-card";
-  if (card.imageUrl) {
+  const name = cardDisplayName(card);
+  if (card?.imageUrl) {
     button.classList.add("image-card");
-    button.innerHTML = `<img src="${escapeHtml(card.imageUrl)}" alt="${escapeHtml(card.name)}" draggable="false"><span>${escapeHtml(card.name)}</span>`;
+    button.innerHTML = `<img src="${escapeHtml(card.imageUrl)}" alt="${escapeHtml(name)}" draggable="false"><span>${escapeHtml(name)}</span>`;
   } else {
-    button.innerHTML = `<strong>${escapeHtml(card.name)}</strong><small>Opening hand</small>`;
+    button.innerHTML = `<strong>${escapeHtml(name)}</strong><small>${escapeHtml(label)}</small>`;
   }
-  appendCardBadges(button, card, state.currentSeat, "mulliganPreview");
-  attachCardZoomHandlers(button, "mulliganPreview");
+  if (state && card) appendCardBadges(button, card, state.currentSeat, zoomZone);
+  attachCardZoomHandlers(button, zoomZone);
   return button;
+}
+
+function cardPreviewElement(card) {
+  return displayCardElement(card, "Opening hand", "mulliganPreview");
 }
 
 function recapStorageKey() {
@@ -609,6 +830,7 @@ function canChangeLife(seat) {
 }
 
 function renderPlayers() {
+  pruneBattlefieldSelection();
   els.playersGrid.innerHTML = "";
   const focusSeat = focusSeatForBoard();
   const focusedPlayer = state.players[focusSeat];
@@ -621,6 +843,10 @@ function renderPlayers() {
   if (reveals) {
     focus.classList.add("has-reveals");
     focus.append(reveals);
+  }
+  const combatSnapshot = combatSnapshotRibbon();
+  if (combatSnapshot) {
+    focus.append(combatSnapshot);
   }
   focus.append(playerBoard(focusedPlayer, focusedPlayer.seat === state.currentSeat ? "self" : "active-view"));
   els.playersGrid.append(focus);
@@ -645,6 +871,66 @@ function lifeRibbon() {
   return ribbon;
 }
 
+function combatSnapshotRibbon() {
+  const snapshot = state?.combatSnapshot;
+  if (!snapshot || !snapshot.cards?.length || dismissedCombatSnapshotId === snapshot.id) return null;
+  const ribbon = document.createElement("section");
+  ribbon.className = "combat-snapshot-ribbon";
+  const label = document.createElement("div");
+  label.className = "combat-snapshot-label";
+  const totals = snapshot.totals || { creatures: 0, power: 0, toughness: 0 };
+  label.innerHTML = `
+    <strong>&#8595;</strong>
+    <span>${escapeHtml(snapshot.attackerName || "Attacker")} attacking <b>${totals.power}/${totals.toughness}</b></span>
+  `;
+  const cards = document.createElement("div");
+  cards.className = "combat-snapshot-cards";
+  snapshot.cards.forEach((card) => cards.append(combatSnapshotCard(card)));
+  const dismiss = document.createElement("button");
+  dismiss.type = "button";
+  dismiss.className = "combat-snapshot-dismiss";
+  dismiss.title = "Dismiss declared attackers";
+  dismiss.setAttribute("aria-label", "Dismiss declared attackers");
+  dismiss.textContent = "x";
+  dismiss.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    dismissedCombatSnapshotId = snapshot.id;
+    renderPlayers();
+    if (els.boardReferenceDialog.open) renderBoardReference();
+  });
+  ribbon.append(label, cards, dismiss);
+  return ribbon;
+}
+
+function combatSnapshotCard(card) {
+  const item = displayCardElement(card, card.typeLine || "Attacker", "combatSnapshot");
+  item.classList.add("combat-snapshot-card");
+  if (card.isCreature) {
+    const stats = document.createElement("span");
+    stats.className = "combat-snapshot-stats";
+    stats.textContent = `${card.totalPower}/${card.totalToughness}`;
+    item.append(stats);
+  }
+  const combatDetail = card.isCreature
+    ? ` Total ${card.totalPower}/${card.totalToughness}${card.quantity > 1 ? ` from ${card.quantity} creatures.` : "."}`
+    : "";
+  item.title = `${cardDisplayName(card)}.${combatDetail} Click to enlarge or hold Control to zoom.`;
+  const openPreview = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openReadOnlyCardDialog(card, "Declared attacker");
+  };
+  item.addEventListener("click", openPreview);
+  item.addEventListener("contextmenu", openPreview);
+  return item;
+}
+
+function isCombatSnapshotCard(cardId) {
+  const ids = new Set((state?.combatSnapshot?.cards || []).map((card) => card.id));
+  return ids.has(cardId);
+}
+
 function lifeRibbonCard(entry) {
   const player = entry.player;
   const isPlaytest = entry.kind === "playtest";
@@ -662,8 +948,13 @@ function lifeRibbonCard(entry) {
 function lifeMenuControl(entry) {
   const player = entry.player;
   const isPlaytest = entry.kind === "playtest";
+  const menuKey = isPlaytest ? `${state.id}:playtest` : `${state.id}:seat:${player.seat}`;
   const details = document.createElement("details");
   details.className = "life-menu";
+  details.open = openLifeMenuKey === menuKey;
+  details.addEventListener("toggle", () => {
+    openLifeMenuKey = details.open ? menuKey : "";
+  });
   const summary = document.createElement("summary");
   summary.className = "life-menu-summary";
   const value = document.createElement("strong");
@@ -673,8 +964,8 @@ function lifeMenuControl(entry) {
   summary.append(value, label);
   const life = document.createElement("div");
   life.className = "life-control";
-  if (isPlaytest) life.append(playtestLifeButton(-1), lifeTotal(player.life), playtestLifeButton(1));
-  else life.append(lifeButton(player.seat, -1), lifeTotal(player.life), lifeButton(player.seat, 1));
+  if (isPlaytest) life.append(playtestLifeButton(-1), lifeTotal(player.life, entry), playtestLifeButton(1));
+  else life.append(lifeButton(player.seat, -1), lifeTotal(player.life, entry), lifeButton(player.seat, 1));
   const panel = document.createElement("div");
   panel.className = "life-menu-panel";
   panel.append(life);
@@ -687,7 +978,11 @@ function playtestLifeButton(delta) {
   const button = document.createElement("button");
   button.type = "button";
   button.textContent = delta > 0 ? "+" : "-";
-  button.addEventListener("click", () => sendAction("playtestLife", { delta }));
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    sendAction("playtestLife", { delta });
+  });
   return button;
 }
 
@@ -704,30 +999,28 @@ function publicRevealStrip() {
     title.textContent = `${reveal.name} revealed`;
     const cards = document.createElement("div");
     cards.className = "public-reveal-cards";
-    reveal.cards.forEach((card) => cards.append(cardPreviewElement(card)));
+    reveal.cards.forEach((card) => cards.append(displayCardElement(card, "Revealed", "publicReveal")));
     group.append(title, cards);
-    if (reveal.seat !== state.currentSeat) {
-      const dismiss = document.createElement("button");
-      dismiss.type = "button";
-      dismiss.className = "reveal-dismiss-button";
-      dismiss.textContent = "Dismiss";
-      dismiss.addEventListener("click", () => {
-        dismissedReveals.add(revealKey(reveal));
-        renderPlayers();
-      });
-      group.append(dismiss);
-    }
+    const dismiss = document.createElement("button");
+    dismiss.type = "button";
+    dismiss.className = "reveal-dismiss-button";
+    dismiss.textContent = "Dismiss";
+    dismiss.addEventListener("click", () => {
+      dismissedReveals.add(revealKey(reveal));
+      renderPlayers();
+    });
+    group.append(dismiss);
     strip.append(group);
   });
   return strip;
 }
 
 function revealKey(reveal) {
-  return `${state.id}:${state.currentSeat}:${reveal.seat}:${(reveal.cards || []).map((card) => card.id).join(",")}`;
+  const revealId = reveal.id || `${reveal.seat}:${(reveal.cards || []).map((card) => card.id).join(",")}`;
+  return `${state.id}:${state.currentSeat}:${revealId}`;
 }
 
 function isRevealHidden(reveal) {
-  if (reveal.seat === state.currentSeat) return false;
   const key = revealKey(reveal);
   if (dismissedReveals.has(key)) return true;
   const seenAt = revealSeenAt.get(key);
@@ -735,7 +1028,6 @@ function isRevealHidden(reveal) {
 }
 
 function noteRevealSeen(reveal) {
-  if (reveal.seat === state.currentSeat) return;
   const key = revealKey(reveal);
   if (!revealSeenAt.has(key)) revealSeenAt.set(key, Date.now());
   if (revealTimeouts.has(key)) return;
@@ -747,16 +1039,61 @@ function noteRevealSeen(reveal) {
 }
 
 function renderBoardReference() {
-  const others = state.players.filter((player) => player.seat !== state.activePlayer);
-  const columns = Math.max(1, Math.ceil(Math.sqrt(Math.max(1, others.length))));
-  const rows = Math.max(1, Math.ceil(Math.max(1, others.length) / columns));
-  els.boardReferenceSummary.textContent = isMyTurn()
-    ? "Other players' public boards"
-    : `${state.players[state.activePlayer].name}'s turn is on the main board`;
+  if (boardReferenceSeat !== null && boardReferenceSeat !== "all" && !state.players[Number(boardReferenceSeat)]) {
+    boardReferenceSeat = null;
+  }
+  const focusSeat = boardReferenceSeat === null ? focusSeatForBoard() : boardReferenceSeat;
+  const shownPlayers = focusSeat === "all"
+    ? orderedBoardReferencePlayers()
+    : state.players.filter((player) => player.seat === Number(focusSeat));
+  const columns = focusSeat === "all" ? Math.max(1, Math.ceil(Math.sqrt(Math.max(1, shownPlayers.length)))) : 1;
+  const rows = focusSeat === "all" ? Math.max(1, Math.ceil(Math.max(1, shownPlayers.length) / columns)) : 1;
+  const focusPlayer = state.players[focusSeatForBoard()];
+  els.boardReferenceSummary.textContent = `Default view follows ${focusPlayer?.name || "the active board"}. Choose any board below.`;
   els.boardReferenceList.innerHTML = "";
   els.boardReferenceList.style.setProperty("--reference-columns", String(columns));
   els.boardReferenceList.style.setProperty("--reference-rows", String(rows));
-  others.forEach((player) => els.boardReferenceList.append(playerBoard(player, "reference")));
+  els.boardReferenceList.append(boardReferenceTabs(boardReferenceSeat));
+  shownPlayers.forEach((player) => els.boardReferenceList.append(playerBoard(player, "reference")));
+}
+
+function orderedBoardReferencePlayers() {
+  const focusSeat = focusSeatForBoard();
+  return [
+    ...state.players.filter((player) => player.seat === focusSeat),
+    ...state.players.filter((player) => player.seat !== focusSeat),
+  ];
+}
+
+function boardReferenceTabs(activeChoice) {
+  const tabs = document.createElement("nav");
+  tabs.className = "board-reference-tabs";
+  tabs.setAttribute("aria-label", "Board selector");
+  const follow = boardReferenceTab("Follow", activeChoice === null, () => {
+    boardReferenceSeat = null;
+    renderBoardReference();
+  });
+  const all = boardReferenceTab("All", activeChoice === "all", () => {
+    boardReferenceSeat = "all";
+    renderBoardReference();
+  });
+  tabs.append(follow, all);
+  state.players.forEach((player) => {
+    tabs.append(boardReferenceTab(player.name || `Player ${player.seat + 1}`, Number(activeChoice) === player.seat, () => {
+      boardReferenceSeat = player.seat;
+      renderBoardReference();
+    }));
+  });
+  return tabs;
+}
+
+function boardReferenceTab(label, active, handler) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `board-reference-tab${active ? " active" : ""}`;
+  button.textContent = label;
+  button.addEventListener("click", handler);
+  return button;
 }
 
 function playerBoard(player, role) {
@@ -798,7 +1135,25 @@ function playerBoard(player, role) {
 function pileCounter(label, count, seat = null) {
   const zone = document.createElement("section");
   zone.className = "pile-zone count-pile";
-  zone.innerHTML = `<span>${label}</span><strong>${count}</strong>`;
+  zone.innerHTML = `<div class="library-count-header"><span>${label}</span><strong>${count}</strong></div>`;
+  const player = state?.players?.[seat];
+  const revealCards = label === "Library" && player?.libraryPreview?.mode === "reveal"
+    ? player.libraryPreview.cards || []
+    : [];
+  if (revealCards.length) {
+    zone.classList.add("revealed-library-pile");
+    if (seat !== state.currentSeat) zone.classList.add("other-revealed-library-pile");
+    const revealed = document.createElement("div");
+    revealed.className = "library-reveal-cards";
+    revealCards.slice(0, 2).forEach((card, index) => revealed.append(revealedLibraryCardElement(card, seat, index)));
+    if (revealCards.length > 2) {
+      const more = document.createElement("span");
+      more.className = "library-reveal-more";
+      more.textContent = `+${revealCards.length - 2}`;
+      revealed.append(more);
+    }
+    zone.append(revealed);
+  }
   if (label === "Library" && seat === state.currentSeat) {
     zone.classList.add("library-pile");
     zone.setAttribute("role", "button");
@@ -819,10 +1174,72 @@ function pileCounter(label, count, seat = null) {
   return zone;
 }
 
+function revealedLibraryCardElement(card, seat, index = 0) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.dataset.cardId = card.id;
+  button.dataset.zone = "library";
+  button.dataset.seat = String(seat);
+  button.className = "card revealed-library-card";
+  if (card.imageUrl) {
+    button.classList.add("image-card");
+    button.innerHTML = `<img src="${escapeHtml(card.imageUrl)}" alt="${escapeHtml(card.name)}" draggable="false"><span>${escapeHtml(card.name)}</span>`;
+  } else {
+    button.innerHTML = `<strong>${escapeHtml(card.name)}</strong><small>Revealed</small>`;
+  }
+  button.classList.add("revealed-library-card");
+  appendCardBadges(button, card, seat, "library");
+  attachCardZoomHandlers(button, "library", index);
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  button.addEventListener("contextmenu", (event) => {
+    if (seat !== state.currentSeat) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openPreviewActionDialog(card, "reveal");
+  });
+  if (seat === state.currentSeat) {
+    button.draggable = true;
+    button.classList.add("draggable-revealed-card");
+    button.title = "Drag revealed card to hand or another zone.";
+    button.addEventListener("dragstart", (event) => {
+      event.stopPropagation();
+      draggedPreviewCardId = card.id;
+      draggedCard = {
+        cardId: card.id,
+        cardName: card.name,
+        isCommander: card.isCommander,
+        owner: card.owner,
+        tapped: false,
+        seat: state.currentSeat,
+        fromZone: "library",
+        width: button.offsetWidth,
+        height: button.offsetHeight,
+      };
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("application/json", JSON.stringify(draggedCard));
+      event.dataTransfer.setData("text/plain", card.id);
+      button.classList.add("dragging");
+    });
+    button.addEventListener("dragend", (event) => {
+      event.stopPropagation();
+      draggedPreviewCardId = "";
+      draggedCard = null;
+      button.classList.remove("dragging");
+      document.querySelectorAll(".drop-active").forEach((node) => node.classList.remove("drop-active"));
+    });
+    button.addEventListener("mousedown", (event) => event.stopPropagation());
+  }
+  return button;
+}
+
 function publicZone(player, zoneName, label, className, role = "") {
   const zone = document.createElement("section");
   zone.className = className;
-  zone.innerHTML = `<span>${label}</span>`;
+  if (zoneName === "battlefield") zone.setAttribute("aria-label", label);
+  else zone.innerHTML = `<span>${label}</span>`;
   makeDropZone(zone, player.seat, zoneName);
   if (zoneName === "graveyard" || zoneName === "exile") {
     zone.classList.add("zone-viewer-trigger");
@@ -838,6 +1255,7 @@ function publicZone(player, zoneName, label, className, role = "") {
     });
   }
   if (zoneName === "battlefield" && role !== "reference" && player.seat === state.currentSeat) {
+    zone.addEventListener("pointerdown", (event) => startBattlefieldSelection(event, zone));
     zone.addEventListener("contextmenu", (event) => {
       if (event.target.closest(".card")) return;
       event.preventDefault();
@@ -851,6 +1269,7 @@ function publicZone(player, zoneName, label, className, role = "") {
   (player[zoneName] || []).forEach((card, index) => cards.append(cardElement(card, player.seat, zoneName, index)));
   zone.append(cards);
   if (zoneName === "commanderZone") zone.append(commanderTaxControl(player));
+  if (zoneName === "battlefield" && role !== "reference" && player.seat === state.currentSeat) renderBattlefieldSelectionSummary(zone);
   if (zoneName === "battlefield" && role !== "reference") applyBattlefieldCanvasSize(zone);
   return zone;
 }
@@ -869,6 +1288,8 @@ function renderHand() {
   const handCardWidth = Math.max(minHandWidth, Math.min(maxHandWidth, fitWidth));
   els.handZone.style.setProperty("--hand-card-width", `${handCardWidth}px`);
   makeDropZone(els.handZone, state.currentSeat, "hand");
+  const handFrame = els.handZone.closest(".private-zone");
+  if (handFrame) makeDropZone(handFrame, state.currentSeat, "hand");
   state.hand.forEach((card) => els.handZone.append(cardElement(card, state.currentSeat, "hand")));
 }
 
@@ -908,6 +1329,63 @@ function renderLog() {
   });
 }
 
+function setDiceResult(message) {
+  lastDiceResult = message || "No rolls yet";
+  if (els.diceResult) els.diceResult.textContent = lastDiceResult;
+}
+
+function diceNoticeText(notice) {
+  if (!notice) return "";
+  if (notice.mode === "firstPlayer") return `${notice.selectedName || "Player"} goes first`;
+  if (notice.mode === "random") return `0-${notice.max}: ${notice.result}`;
+  const rolls = Array.isArray(notice.rolls) ? notice.rolls.join(", ") : "";
+  const total = Number(notice.count) > 1 ? ` = ${notice.total}` : "";
+  return `${notice.count}d${notice.sides}: ${rolls}${total}`;
+}
+
+function renderDiceNotice() {
+  const notice = state?.diceNotice;
+  if (!notice || notice.id === dismissedDiceNoticeId) {
+    els.diceNotice.classList.add("hidden");
+    return;
+  }
+  els.diceNoticeTitle.textContent = notice.mode === "firstPlayer"
+    ? "Random first player"
+    : `${notice.playerName || "Player"} rolled`;
+  els.diceNoticeResult.textContent = diceNoticeText(notice);
+  els.diceNotice.classList.remove("hidden");
+}
+
+async function rollDice(sides) {
+  if (!state) return;
+  const count = Math.max(1, Math.min(20, Math.round(Number(els.diceCountInput.value) || 1)));
+  els.diceCountInput.value = String(count);
+  const previous = lastDiceResult;
+  setDiceResult(`Rolling ${count}d${sides}...`);
+  try {
+    const nextState = await sendAction("diceRoll", { mode: "dice", sides, count });
+    setDiceResult(nextState?.log?.[0]?.message || `${count}d${sides} rolled.`);
+  } catch (error) {
+    setDiceResult(previous);
+    alert(error.message);
+  }
+}
+
+async function rollRandomNumber() {
+  if (!state) return;
+  const max = Math.max(0, Math.min(1000000, Math.round(Number(els.randomMaxInput.value) || 0)));
+  els.randomMaxInput.value = String(max);
+  const previous = lastDiceResult;
+  setDiceResult(`Rolling 0-${max}...`);
+  try {
+    const nextState = await sendAction("diceRoll", { mode: "random", max });
+    setDiceResult(nextState?.log?.[0]?.message || `Random 0-${max} rolled.`);
+  } catch (error) {
+    setDiceResult(previous);
+    alert(error.message);
+  }
+}
+
 function renderChat() {
   const messages = state.chat || [];
   const seen = getSeenChatCount();
@@ -944,19 +1422,43 @@ function lifeButton(seat, delta) {
   button.type = "button";
   button.textContent = delta > 0 ? "+" : "-";
   button.disabled = !canChangeLife(seat);
-  button.addEventListener("click", () => sendAction("life", { seat, delta }));
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    sendAction("life", { seat, delta });
+  });
   return button;
 }
 
-function lifeTotal(value) {
+function lifeTotal(value, entry) {
   const wrap = document.createElement("div");
   wrap.className = "life-total-wrap";
   const label = document.createElement("span");
   label.textContent = "Life Total";
-  const strong = document.createElement("strong");
-  strong.className = "life-total";
-  strong.textContent = String(value);
-  wrap.append(label, strong);
+  const input = document.createElement("input");
+  input.className = "life-total-input";
+  input.type = "number";
+  input.value = String(value);
+  input.disabled = entry.kind !== "playtest" && !canChangeLife(entry.player.seat);
+  const submit = () => {
+    const nextValue = Number(input.value);
+    if (!Number.isFinite(nextValue)) {
+      input.value = String(value);
+      return;
+    }
+    if (entry.kind === "playtest") sendAction("playtestLife", { value: nextValue });
+    else sendAction("life", { seat: entry.player.seat, value: nextValue });
+  };
+  input.addEventListener("click", (event) => event.stopPropagation());
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      submit();
+      input.blur();
+    }
+  });
+  input.addEventListener("blur", submit);
+  wrap.append(label, input);
   return wrap;
 }
 
@@ -972,8 +1474,10 @@ function playerCounterControl(player) {
   const select = document.createElement("select");
   select.setAttribute("aria-label", "Player counter type");
   const selectionKey = `${state.id}:${player.seat}`;
-  const selectedValue = playerCounterSelections.get(selectionKey) || playerCounterOptions[0];
-  playerCounterOptions.forEach((name) => {
+  const options = playerCounterOptionsFor(player.seat);
+  const savedValue = playerCounterSelections.get(selectionKey);
+  const selectedValue = options.includes(savedValue) ? savedValue : options[0];
+  options.forEach((name) => {
     const option = document.createElement("option");
     option.value = name;
     option.textContent = name;
@@ -988,6 +1492,17 @@ function playerCounterControl(player) {
   row.append(select, plus, minus);
   wrap.append(row);
   return wrap;
+}
+
+function playerCounterOptionsFor(targetSeat) {
+  const commanderOptions = (state?.players || [])
+    .filter((player) => player.seat !== targetSeat)
+    .map((player) => {
+      const source = player.commander || `${player.name} commander`;
+      return `Commander Damage: ${source}`;
+    });
+  if (!commanderOptions.length) commanderOptions.push("Commander Damage");
+  return [...commanderOptions, ...basePlayerCounterOptions];
 }
 
 function playerCounterChips(counters = {}, showEmpty = false) {
@@ -1050,11 +1565,20 @@ function commanderTaxButton(label, handler) {
 function cardElement(card, seat, zone, index = 0) {
   const button = document.createElement("button");
   button.type = "button";
+  button.dataset.cardId = card.id;
+  button.dataset.zone = zone;
+  button.dataset.seat = String(seat);
   const isTapped = zone === "battlefield" && card.tapped;
   button.className = `card${isTapped ? " tapped" : ""}`;
   if (card.isToken) button.classList.add("token-card");
   if (zone === "battlefield") {
     button.classList.add("free-card");
+    if (isCombatSnapshotCard(card.id)) button.classList.add("declared-attacker-card");
+    if (seat === state.currentSeat && selectedBattlefieldCards.has(card.id)) button.classList.add("selected-card");
+    if (card.attachedTo) {
+      button.classList.add("equipped-card");
+      button.style.setProperty("--equip-index", String(Number(card.attachmentIndex) || 1));
+    }
     const pos = normalizeBattlefieldPosition(card.position, isTapped);
     button.style.left = `${pos.x}px`;
     button.style.top = `${pos.y}px`;
@@ -1065,11 +1589,12 @@ function cardElement(card, seat, zone, index = 0) {
     button.addEventListener("dragstart", (event) => event.preventDefault());
     attachCardPointerDrag(button, card, seat, zone, index);
   }
+  const displayName = cardDisplayName(card);
   if (card.imageUrl) {
     button.classList.add("image-card");
-    button.innerHTML = `<img src="${escapeHtml(card.imageUrl)}" alt="${escapeHtml(card.name)}" draggable="false"><span>${escapeHtml(card.name)}</span>`;
+    button.innerHTML = `<img src="${escapeHtml(card.imageUrl)}" alt="${escapeHtml(displayName)}" draggable="false"><span>${escapeHtml(displayName)}</span>`;
   } else {
-    button.innerHTML = `<strong>${escapeHtml(card.name)}</strong><small>${labelForZone(zone)}</small>`;
+    button.innerHTML = `<strong>${escapeHtml(displayName)}</strong><small>${labelForZone(zone)}</small>`;
   }
   appendCardBadges(button, card, seat, zone);
   if (zone === "librarySearch") {
@@ -1084,6 +1609,10 @@ function cardElement(card, seat, zone, index = 0) {
     }
     if (zone === "battlefield") {
       if (canActNow() && seat === state.currentSeat) {
+        if (selectedBattlefieldCards.size > 1 && selectedBattlefieldCards.has(card.id)) {
+          tapSelectedBattlefieldCards("toggle");
+          return;
+        }
         sendAction("tap", { seat, zone, cardId: card.id });
       } else {
         openCardDialog(card, seat, zone);
@@ -1103,13 +1632,20 @@ function cardElement(card, seat, zone, index = 0) {
 
 function appendCardBadges(button, card, seat, zone) {
   const counterText = counterBadgeText(card.counters);
-  if (!card.isToken && !counterText) return;
+  const quantity = creatureQuantity(card);
+  if (!card.isToken && !counterText && quantity <= 1) return;
   const wrap = document.createElement("div");
   wrap.className = "card-badges";
   if (card.isToken) {
     const span = document.createElement("span");
     span.className = "token-badge";
     span.textContent = "Token";
+    wrap.append(span);
+  }
+  if (quantity > 1) {
+    const span = document.createElement("span");
+    span.className = "quantity-badge";
+    span.textContent = `x${quantity}`;
     wrap.append(span);
   }
   if (counterText) wrap.append(counterBadgeElement(card, counterText, seat, zone));
@@ -1131,7 +1667,7 @@ function counterBadgeElement(card, text, seat, zone) {
   value.className = "counter-value";
   value.textContent = text;
   const minus = counterStepButton("-", () => adjustCounter(card, "powerToughness", -1));
-  mainControls.append(plus, value, minus);
+  mainControls.append(minus, value, plus);
 
   const sideControls = document.createElement("span");
   sideControls.className = "counter-side-controls";
@@ -1149,7 +1685,7 @@ function counterSideColumn(label, plusHandler, minusHandler) {
   const title = document.createElement("span");
   title.className = "counter-side-label";
   title.textContent = label;
-  column.append(counterStepButton("+", plusHandler), title, counterStepButton("-", minusHandler));
+  column.append(counterStepButton("-", minusHandler), title, counterStepButton("+", plusHandler));
   return column;
 }
 
@@ -1220,7 +1756,7 @@ function attachCardZoomHandlers(button, zone, index = 0) {
     if (document.body.classList.contains("ctrl-zoom")) positionCardZoom(button);
   });
   button.addEventListener("mouseleave", () => {
-    if (battlefieldPointerDrag?.button === button) return;
+    if (battlefieldPointerDrag?.button === button || battlefieldGroupDrag?.button === button) return;
     if (hoveredZoomCard === button) hoveredZoomCard = null;
     hideCardZoom(button);
     if (zone === "battlefield") button.style.zIndex = String(index + 1);
@@ -1231,6 +1767,10 @@ function attachCardZoomHandlers(button, zone, index = 0) {
 function attachCardPointerDrag(button, card, seat, zone, index = 0) {
   button.addEventListener("pointerdown", (event) => {
     if (event.button !== 0 || !canActNow() || seat !== state.currentSeat) return;
+    if (zone === "battlefield" && selectedBattlefieldCards.size > 1 && selectedBattlefieldCards.has(card.id)) {
+      startBattlefieldGroupDrag(event, button, card, seat, index);
+      return;
+    }
     const cardRect = button.getBoundingClientRect();
     const layer = zone === "battlefield" ? button.closest(".battlefield-card-layer") : null;
     const layerMetrics = layer ? battlefieldLayerMetrics(layer) : null;
@@ -1270,6 +1810,10 @@ function attachCardPointerDrag(button, card, seat, zone, index = 0) {
   });
 
   button.addEventListener("pointermove", (event) => {
+    if (battlefieldGroupDrag?.button === button) {
+      handleBattlefieldGroupMove(event);
+      return;
+    }
     if (!battlefieldPointerDrag || battlefieldPointerDrag.button !== button) return;
     const drag = battlefieldPointerDrag;
     const distance = Math.hypot(event.clientX - drag.startClientX, event.clientY - drag.startClientY);
@@ -1296,6 +1840,10 @@ function attachCardPointerDrag(button, card, seat, zone, index = 0) {
   });
 
   button.addEventListener("pointerup", async (event) => {
+    if (battlefieldGroupDrag?.button === button) {
+      await finishBattlefieldGroupDrag(event, index);
+      return;
+    }
     if (!battlefieldPointerDrag || battlefieldPointerDrag.button !== button) return;
     const drag = battlefieldPointerDrag;
     const source = pointerDragSource(drag);
@@ -1329,6 +1877,10 @@ function attachCardPointerDrag(button, card, seat, zone, index = 0) {
   });
 
   button.addEventListener("pointercancel", (event) => {
+    if (battlefieldGroupDrag?.button === button) {
+      cancelBattlefieldGroupDrag(event);
+      return;
+    }
     if (!battlefieldPointerDrag || battlefieldPointerDrag.button !== button) return;
     const drag = battlefieldPointerDrag;
     battlefieldPointerDrag = null;
@@ -1336,6 +1888,535 @@ function attachCardPointerDrag(button, card, seat, zone, index = 0) {
     cleanupBattlefieldPointerDrag(drag);
     clearPointerDropHighlights();
   });
+}
+
+function startBattlefieldSelection(event, zone) {
+  if (event.button !== 0 || event.target.closest(".card, .battlefield-selection-summary, button, input, select, textarea") || !canActNow()) return;
+  const layer = zone.querySelector(".battlefield-card-layer");
+  if (!layer) return;
+  event.preventDefault();
+  const rectNode = document.createElement("div");
+  rectNode.className = "battlefield-selection-rect";
+  layer.append(rectNode);
+  battlefieldSelectionDrag = {
+    zone,
+    layer,
+    rectNode,
+    startClientX: event.clientX,
+    startClientY: event.clientY,
+  };
+  zone.setPointerCapture?.(event.pointerId);
+
+  const handleMove = (moveEvent) => {
+    if (!battlefieldSelectionDrag || battlefieldSelectionDrag.zone !== zone) return;
+    updateBattlefieldSelectionRect(moveEvent);
+  };
+  const finish = (upEvent) => {
+    if (battlefieldSelectionDrag?.zone === zone) finishBattlefieldSelection(upEvent);
+    zone.removeEventListener("pointermove", handleMove);
+    zone.removeEventListener("pointerup", finish);
+    zone.removeEventListener("pointercancel", cancel);
+    if (zone.hasPointerCapture?.(upEvent.pointerId)) zone.releasePointerCapture(upEvent.pointerId);
+  };
+  const cancel = (cancelEvent) => {
+    cancelBattlefieldSelection(cancelEvent);
+    zone.removeEventListener("pointermove", handleMove);
+    zone.removeEventListener("pointerup", finish);
+    zone.removeEventListener("pointercancel", cancel);
+    if (zone.hasPointerCapture?.(cancelEvent.pointerId)) zone.releasePointerCapture(cancelEvent.pointerId);
+  };
+
+  zone.addEventListener("pointermove", handleMove);
+  zone.addEventListener("pointerup", finish);
+  zone.addEventListener("pointercancel", cancel);
+}
+
+function updateBattlefieldSelectionRect(event) {
+  const drag = battlefieldSelectionDrag;
+  if (!drag) return;
+  const metrics = battlefieldLayerMetrics(drag.layer);
+  const leftClient = Math.min(drag.startClientX, event.clientX);
+  const topClient = Math.min(drag.startClientY, event.clientY);
+  const rightClient = Math.max(drag.startClientX, event.clientX);
+  const bottomClient = Math.max(drag.startClientY, event.clientY);
+  const left = Math.max(0, Math.min(metrics.width, (leftClient - metrics.left) * metrics.scaleX));
+  const top = Math.max(0, Math.min(metrics.height, (topClient - metrics.top) * metrics.scaleY));
+  const right = Math.max(0, Math.min(metrics.width, (rightClient - metrics.left) * metrics.scaleX));
+  const bottom = Math.max(0, Math.min(metrics.height, (bottomClient - metrics.top) * metrics.scaleY));
+  drag.rectNode.style.left = `${left}px`;
+  drag.rectNode.style.top = `${top}px`;
+  drag.rectNode.style.width = `${Math.max(1, right - left)}px`;
+  drag.rectNode.style.height = `${Math.max(1, bottom - top)}px`;
+}
+
+function finishBattlefieldSelection(event) {
+  const drag = battlefieldSelectionDrag;
+  if (!drag) return;
+  const distance = Math.hypot(event.clientX - drag.startClientX, event.clientY - drag.startClientY);
+  const selectionRect = {
+    left: Math.min(drag.startClientX, event.clientX),
+    right: Math.max(drag.startClientX, event.clientX),
+    top: Math.min(drag.startClientY, event.clientY),
+    bottom: Math.max(drag.startClientY, event.clientY),
+  };
+  drag.rectNode.remove();
+  battlefieldSelectionDrag = null;
+  selectedBattlefieldCards.clear();
+  if (distance >= 4) {
+    drag.layer.querySelectorAll(`.card[data-zone="battlefield"][data-seat="${state.currentSeat}"]`).forEach((node) => {
+      if (rectsOverlap(node.getBoundingClientRect(), selectionRect)) selectedBattlefieldCards.add(node.dataset.cardId);
+    });
+  }
+  renderPlayers();
+}
+
+function cancelBattlefieldSelection() {
+  battlefieldSelectionDrag?.rectNode?.remove();
+  battlefieldSelectionDrag = null;
+}
+
+function startBattlefieldGroupDrag(event, button, card, seat, index = 0) {
+  const layer = button.closest(".battlefield-card-layer");
+  if (!layer) return;
+  const layerMetrics = battlefieldLayerMetrics(layer);
+  const battlefieldCards = battlefieldCardsById();
+  const cards = selectedBattlefieldNodes(layer)
+    .map((node) => {
+      const cardData = battlefieldCards.get(node.dataset.cardId);
+      if (!cardData) return null;
+      return {
+        cardId: node.dataset.cardId,
+        node,
+        name: cardData.name,
+        isCommander: Boolean(cardData.isCommander),
+        owner: cardData.owner,
+        tapped: Boolean(cardData.tapped),
+        startX: pixelValue(node.style.left, node.offsetLeft),
+        startY: pixelValue(node.style.top, node.offsetTop),
+        width: node.offsetWidth || node.getBoundingClientRect().width,
+        height: node.offsetHeight || node.getBoundingClientRect().height,
+        originalZIndex: node.style.zIndex,
+      };
+    })
+    .filter(Boolean);
+  if (cards.length <= 1) return;
+  battlefieldGroupDrag = {
+    cardId: card.id,
+    seat,
+    fromZone: "battlefield",
+    cardName: card.name,
+    isCommander: card.isCommander,
+    owner: card.owner,
+    index,
+    button,
+    layer,
+    layerMetrics,
+    startClientX: event.clientX,
+    startClientY: event.clientY,
+    moved: false,
+    ghost: null,
+    ghostOffsetX: 28,
+    ghostOffsetY: 18,
+    cards,
+    lastPositions: new Map(),
+  };
+  button.setPointerCapture(event.pointerId);
+  cards.forEach((item, cardIndex) => {
+    item.node.classList.add("drag-origin");
+    item.node.style.zIndex = String(200 + cardIndex);
+  });
+}
+
+function selectedBattlefieldNodes(layer) {
+  return [...layer.querySelectorAll(`.card.selected-card[data-zone="battlefield"][data-seat="${state.currentSeat}"]`)];
+}
+
+function battlefieldCardsById() {
+  const player = state?.players?.[state.currentSeat];
+  return new Map((player?.battlefield || []).map((card) => [card.id, card]));
+}
+
+function handleBattlefieldGroupMove(event) {
+  const drag = battlefieldGroupDrag;
+  if (!drag) return;
+  const distance = Math.hypot(event.clientX - drag.startClientX, event.clientY - drag.startClientY);
+  if (distance < 3 && !drag.moved) return;
+  drag.moved = true;
+  event.preventDefault();
+  clearPointerDropHighlights();
+  const source = groupDragSource(drag);
+  const battlefieldTarget = battlefieldTargetFromPointer(event, drag);
+  const target = battlefieldTarget || cardDropTargetFromPoint(event, source) || dropZoneFromPoint(event, drag.ghost || drag.button, source);
+  if (battlefieldTarget) {
+    drag.ghost?.remove();
+    drag.ghost = null;
+    moveBattlefieldGroupWithinLayer(event, drag);
+  } else {
+    moveBattlefieldGroupGhost(event, drag);
+  }
+  if (target && canDropGroupCards(drag, target.seat, target.zone)) {
+    target.element.classList.add("drop-active");
+  }
+}
+
+async function finishBattlefieldGroupDrag(event, index = 0) {
+  const drag = battlefieldGroupDrag;
+  if (!drag) return;
+  const source = groupDragSource(drag);
+  const battlefieldTarget = battlefieldTargetFromPointer(event, drag);
+  const dropTarget = battlefieldTarget || cardDropTargetFromPoint(event, source) || dropZoneFromPoint(event, drag.ghost || drag.button, source);
+  battlefieldGroupDrag = null;
+  if (drag.button.hasPointerCapture?.(event.pointerId)) drag.button.releasePointerCapture(event.pointerId);
+  cleanupBattlefieldGroupDrag(drag, index);
+  clearPointerDropHighlights();
+  if (!drag.moved) return;
+  event.preventDefault();
+  event.stopPropagation();
+  drag.cards.forEach((item) => {
+    item.node.dataset.suppressClick = "1";
+    setTimeout(() => delete item.node.dataset.suppressClick, 0);
+  });
+  if (dropTarget && canDropGroupCards(drag, dropTarget.seat, dropTarget.zone)) {
+    if (dropTarget.zone === "battlefield") {
+      moveBattlefieldGroupWithinLayer(event, drag);
+      await moveSelectedBattlefieldCards("battlefield", Object.fromEntries(drag.lastPositions));
+    } else {
+      await moveSelectedBattlefieldCards(dropTarget.zone);
+      selectedBattlefieldCards.clear();
+    }
+    return;
+  }
+  if (drag.lastPositions.size) {
+    await moveSelectedBattlefieldCards("battlefield", Object.fromEntries(drag.lastPositions));
+  }
+}
+
+function cancelBattlefieldGroupDrag(event) {
+  const drag = battlefieldGroupDrag;
+  if (!drag) return;
+  battlefieldGroupDrag = null;
+  if (drag.button.hasPointerCapture?.(event.pointerId)) drag.button.releasePointerCapture(event.pointerId);
+  cleanupBattlefieldGroupDrag(drag, drag.index);
+  clearPointerDropHighlights();
+}
+
+function moveBattlefieldGroupWithinLayer(event, drag) {
+  const metrics = drag.layerMetrics || battlefieldLayerMetrics(drag.layer);
+  const deltaX = (event.clientX - drag.startClientX) * metrics.scaleX;
+  const deltaY = (event.clientY - drag.startClientY) * metrics.scaleY;
+  const bounds = { width: metrics.width, height: metrics.height };
+  drag.cards.forEach((item) => {
+    const position = clampBattlefieldPixels(
+      { x: item.startX + deltaX, y: item.startY + deltaY, unit: "px" },
+      item.tapped,
+      { width: item.width, height: item.height },
+      bounds,
+    );
+    item.node.style.left = `${position.x}px`;
+    item.node.style.top = `${position.y}px`;
+    drag.lastPositions.set(item.cardId, position);
+  });
+}
+
+function moveBattlefieldGroupGhost(event, drag) {
+  if (!drag.ghost) {
+    const ghost = document.createElement("div");
+    ghost.className = "battlefield-group-drag-ghost";
+    ghost.textContent = `${drag.cards.length} cards`;
+    document.body.append(ghost);
+    drag.ghost = ghost;
+  }
+  drag.ghost.style.left = `${event.clientX - drag.ghostOffsetX}px`;
+  drag.ghost.style.top = `${event.clientY - drag.ghostOffsetY}px`;
+}
+
+function cleanupBattlefieldGroupDrag(drag, index = 0) {
+  drag.cards.forEach((item, cardIndex) => {
+    item.node.classList.remove("drag-origin");
+    item.node.style.zIndex = item.originalZIndex || String(index + cardIndex + 1);
+  });
+  drag.ghost?.remove();
+  drag.ghost = null;
+}
+
+function groupDragSource(drag) {
+  const first = drag.cards[0] || {};
+  return {
+    cardId: first.cardId || drag.cardId,
+    cardName: `${drag.cards.length} selected cards`,
+    isCommander: false,
+    owner: drag.seat,
+    tapped: false,
+    seat: drag.seat,
+    fromZone: "battlefield",
+    width: first.width || currentBattlefieldCardSize().width,
+    height: first.height || currentBattlefieldCardSize().height,
+    layoutWidth: first.width || currentBattlefieldCardSize().width,
+    layoutHeight: first.height || currentBattlefieldCardSize().height,
+  };
+}
+
+function canDropGroupCards(drag, targetSeat, targetZone) {
+  if (targetZone === "commanderZone" && drag.cards.length > 1) return false;
+  return canDropCard(groupDragSource(drag), targetSeat, targetZone);
+}
+
+function pruneBattlefieldSelection() {
+  if (!state || selectedBattlefieldCards.size === 0) return;
+  const validIds = new Set((state.players[state.currentSeat]?.battlefield || []).map((card) => card.id));
+  [...selectedBattlefieldCards].forEach((cardId) => {
+    if (!validIds.has(cardId)) selectedBattlefieldCards.delete(cardId);
+  });
+}
+
+function renderBattlefieldSelectionSummary(zone) {
+  if (!selectedBattlefieldCards.size) return;
+  const cards = selectedBattlefieldCardData();
+  if (!cards.length) return;
+  const stats = selectedBattlefieldStats(cards);
+  const summary = document.createElement("div");
+  summary.className = "battlefield-selection-summary";
+  const count = document.createElement("strong");
+  count.textContent = `${cards.length} selected`;
+  const power = document.createElement("span");
+  power.textContent = `${stats.creatures} creature${stats.creatures === 1 ? "" : "s"} / P/T ${stats.totalPower}/${stats.totalToughness}`;
+  const mana = document.createElement("span");
+  mana.textContent = `${stats.untappedLands} untapped land${stats.untappedLands === 1 ? "" : "s"} / mana ${stats.untappedLands}`;
+  const tap = document.createElement("button");
+  tap.type = "button";
+  tap.textContent = stats.allTapped ? "Untap" : "Tap";
+  tap.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    tapSelectedBattlefieldCards("toggle");
+  });
+  const clear = document.createElement("button");
+  clear.type = "button";
+  clear.className = "secondary";
+  clear.textContent = "Clear";
+  clear.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    selectedBattlefieldCards.clear();
+    renderPlayers();
+  });
+  summary.append(count, power, mana, tap, clear);
+  zone.append(summary);
+  renderSelectionToolPopover(zone, cards);
+}
+
+function renderSelectionToolPopover(zone, cards) {
+  const layer = zone.querySelector(".battlefield-card-layer");
+  const bounds = selectedBattlefieldBounds(layer);
+  if (!bounds) return;
+  const tools = document.createElement("div");
+  tools.className = "selection-tool-popover";
+  tools.style.left = `${Math.max(6, Math.min(bounds.right + 6, (layer?.offsetWidth || bounds.right) - 152))}px`;
+  tools.style.top = `${Math.max(6, bounds.top - 34)}px`;
+  [
+    ["Stack", "▣", () => arrangeSelectedBattlefieldCards("stack")],
+    ["Grid of 4", "4", () => arrangeSelectedBattlefieldCards("grid4")],
+    ["Vertical line", "│", () => arrangeSelectedBattlefieldCards("vertical")],
+    ["Horizontal line", "─", () => arrangeSelectedBattlefieldCards("horizontal")],
+    ["Touching grid of 6", "6", () => arrangeSelectedBattlefieldCards("grid6")],
+  ].forEach(([title, icon, handler]) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.title = title;
+    button.setAttribute("aria-label", title);
+    button.textContent = icon;
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      handler();
+    });
+    tools.append(button);
+  });
+  zone.append(tools);
+}
+
+function selectedBattlefieldBounds(layer) {
+  const nodes = selectedBattlefieldNodes(layer || document);
+  if (!nodes.length) return null;
+  const layerRect = layer?.getBoundingClientRect();
+  const lefts = [];
+  const tops = [];
+  const rights = [];
+  const bottoms = [];
+  nodes.forEach((node) => {
+    const rect = node.getBoundingClientRect();
+    lefts.push(layerRect ? rect.left - layerRect.left : rect.left);
+    tops.push(layerRect ? rect.top - layerRect.top : rect.top);
+    rights.push(layerRect ? rect.right - layerRect.left : rect.right);
+    bottoms.push(layerRect ? rect.bottom - layerRect.top : rect.bottom);
+  });
+  return {
+    left: Math.min(...lefts),
+    top: Math.min(...tops),
+    right: Math.max(...rights),
+    bottom: Math.max(...bottoms),
+  };
+}
+
+function selectedBattlefieldCardData() {
+  const cards = state?.players?.[state.currentSeat]?.battlefield || [];
+  return cards.filter((card) => selectedBattlefieldCards.has(card.id));
+}
+
+function selectedBattlefieldStats(cards = selectedBattlefieldCardData()) {
+  let creatures = 0;
+  let totalPower = 0;
+  let totalToughness = 0;
+  let untappedLands = 0;
+  let allTapped = cards.length > 0;
+  cards.forEach((card) => {
+    if (!card.tapped) allTapped = false;
+    if (isCreatureCard(card)) {
+      const quantity = creatureQuantity(card);
+      creatures += quantity;
+      totalPower += cardPowerValue(card) * quantity;
+      totalToughness += cardToughnessValue(card) * quantity;
+    }
+    if (isLandCard(card) && !card.tapped) untappedLands += 1;
+  });
+  return { creatures, totalPower, totalToughness, untappedLands, allTapped };
+}
+
+function isCreatureCard(card) {
+  return /\bCreature\b/i.test(card?.typeLine || "");
+}
+
+function isLandCard(card) {
+  return Boolean(card?.isLand) || /\bLand\b/i.test(card?.typeLine || "");
+}
+
+function cardPowerValue(card) {
+  const printed = Number.parseFloat(String(card?.power || "").replace(/[^\d.-]/g, ""));
+  const base = Number.isFinite(printed) ? printed : 0;
+  return base + counterTotals(card?.counters).power;
+}
+
+function cardToughnessValue(card) {
+  const printed = Number.parseFloat(String(card?.toughness || "").replace(/[^\d.-]/g, ""));
+  const base = Number.isFinite(printed) ? printed : 0;
+  return base + counterTotals(card?.counters).toughness;
+}
+
+function creatureQuantity(card) {
+  return Math.max(1, Number(card?.counters?.creatureQuantity) || 1);
+}
+
+function selectAllBattlefieldCards() {
+  if (!state) return;
+  selectedBattlefieldCards.clear();
+  (state.players[state.currentSeat]?.battlefield || []).forEach((card) => selectedBattlefieldCards.add(card.id));
+  renderPlayers();
+}
+
+async function tapSelectedBattlefieldCards(mode = "toggle") {
+  const cardIds = selectedBattlefieldCardData().map((card) => card.id);
+  if (!cardIds.length || !canActNow()) return;
+  await sendAction("tapCards", { seat: state.currentSeat, cardIds, mode });
+}
+
+async function sendCombatPass() {
+  await sendAction("combatPass", {
+    cardIds: selectedBattlefieldCardData().map((card) => card.id),
+  });
+}
+
+async function moveSelectedBattlefieldCards(toZone, positions = {}) {
+  const cards = selectedBattlefieldCardData().map((card) => ({
+    cardId: card.id,
+    position: positions[card.id] || null,
+  }));
+  if (!cards.length || !canActNow()) return;
+  await sendAction("moveCards", {
+    seat: state.currentSeat,
+    fromZone: "battlefield",
+    toSeat: state.currentSeat,
+    toZone,
+    cards,
+  });
+}
+
+async function arrangeSelectedBattlefieldCards(layout = "stack") {
+  const cards = selectedBattlefieldCardData();
+  if (!cards.length || !canActNow()) return;
+  const arranged = arrangedCardEntries(cards, layout);
+  if (!arranged.length) return;
+  await sendAction("arrangeCards", { cards: arranged });
+}
+
+async function equipSelectedBattlefieldCards() {
+  const cards = selectedBattlefieldCardData();
+  if (cards.length < 2 || !canActNow()) return;
+  const creature = cards.find((card) => isCreatureCard(card));
+  if (!creature) return;
+  const equipment = cards.filter((card) => card.id !== creature.id && isEquipmentCard(card));
+  if (!equipment.length) return;
+  const ordered = [creature, ...equipment];
+  const arranged = arrangedCardEntries(ordered, "equipment").map((entry, index) => {
+    if (entry.cardId === creature.id) return { ...entry, clearAttachment: true };
+    return {
+      ...entry,
+      attachedTo: creature.id,
+      attachmentIndex: index,
+    };
+  });
+  await sendAction("arrangeCards", { cards: arranged });
+}
+
+function arrangedCardEntries(cards, layout = "stack") {
+  const layer = document.querySelector(".active-board-shell .battlefield-card-layer");
+  const layerSize = battlefieldLayerPixels() || {
+    width: layer?.offsetWidth || 720,
+    height: layer?.offsetHeight || 460,
+  };
+  const cardSize = currentBattlefieldCardSize();
+  const anchor = selectionAnchor(cards);
+  const entries = [];
+  const spacingX = cardSize.width + 6;
+  const spacingY = cardSize.height + 6;
+  cards.forEach((card, index) => {
+    let x = anchor.x;
+    let y = anchor.y;
+    if (layout === "grid4") {
+      x += (index % 2) * spacingX;
+      y += Math.floor(index / 2) * spacingY;
+    } else if (layout === "grid6") {
+      x += (index % 3) * cardSize.width;
+      y += Math.floor(index / 3) * cardSize.height;
+    } else if (layout === "vertical") {
+      y += index * spacingY;
+    } else if (layout === "horizontal") {
+      x += index * spacingX;
+    } else {
+      x += index * 18;
+      y += index * 14;
+    }
+    const position = clampBattlefieldPixels(
+      { x, y, unit: "px" },
+      Boolean(card.tapped),
+      cardSize,
+      layerSize,
+    );
+    entries.push({ cardId: card.id, position, clearAttachment: layout !== "equipment" });
+  });
+  return entries;
+}
+
+function selectionAnchor(cards) {
+  const xs = cards.map((card) => Number(card.position?.x)).filter(Number.isFinite);
+  const ys = cards.map((card) => Number(card.position?.y)).filter(Number.isFinite);
+  return {
+    x: xs.length ? Math.min(...xs) : 12,
+    y: ys.length ? Math.min(...ys) : 12,
+  };
+}
+
+function isEquipmentCard(card) {
+  return /\bEquipment\b/i.test(card?.typeLine || "");
 }
 
 function pointerDragSource(drag) {
@@ -1476,8 +2557,12 @@ function pointerBattlefieldPosition(event, drag, battlefieldZone) {
 function makeDropZone(element, seat, zone) {
   element.dataset.dropSeat = String(seat);
   element.dataset.dropZone = zone;
+  if (element.dataset.dropBound === "1") return;
+  element.dataset.dropBound = "1";
   element.addEventListener("dragover", (event) => {
-    if (!draggedCard || !canDropCard(draggedCard, seat, zone)) return;
+    const targetSeat = Number(element.dataset.dropSeat);
+    const targetZone = element.dataset.dropZone;
+    if (!draggedCard || !canDropCard(draggedCard, targetSeat, targetZone)) return;
     event.preventDefault();
     element.classList.add("drop-active");
   });
@@ -1485,15 +2570,17 @@ function makeDropZone(element, seat, zone) {
     element.classList.remove("drop-active");
   });
   element.addEventListener("drop", async (event) => {
-    if (!draggedCard || !canDropCard(draggedCard, seat, zone)) return;
+    const targetSeat = Number(element.dataset.dropSeat);
+    const targetZone = element.dataset.dropZone;
+    if (!draggedCard || !canDropCard(draggedCard, targetSeat, targetZone)) return;
     event.preventDefault();
     event.stopPropagation();
     element.classList.remove("drop-active");
     const source = draggedCard;
-    const position = battlefieldPositionFromEvent(event, element, zone, source);
+    const position = battlefieldPositionFromEvent(event, element, targetZone, source);
     draggedCard = null;
     draggedPreviewCardId = "";
-    await dropCard(source, seat, zone, position);
+    await dropCard(source, targetSeat, targetZone, position);
   });
 }
 
@@ -1576,7 +2663,7 @@ function battlefieldLayerPixels() {
   if (!battlefieldCanvasSize) return null;
   return {
     width: Math.max(1, battlefieldCanvasSize.width - 12),
-    height: Math.max(1, battlefieldCanvasSize.height - 26),
+    height: Math.max(1, battlefieldCanvasSize.height - 12),
   };
 }
 
@@ -1633,7 +2720,7 @@ function applyBattlefieldCanvasSize(zone) {
   const layer = zone.querySelector(".battlefield-card-layer");
   if (layer && battlefieldLayerSize) {
     layer.style.left = "6px";
-    layer.style.top = "20px";
+    layer.style.top = "6px";
     layer.style.right = "auto";
     layer.style.bottom = "auto";
     layer.style.width = `${battlefieldLayerSize.width}px`;
@@ -1850,9 +2937,37 @@ function openPreviewActionDialog(card, previewMode) {
 }
 
 function promptLibraryCount(message, mode) {
-  const value = Number(prompt(message, "1"));
-  if (!Number.isFinite(value) || value <= 0) return;
-  sendAction("libraryAction", { mode, count: value });
+  openCountDialog({
+    title: libraryCountTitle(mode),
+    summary: message,
+    value: 1,
+    max: 20,
+    onSubmit: (count) => sendAction("libraryAction", { mode, count }),
+  });
+}
+
+function libraryCountTitle(mode) {
+  const labels = {
+    draw: "Draw Cards",
+    scry: "Scry",
+    surveil: "Surveil",
+    mill: "Mill Cards",
+    reveal: "Reveal Cards",
+  };
+  return labels[mode] || "Choose Count";
+}
+
+function openCountDialog({ title, summary, value = 1, max = 20, onSubmit }) {
+  pendingCountPrompt = { onSubmit };
+  els.countDialogTitle.textContent = title;
+  els.countDialogSummary.textContent = summary;
+  els.countDialogInput.max = String(max);
+  els.countDialogInput.value = String(value);
+  els.countDialog.showModal();
+  setTimeout(() => {
+    els.countDialogInput.focus();
+    els.countDialogInput.select();
+  }, 0);
 }
 
 function promptLibrarySearch() {
@@ -2063,7 +3178,7 @@ function promptCounterValue(message) {
 
 function openCardDialog(card, seat, zone) {
   if (els.zoneDialog.open) els.zoneDialog.close();
-  els.dialogTitle.textContent = card.name;
+  els.dialogTitle.textContent = cardDisplayName(card);
   els.dialogActions.innerHTML = "";
   const actions = [];
 
@@ -2086,6 +3201,7 @@ function openCardDialog(card, seat, zone) {
   }
 
   if (zone === "hand") {
+    actions.push(["Reveal to Playgroup", () => sendAction("revealHandCard", { cardId: card.id })]);
     actions.push(["To Battlefield", () => moveCard(state.currentSeat, "hand", "battlefield", card.id)]);
     if (isCommanderForSeat(card, state.currentSeat)) actions.push(["To Commander", () => moveCard(state.currentSeat, "hand", "commanderZone", card.id)]);
     actions.push(["To Graveyard", () => moveCard(state.currentSeat, "hand", "graveyard", card.id)]);
@@ -2099,6 +3215,10 @@ function openCardDialog(card, seat, zone) {
       actions.push([card.tapped ? "Untap" : "Tap", () => sendAction("tap", { seat, zone, cardId: card.id })]);
       actions.push(["Make Token Copy", () => copyBattlefieldToken(card)]);
       if (card.isToken) actions.push(["Remove Token", () => removeBattlefieldToken(card)]);
+      if (card.isToken && isCreatureCard(card)) {
+        actions.push(["Quantity +", () => adjustCounter(card, "creatureQuantity", 1)]);
+        actions.push(["Quantity -", () => adjustCounter(card, "creatureQuantity", -1)]);
+      }
       actions.push(["Add +1/+1", () => adjustCounter(card, "powerToughness", 1)]);
       actions.push(["Add X/X", () => {
         const value = promptCounterValue("Counter value. Use negative numbers for -X/-X.");
@@ -2117,6 +3237,14 @@ function openCardDialog(card, seat, zone) {
     if (isCommanderForSeat(card, seat)) actions.push(["To Commander", () => moveCard(seat, zone, "commanderZone", card.id)]);
   }
 
+  if (Array.isArray(card.faces) && card.faces.length > 1) {
+    const nextFace = card.faces[(Number(card.faceIndex) + 1) % card.faces.length];
+    actions.unshift([
+      `Flip to ${nextFace?.name || "other face"}`,
+      () => sendAction("flipCard", { zone, cardId: card.id }),
+    ]);
+  }
+
   actions.forEach(([label, handler]) => {
     const button = document.createElement("button");
     button.type = "button";
@@ -2131,6 +3259,26 @@ function openCardDialog(card, seat, zone) {
   els.cardDialog.showModal();
 }
 
+function openReadOnlyCardDialog(card, subtitle = "Card") {
+  if (els.zoneDialog.open) els.zoneDialog.close();
+  els.dialogTitle.textContent = cardDisplayName(card);
+  els.dialogActions.innerHTML = "";
+
+  const preview = displayCardElement(card, subtitle, "dialogPreview");
+  preview.classList.add("dialog-preview-card");
+  preview.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+
+  const note = document.createElement("p");
+  note.className = "dialog-note";
+  note.textContent = subtitle;
+
+  els.dialogActions.append(preview, note);
+  els.cardDialog.showModal();
+}
+
 function moveCard(seat, fromZone, toZone, cardId, toSeat = seat, position = null) {
   return sendAction("moveCard", { seat, fromZone, toZone, cardId, toSeat, position });
 }
@@ -2139,8 +3287,12 @@ function labelForZone(zone) {
   return zone.charAt(0).toUpperCase() + zone.slice(1);
 }
 
+function cardDisplayName(card) {
+  return String(card?.displayName || card?.name || "Card");
+}
+
 function escapeHtml(value) {
-  return value.replace(/[&<>"']/g, (char) => ({
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
     "&": "&amp;",
     "<": "&lt;",
     ">": "&gt;",
@@ -2166,24 +3318,66 @@ async function copyText(text) {
   }
 }
 
+function showRoomPasswordDialog(message = "Enter the password to join this room.") {
+  closeRoomEvents();
+  els.roomPasswordMessage.textContent = message;
+  els.joinRoomPasswordInput.value = "";
+  if (!els.roomPasswordDialog.open) els.roomPasswordDialog.showModal();
+  requestAnimationFrame(() => els.joinRoomPasswordInput.focus());
+}
+
 els.roomForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const room = await api("/api/rooms", {
-    method: "POST",
-    body: JSON.stringify({
-      name: els.roomNameInput.value.trim() || "Mage Table",
-      playerCount: Number(els.playerCountInput.value),
-    }),
-  });
-  history.replaceState(null, "", room.selfUrl);
-  forceInviteDialog = true;
-  await refreshState();
+  const submitButton = els.roomForm.querySelector('button[type="submit"]');
+  if (submitButton) submitButton.disabled = true;
+  try {
+    const room = await api("/api/rooms", {
+      method: "POST",
+      body: JSON.stringify({
+        name: els.roomNameInput.value.trim() || "Mage Table",
+        password: els.roomPasswordInput.value,
+        playerCount: els.singlePlayerInput.checked ? 1 : Number(els.playerCountInput.value),
+      }),
+    });
+    storeRoomPassword(room.id, els.roomPasswordInput.value);
+    history.replaceState(null, "", room.selfUrl);
+    forceInviteDialog = true;
+    await refreshState();
+  } catch (error) {
+    alert(`Could not create the room: ${error.message}`);
+  } finally {
+    if (submitButton) submitButton.disabled = false;
+  }
 });
 
 els.newRoomButton.addEventListener("click", () => {
   state = null;
+  closeRoomEvents();
+  els.dicePopover.classList.add("hidden");
   history.replaceState(null, "", "/");
   render();
+});
+
+els.singlePlayerInput.addEventListener("change", () => {
+  els.playerCountInput.disabled = els.singlePlayerInput.checked;
+  els.playerCountLabel.classList.toggle("disabled-field", els.singlePlayerInput.checked);
+});
+
+els.roomPasswordForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (event.submitter?.value === "cancel") {
+    els.roomPasswordDialog.close();
+    return;
+  }
+  const roomId = roomIdFromUrl();
+  storeRoomPassword(roomId, els.joinRoomPasswordInput.value);
+  els.submitRoomPasswordButton.disabled = true;
+  els.roomPasswordDialog.close();
+  try {
+    await refreshState();
+  } finally {
+    els.submitRoomPasswordButton.disabled = false;
+  }
 });
 
 els.showInvitesButton.addEventListener("click", () => {
@@ -2205,8 +3399,38 @@ els.seatSelect.addEventListener("change", () => {
 
 els.endTurnButton.addEventListener("click", () => sendAction("turn"));
 els.instantButton.addEventListener("click", () => sendAction("takePriority"));
-els.combatPassButton.addEventListener("click", () => sendAction("combatPass"));
+els.combatPassButton.addEventListener("click", () => sendCombatPass());
 els.passPriorityButton.addEventListener("click", () => sendAction("passPriority"));
+
+els.diceButton.addEventListener("click", () => {
+  els.dicePopover.classList.toggle("hidden");
+});
+
+els.randomFirstPlayerButton.addEventListener("click", async () => {
+  els.randomFirstPlayerButton.disabled = true;
+  try {
+    await sendAction("randomFirstPlayer");
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    els.randomFirstPlayerButton.disabled = false;
+  }
+});
+
+els.closeDiceButton.addEventListener("click", () => {
+  els.dicePopover.classList.add("hidden");
+});
+
+document.querySelectorAll("[data-die]").forEach((button) => {
+  button.addEventListener("click", () => rollDice(Number(button.dataset.die) || 20));
+});
+
+els.randomRollButton.addEventListener("click", () => rollRandomNumber());
+
+els.dismissDiceNoticeButton.addEventListener("click", () => {
+  dismissedDiceNoticeId = state?.diceNotice?.id || "";
+  renderDiceNotice();
+});
 
 els.loadDeckButton.addEventListener("click", async () => {
   els.loadDeckButton.disabled = true;
@@ -2241,7 +3465,23 @@ els.deckSetupForm.addEventListener("submit", async (event) => {
   }
 });
 
-els.drawButton.addEventListener("click", () => sendAction("draw"));
+els.drawButton.addEventListener("click", () => {
+  clearDrawButtonFlash();
+  sendAction("draw");
+});
+
+els.drawReminder.addEventListener("click", () => {
+  if (els.drawButton.disabled) return;
+  clearDrawButtonFlash();
+  sendAction("draw");
+});
+
+els.untapAllButton.addEventListener("click", async () => {
+  dismissUntapReminder();
+  await sendAction("untapAll");
+});
+
+els.dismissUntapButton.addEventListener("click", dismissUntapReminder);
 
 els.uiScaleInput.addEventListener("input", () => {
   applyCardScale(els.uiScaleInput.value);
@@ -2270,6 +3510,13 @@ async function updateRoomSettings() {
 els.friendlyMulligansInput.addEventListener("change", updateRoomSettings);
 els.darkModeInput.addEventListener("change", updateRoomSettings);
 
+els.resetKeybindsButton.addEventListener("click", () => {
+  keybinds = defaultKeybinds();
+  keybindCaptureAction = "";
+  saveKeybinds();
+  renderKeybindSettings();
+});
+
 els.keepHandButton.addEventListener("click", async () => {
   els.keepHandButton.disabled = true;
   els.mulliganButton.disabled = true;
@@ -2297,6 +3544,7 @@ els.mulliganDialog.addEventListener("cancel", (event) => {
 });
 
 els.boardReferenceButton.addEventListener("click", () => {
+  boardReferenceSeat = null;
   renderBoardReference();
   els.boardReferenceDialog.showModal();
 });
@@ -2352,6 +3600,21 @@ els.librarySearchInput.addEventListener("input", () => {
   renderLibrarySearchDialog();
 });
 
+els.countDialogForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const submitterValue = event.submitter?.value || "";
+  if (submitterValue === "cancel") {
+    pendingCountPrompt = null;
+    els.countDialog.close();
+    return;
+  }
+  const count = Math.max(1, Math.min(Number(els.countDialogInput.max) || 20, Math.round(Number(els.countDialogInput.value) || 1)));
+  const handler = pendingCountPrompt?.onSubmit;
+  pendingCountPrompt = null;
+  els.countDialog.close();
+  if (handler) await handler(count);
+});
+
 els.tokenSearchButton.addEventListener("click", () => {
   runTokenSearch();
 });
@@ -2367,17 +3630,151 @@ els.createCustomTokenButton.addEventListener("click", () => {
   createCustomToken();
 });
 
+function shortcutTargetIsTextInput(target) {
+  return Boolean(target?.closest?.("input, textarea, select, [contenteditable='true']"));
+}
+
+function defaultKeybinds() {
+  return Object.fromEntries(keybindDefinitions.map((definition) => [definition.id, definition.defaultBinding]));
+}
+
+function loadKeybinds() {
+  const defaults = defaultKeybinds();
+  try {
+    const saved = JSON.parse(localStorage.getItem(keybindStorageKey) || "{}");
+    keybindDefinitions.forEach((definition) => {
+      if (typeof saved[definition.id] === "string" && saved[definition.id]) defaults[definition.id] = saved[definition.id];
+    });
+  } catch {
+    return defaults;
+  }
+  return defaults;
+}
+
+function saveKeybinds() {
+  localStorage.setItem(keybindStorageKey, JSON.stringify(keybinds));
+}
+
+function shortcutFromEvent(event) {
+  let key = String(event.key || "").toLowerCase();
+  if (["control", "shift", "alt", "meta"].includes(key)) return "";
+  if (key === " ") key = "space";
+  const parts = [];
+  if (event.ctrlKey || event.metaKey) parts.push("ctrl");
+  if (event.altKey) parts.push("alt");
+  if (event.shiftKey) parts.push("shift");
+  parts.push(key);
+  return parts.join("+");
+}
+
+function formatShortcut(binding) {
+  if (!binding) return "Unassigned";
+  return binding
+    .split("+")
+    .map((part) => ({ ctrl: "Ctrl", alt: "Alt", shift: "Shift", space: "Space" })[part] || part.toUpperCase())
+    .join(" + ");
+}
+
+function renderKeybindSettings() {
+  if (!els.keybindList) return;
+  els.keybindList.innerHTML = "";
+  keybindDefinitions.forEach((definition) => {
+    const row = document.createElement("div");
+    row.className = "keybind-row";
+    const label = document.createElement("span");
+    label.textContent = definition.label;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `keybind-capture${keybindCaptureAction === definition.id ? " capturing" : ""}`;
+    button.textContent = keybindCaptureAction === definition.id ? "Press key" : formatShortcut(keybinds[definition.id]);
+    button.addEventListener("click", () => {
+      keybindCaptureAction = definition.id;
+      renderKeybindSettings();
+    });
+    row.append(label, button);
+    els.keybindList.append(row);
+  });
+}
+
+function captureKeybind(event) {
+  if (!keybindCaptureAction) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.key === "Escape") {
+    keybindCaptureAction = "";
+    renderKeybindSettings();
+    return true;
+  }
+  if (event.key === "Tab") return true;
+  const binding = shortcutFromEvent(event);
+  if (!binding) return true;
+  const actionId = keybindCaptureAction;
+  const previousBinding = keybinds[actionId];
+  const conflict = Object.entries(keybinds).find(([id, value]) => id !== actionId && value === binding)?.[0];
+  keybinds[actionId] = binding;
+  if (conflict) keybinds[conflict] = previousBinding;
+  keybindCaptureAction = "";
+  saveKeybinds();
+  renderKeybindSettings();
+  return true;
+}
+
+function dialogBlocksShortcuts() {
+  return Boolean(document.querySelector("dialog[open]"));
+}
+
+function runShortcutAction(action) {
+  Promise.resolve()
+    .then(action)
+    .catch((error) => alert(error.message));
+}
+
+function handleGameShortcut(event) {
+  if (!state || event.repeat || shortcutTargetIsTextInput(event.target) || dialogBlocksShortcuts()) return;
+  const binding = shortcutFromEvent(event);
+  const actionId = Object.entries(keybinds).find(([, value]) => value === binding)?.[0];
+  if (!actionId) return;
+  event.preventDefault();
+  runShortcutAction(() => executeShortcutAction(actionId));
+}
+
+function executeShortcutAction(actionId) {
+  if (actionId === "undo") return sendAction("undo");
+  if (actionId === "redo") return sendAction("redo");
+  if (actionId === "selectAll") return selectAllBattlefieldCards();
+  if (actionId === "cascade") return arrangeSelectedBattlefieldCards("stack");
+  if (actionId === "equip") return equipSelectedBattlefieldCards();
+  if (actionId === "passPriority") return !els.passPriorityButton.disabled ? sendAction("passPriority") : null;
+  if (actionId === "takePriority") return !els.instantButton.disabled ? sendAction("takePriority") : null;
+  if (actionId === "combatPass") return !els.combatPassButton.disabled ? sendCombatPass() : null;
+  if (actionId === "endTurn") return !els.endTurnButton.disabled ? sendAction("turn") : null;
+  if (actionId === "draw") {
+    if (els.drawButton.disabled) return null;
+    clearDrawButtonFlash();
+    return sendAction("draw");
+  }
+  if (actionId !== "toggleTap" || !canActNow()) return null;
+  if (selectedBattlefieldCards.size) return tapSelectedBattlefieldCards("toggle");
+  const hoveredCardId = hoveredZoomCard?.dataset?.zone === "battlefield" && Number(hoveredZoomCard.dataset.seat) === state.currentSeat
+    ? hoveredZoomCard.dataset.cardId
+    : "";
+  return hoveredCardId ? sendAction("tap", { seat: state.currentSeat, zone: "battlefield", cardId: hoveredCardId }) : null;
+}
+
 document.addEventListener("keydown", (event) => {
+  if (captureKeybind(event)) return;
   if (event.key === "Control") {
     document.body.classList.add("ctrl-zoom");
     if (hoveredZoomCard) showCardZoom(hoveredZoomCard);
   }
   if (event.key === "Shift") {
     document.body.classList.add("hide-counters");
+    document.body.classList.add("shift-cascade");
   }
   if (event.key === "Alt") {
     document.body.classList.add("alt-counters");
   }
+  handleGameShortcut(event);
 });
 
 document.addEventListener("keyup", (event) => {
@@ -2387,6 +3784,7 @@ document.addEventListener("keyup", (event) => {
   }
   if (event.key === "Shift") {
     document.body.classList.remove("hide-counters");
+    document.body.classList.remove("shift-cascade");
   }
   if (event.key === "Alt") {
     document.body.classList.remove("alt-counters");
@@ -2396,9 +3794,35 @@ document.addEventListener("keyup", (event) => {
 document.addEventListener("mousemove", (event) => {
   document.body.classList.toggle("ctrl-zoom", event.ctrlKey);
   document.body.classList.toggle("hide-counters", event.shiftKey);
+  document.body.classList.toggle("shift-cascade", event.shiftKey);
   document.body.classList.toggle("alt-counters", event.altKey);
   if (event.ctrlKey && hoveredZoomCard) positionCardZoom(hoveredZoomCard);
   if (!event.ctrlKey) hideCardZoom();
+});
+
+document.addEventListener("pointerdown", (event) => {
+  if (!els.dicePopover.classList.contains("hidden") && !event.target.closest("#dicePopover") && !event.target.closest("#diceButton")) {
+    els.dicePopover.classList.add("hidden");
+  }
+  if (openLifeMenuKey && !event.target.closest(".life-menu")) {
+    openLifeMenuKey = "";
+    document.querySelectorAll(".life-menu[open]").forEach((menu) => {
+      menu.open = false;
+    });
+  }
+});
+
+document.querySelectorAll("dialog").forEach((dialog) => {
+  dialog.addEventListener("click", (event) => {
+    if (event.target !== dialog) return;
+    if (dialog === els.mulliganDialog && state?.currentPlayer?.mulliganPending) return;
+    if (dialog === els.recapDialog) {
+      closeRecapDialog();
+      return;
+    }
+    if (dialog === els.countDialog) pendingCountPrompt = null;
+    dialog.close();
+  });
 });
 
 window.addEventListener("resize", () => {
@@ -2422,5 +3846,7 @@ document.addEventListener("visibilitychange", () => {
 
 loadCardScale();
 loadOpacitySettings();
+renderKeybindSettings();
+els.playerCountInput.disabled = els.singlePlayerInput.checked;
 refreshState();
 startPolling();
