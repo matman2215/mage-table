@@ -27,6 +27,8 @@ const els = {
   registerPasswordInput: document.querySelector("#registerPasswordInput"),
   logoutButton: document.querySelector("#logoutButton"),
   newSavedDeckButton: document.querySelector("#newSavedDeckButton"),
+  savedDeckSearchInput: document.querySelector("#savedDeckSearchInput"),
+  savedDeckSummary: document.querySelector("#savedDeckSummary"),
   savedDeckList: document.querySelector("#savedDeckList"),
   tablePanel: document.querySelector("#tablePanel"),
   roomForm: document.querySelector("#roomForm"),
@@ -52,6 +54,13 @@ const els = {
   closeStatisticsButton: document.querySelector("#closeStatisticsButton"),
   statisticsSummary: document.querySelector("#statisticsSummary"),
   statisticsTurnLog: document.querySelector("#statisticsTurnLog"),
+  combatButton: document.querySelector("#combatButton"),
+  combatPopover: document.querySelector("#combatPopover"),
+  closeCombatButton: document.querySelector("#closeCombatButton"),
+  combatPopoverTitle: document.querySelector("#combatPopoverTitle"),
+  combatPopoverSummary: document.querySelector("#combatPopoverSummary"),
+  combatPopoverCards: document.querySelector("#combatPopoverCards"),
+  combatPopoverDamageButton: document.querySelector("#combatPopoverDamageButton"),
   dicePopover: document.querySelector("#dicePopover"),
   closeDiceButton: document.querySelector("#closeDiceButton"),
   diceCountInput: document.querySelector("#diceCountInput"),
@@ -175,11 +184,17 @@ const els = {
   saveDeckDialog: document.querySelector("#saveDeckDialog"),
   saveDeckForm: document.querySelector("#saveDeckForm"),
   saveDeckDialogTitle: document.querySelector("#saveDeckDialogTitle"),
+  closeSaveDeckButton: document.querySelector("#closeSaveDeckButton"),
   savedDeckIdInput: document.querySelector("#savedDeckIdInput"),
   savedDeckNameInput: document.querySelector("#savedDeckNameInput"),
   savedDeckCommanderInput: document.querySelector("#savedDeckCommanderInput"),
   savedDeckListInput: document.querySelector("#savedDeckListInput"),
+  savedDeckCount: document.querySelector("#savedDeckCount"),
   submitSavedDeckButton: document.querySelector("#submitSavedDeckButton"),
+  deleteDeckDialog: document.querySelector("#deleteDeckDialog"),
+  deleteDeckForm: document.querySelector("#deleteDeckForm"),
+  deleteDeckSummary: document.querySelector("#deleteDeckSummary"),
+  closeDeleteDeckButton: document.querySelector("#closeDeleteDeckButton"),
 };
 
 let state = null;
@@ -224,6 +239,7 @@ let landingView = "menu";
 let account = null;
 let savedDecks = [];
 let accountMode = "login";
+let pendingDeleteDeckId = "";
 const selectedBattlefieldCards = new Set();
 const playerCounterSelections = new Map();
 const dismissedReveals = new Set();
@@ -506,19 +522,27 @@ function renderAccountControls() {
 
 function renderSavedDecks() {
   els.savedDeckList.innerHTML = "";
-  if (!savedDecks.length) {
+  const query = els.savedDeckSearchInput.value.trim().toLowerCase();
+  const filtered = query
+    ? savedDecks.filter((deck) => `${deck.name} ${deck.commander}`.toLowerCase().includes(query))
+    : savedDecks;
+  els.savedDeckSummary.textContent = query
+    ? `${filtered.length} of ${savedDecks.length} decks`
+    : `${savedDecks.length} deck${savedDecks.length === 1 ? "" : "s"}`;
+  if (!filtered.length) {
     const empty = document.createElement("p");
     empty.className = "empty-list-message";
-    empty.textContent = "No saved decks yet.";
+    empty.textContent = savedDecks.length ? "No saved decks match this filter." : "No saved decks yet.";
     els.savedDeckList.append(empty);
     return;
   }
-  savedDecks.forEach((deck) => {
+  filtered.forEach((deck) => {
     const row = document.createElement("div");
     row.className = "saved-deck-row";
     const details = document.createElement("div");
     details.className = "saved-deck-details";
-    details.innerHTML = `<strong>${escapeHtml(deck.name)}</strong><span>${escapeHtml(deck.commander || "No commander")} - Updated ${escapeHtml(new Date(deck.updatedAt).toLocaleDateString())}</span>`;
+    const cardCount = deckListCardCount(deck.decklist);
+    details.innerHTML = `<strong>${escapeHtml(deck.name)}</strong><span>${cardCount} cards - ${escapeHtml(deck.commander || "No commander")} - Updated ${escapeHtml(new Date(deck.updatedAt).toLocaleDateString())}</span>`;
     const actions = document.createElement("div");
     actions.className = "saved-deck-actions";
     const use = document.createElement("button");
@@ -530,10 +554,55 @@ function renderSavedDecks() {
     edit.className = "secondary";
     edit.textContent = "Edit";
     edit.addEventListener("click", () => openSaveDeckDialog(deck));
-    actions.append(use, edit);
+    const duplicate = document.createElement("button");
+    duplicate.type = "button";
+    duplicate.className = "secondary";
+    duplicate.textContent = "Copy";
+    duplicate.addEventListener("click", () => duplicateSavedDeck(deck));
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "danger";
+    remove.textContent = "Delete";
+    remove.addEventListener("click", () => openDeleteDeckDialog(deck));
+    actions.append(use, edit, duplicate, remove);
     row.append(details, actions);
     els.savedDeckList.append(row);
   });
+}
+
+function deckListCardCount(decklist) {
+  return String(decklist || "")
+    .split(/\r?\n/)
+    .reduce((total, rawLine) => {
+      const line = rawLine.trim();
+      if (!line) return total;
+      const match = line.match(/^(?:SB:\s*)?(\d+)\s*[xX]?\s+.+$/i);
+      return total + (match ? Number(match[1]) || 0 : 0);
+    }, 0);
+}
+
+function updateSavedDeckCount() {
+  const count = deckListCardCount(els.savedDeckListInput.value);
+  els.savedDeckCount.textContent = `${count} card${count === 1 ? "" : "s"}`;
+}
+
+async function duplicateSavedDeck(deck) {
+  try {
+    await accountApi("/api/account/decks", {
+      method: "POST",
+      body: JSON.stringify({ name: `${deck.name} Copy`, commander: deck.commander, decklist: deck.decklist }),
+    });
+    await loadSavedDecks();
+    setAccountStatus("Deck copied.");
+  } catch (error) {
+    setAccountStatus(error.message, true);
+  }
+}
+
+function openDeleteDeckDialog(deck) {
+  pendingDeleteDeckId = deck.id;
+  els.deleteDeckSummary.textContent = `Delete ${deck.name}? This cannot be undone.`;
+  els.deleteDeckDialog.showModal();
 }
 
 function useSavedDeck(deck) {
@@ -557,6 +626,7 @@ function openSaveDeckDialog(deck = null, values = null) {
   els.savedDeckNameInput.value = source.name || "";
   els.savedDeckCommanderInput.value = source.commander || "";
   els.savedDeckListInput.value = source.decklist || "";
+  updateSavedDeckCount();
   els.saveDeckDialogTitle.textContent = deck ? "Edit Saved Deck" : "Save Deck";
   els.saveDeckDialog.showModal();
   requestAnimationFrame(() => els.savedDeckNameInput.focus());
@@ -598,7 +668,7 @@ async function restoreAccountSession() {
 }
 
 function closeActionPopovers(except = null) {
-  [els.dicePopover, els.clockPopover, els.statisticsPopover].forEach((popover) => {
+  [els.dicePopover, els.clockPopover, els.statisticsPopover, els.combatPopover].forEach((popover) => {
     if (popover && popover !== except) popover.classList.add("hidden");
   });
 }
@@ -790,6 +860,7 @@ function render() {
     els.randomFirstPlayerButton.classList.add("hidden");
     els.clockButton.classList.add("hidden");
     els.statisticsButton.classList.add("hidden");
+    els.combatButton.classList.add("hidden");
     els.sidebarToggle.classList.add("hidden");
     els.exitGameButton.classList.add("hidden");
     closeActionPopovers();
@@ -813,6 +884,7 @@ function render() {
   els.diceButton.classList.remove("hidden");
   els.clockButton.classList.remove("hidden");
   els.statisticsButton.classList.remove("hidden");
+  els.combatButton.classList.toggle("hidden", !state.combatSnapshot?.cards?.length);
   els.sidebarToggle.classList.remove("hidden");
   els.exitGameButton.classList.remove("hidden");
   els.randomFirstPlayerButton.classList.toggle("hidden", !state.currentPlayer.isHost || state.players.length < 2);
@@ -829,6 +901,7 @@ function render() {
   renderDiceNotice();
   renderClockPanel();
   renderStatisticsPanel();
+  renderCombatPanel();
   renderAccountControls();
   renderKeybindSettings();
   renderBoardReference();
@@ -1246,6 +1319,9 @@ function combatSnapshotRibbon() {
   const cards = document.createElement("div");
   cards.className = "combat-snapshot-cards";
   snapshot.cards.forEach((card) => cards.append(combatSnapshotCard(card)));
+  const actions = document.createElement("div");
+  actions.className = "combat-snapshot-actions";
+  const takeDamage = combatDamageButton(snapshot, true);
   const dismiss = document.createElement("button");
   dismiss.type = "button";
   dismiss.className = "combat-snapshot-dismiss";
@@ -1259,7 +1335,12 @@ function combatSnapshotRibbon() {
     renderPlayers();
     if (els.boardReferenceDialog.open) renderBoardReference();
   });
-  ribbon.append(label, cards, dismiss);
+  actions.append(takeDamage, dismiss);
+  ribbon.append(label, cards, actions);
+  ribbon.addEventListener("click", (event) => {
+    if (event.target.closest("button")) return;
+    openCombatPanel();
+  });
   return ribbon;
 }
 
@@ -1275,15 +1356,74 @@ function combatSnapshotCard(card) {
   const combatDetail = card.isCreature
     ? ` Total ${card.totalPower}/${card.totalToughness}${card.quantity > 1 ? ` from ${card.quantity} creatures.` : "."}`
     : "";
-  item.title = `${cardDisplayName(card)}.${combatDetail} Click to enlarge or hold Control to zoom.`;
-  const openPreview = (event) => {
+  item.title = `${cardDisplayName(card)}.${combatDetail} Click to view the full attacking party or hold Control to zoom.`;
+  const openParty = (event) => {
     event.preventDefault();
     event.stopPropagation();
-    openReadOnlyCardDialog(card, "Declared attacker");
+    openCombatPanel();
   };
-  item.addEventListener("click", openPreview);
-  item.addEventListener("contextmenu", openPreview);
+  item.addEventListener("click", openParty);
+  item.addEventListener("contextmenu", openParty);
   return item;
+}
+
+function combatDamageButton(snapshot, compact = false) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `combat-damage-button${compact ? " compact" : ""}`;
+  const isDefender = Number(snapshot?.defenderSeat) === Number(state?.currentSeat);
+  button.textContent = snapshot?.damageApplied ? "Damage Applied" : compact ? "All Damage" : "Take All Damage";
+  button.disabled = Boolean(snapshot?.damageApplied) || !isDefender;
+  button.title = snapshot?.damageApplied
+    ? "Combat damage has already been applied"
+    : isDefender ? "Take the attacking party's total power as damage" : "Only the defending player can take this damage";
+  button.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (button.disabled) return;
+    button.disabled = true;
+    try {
+      await sendAction("takeCombatDamage");
+    } catch (error) {
+      alert(error.message);
+    }
+  });
+  return button;
+}
+
+function openCombatPanel() {
+  if (!state?.combatSnapshot?.cards?.length) return;
+  renderCombatPanel();
+  closeActionPopovers(els.combatPopover);
+  els.combatPopover.classList.remove("hidden");
+}
+
+function renderCombatPanel() {
+  const snapshot = state?.combatSnapshot;
+  if (!snapshot?.cards?.length) {
+    els.combatPopover.classList.add("hidden");
+    els.combatPopoverCards.innerHTML = "";
+    return;
+  }
+  const totals = snapshot.totals || { creatures: 0, power: 0, toughness: 0 };
+  els.combatPopoverTitle.textContent = `${snapshot.attackerName || "Attacker"} Attacking`;
+  els.combatPopoverSummary.textContent = `${snapshot.cards.length} card${snapshot.cards.length === 1 ? "" : "s"} attacking ${snapshot.defenderName || "the defending player"} - ${totals.power} total power / ${totals.toughness} total toughness.`;
+  els.combatPopoverCards.innerHTML = "";
+  snapshot.cards.forEach((card) => {
+    const item = displayCardElement(card, card.typeLine || "Attacker", "combatPanel");
+    item.classList.add("combat-popover-card");
+    if (card.isCreature) {
+      const stats = document.createElement("span");
+      stats.className = "combat-popover-card-stats";
+      stats.textContent = `${card.totalPower}/${card.totalToughness}`;
+      item.append(stats);
+    }
+    els.combatPopoverCards.append(item);
+  });
+  const replacement = combatDamageButton(snapshot);
+  els.combatPopoverDamageButton.replaceWith(replacement);
+  replacement.id = "combatPopoverDamageButton";
+  els.combatPopoverDamageButton = replacement;
 }
 
 function isCombatSnapshotCard(cardId) {
@@ -1933,9 +2073,10 @@ function lifeTotal(value, entry) {
 function playerCounterControl(player) {
   const wrap = document.createElement("div");
   wrap.className = "player-counter-control";
-  const chips = playerCounterChips(player.playerCounters, player.seat === state.currentSeat);
+  const editable = player.seat === state.currentSeat;
+  const chips = playerCounterChips(player.playerCounters, editable, player.seat);
   wrap.append(chips);
-  if (player.seat !== state.currentSeat) return wrap;
+  if (!editable) return wrap;
 
   const row = document.createElement("div");
   row.className = "player-counter-row";
@@ -1973,12 +2114,12 @@ function playerCounterOptionsFor(targetSeat) {
   return [...commanderOptions, ...basePlayerCounterOptions];
 }
 
-function playerCounterChips(counters = {}, showEmpty = false) {
+function playerCounterChips(counters = {}, editable = false, seat = null) {
   const chips = document.createElement("div");
   chips.className = "player-counter-chips";
   const entries = Object.entries(counters || {}).filter(([, value]) => Number(value) > 0);
   if (!entries.length) {
-    if (!showEmpty) return chips;
+    if (!editable) return chips;
     const empty = document.createElement("span");
     empty.className = "player-counter-empty";
     empty.textContent = "No counters";
@@ -1986,9 +2127,21 @@ function playerCounterChips(counters = {}, showEmpty = false) {
     return chips;
   }
   entries.forEach(([name, value]) => {
-    const chip = document.createElement("span");
-    chip.className = "player-counter-chip";
-    chip.textContent = `${name}: ${value}`;
+    const chip = document.createElement(editable ? "div" : "span");
+    chip.className = `player-counter-chip${editable ? " editable" : ""}`;
+    if (!editable) {
+      chip.textContent = `${name}: ${value}`;
+      chips.append(chip);
+      return;
+    }
+    const label = document.createElement("span");
+    label.className = "player-counter-chip-name";
+    label.textContent = name;
+    const minus = playerCounterButton("-", () => sendAction("playerCounter", { seat, counterName: name, delta: -1 }));
+    const number = document.createElement("strong");
+    number.textContent = String(value);
+    const plus = playerCounterButton("+", () => sendAction("playerCounter", { seat, counterName: name, delta: 1 }));
+    chip.append(label, minus, number, plus);
     chips.append(chip);
   });
   return chips;
@@ -3222,6 +3375,8 @@ function showCardZoom(cardNode) {
     zoomOverlay.className = "card-zoom-overlay";
     document.body.append(zoomOverlay);
   }
+  const zoomHost = cardNode.closest("dialog[open]") || document.body;
+  if (zoomOverlay.parentElement !== zoomHost) zoomHost.append(zoomOverlay);
   zoomOverlay.innerHTML = "";
   const clone = cardNode.cloneNode(true);
   clone.removeAttribute("id");
@@ -3229,7 +3384,8 @@ function showCardZoom(cardNode) {
   clone.style.left = "";
   clone.style.top = "";
   clone.style.zIndex = "";
-  clone.classList.remove("dragging");
+  clone.classList.remove("dragging", "free-card", "combat-snapshot-card", "revealed-library-card", "tapped");
+  clone.classList.add("zoom-card-clone");
   zoomOverlay.append(clone);
   zoomOverlay.classList.remove("hidden");
   positionCardZoom(cardNode);
@@ -3239,8 +3395,12 @@ function positionCardZoom(cardNode) {
   if (!zoomOverlay || zoomOverlay.classList.contains("hidden") || !cardNode) return;
   const rect = cardNode.getBoundingClientRect();
   const margin = 10;
-  const width = rect.width * zoomScale;
-  const height = rect.height * zoomScale;
+  const standard = currentBattlefieldCardSize();
+  let width = standard.width * zoomScale;
+  let height = standard.height * zoomScale;
+  const fitScale = Math.min(1, (window.innerWidth - margin * 2) / width, (window.innerHeight - margin * 2) / height);
+  width *= fitScale;
+  height *= fitScale;
   let left = rect.left + rect.width / 2 - width / 2;
   let top = rect.top + rect.height / 2 - height / 2;
   left = Math.max(margin, Math.min(window.innerWidth - width - margin, left));
@@ -3884,6 +4044,30 @@ els.logoutButton.addEventListener("click", async () => {
 });
 
 els.newSavedDeckButton.addEventListener("click", () => openSaveDeckDialog());
+els.savedDeckSearchInput.addEventListener("input", renderSavedDecks);
+els.savedDeckListInput.addEventListener("input", updateSavedDeckCount);
+els.closeSaveDeckButton.addEventListener("click", () => els.saveDeckDialog.close());
+els.saveDeckDialog.addEventListener("cancel", (event) => event.preventDefault());
+els.closeDeleteDeckButton.addEventListener("click", () => {
+  pendingDeleteDeckId = "";
+  els.deleteDeckDialog.close();
+});
+els.deleteDeckDialog.addEventListener("cancel", (event) => event.preventDefault());
+
+els.deleteDeckForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (event.submitter?.value !== "delete" || !pendingDeleteDeckId) return;
+  const deckId = pendingDeleteDeckId;
+  try {
+    await accountApi(`/api/account/decks/${encodeURIComponent(deckId)}`, { method: "DELETE" });
+    pendingDeleteDeckId = "";
+    els.deleteDeckDialog.close();
+    await loadSavedDecks();
+    setAccountStatus("Deck deleted.");
+  } catch (error) {
+    setAccountStatus(error.message, true);
+  }
+});
 
 els.roomForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -3989,6 +4173,13 @@ els.statisticsButton.addEventListener("click", () => {
   if (opening) renderStatisticsPanel();
 });
 
+els.combatButton.addEventListener("click", () => {
+  const opening = els.combatPopover.classList.contains("hidden");
+  closeActionPopovers(opening ? els.combatPopover : null);
+  els.combatPopover.classList.toggle("hidden", !opening);
+  if (opening) renderCombatPanel();
+});
+
 els.randomFirstPlayerButton.addEventListener("click", async () => {
   els.randomFirstPlayerButton.disabled = true;
   try {
@@ -4010,6 +4201,10 @@ els.closeClockButton.addEventListener("click", () => {
 
 els.closeStatisticsButton.addEventListener("click", () => {
   els.statisticsPopover.classList.add("hidden");
+});
+
+els.closeCombatButton.addEventListener("click", () => {
+  els.combatPopover.classList.add("hidden");
 });
 
 document.querySelectorAll("[data-die]").forEach((button) => {
@@ -4438,6 +4633,7 @@ document.addEventListener("pointerdown", (event) => {
     [els.dicePopover, "#dicePopover", "#diceButton"],
     [els.clockPopover, "#clockPopover", "#clockButton"],
     [els.statisticsPopover, "#statisticsPopover", "#statisticsButton"],
+    [els.combatPopover, "#combatPopover", "#combatButton"],
   ];
   popoverTargets.forEach(([popover, popoverSelector, buttonSelector]) => {
     if (!popover.classList.contains("hidden") && !event.target.closest(popoverSelector) && !event.target.closest(buttonSelector)) {
@@ -4455,6 +4651,7 @@ document.addEventListener("pointerdown", (event) => {
 document.querySelectorAll("dialog").forEach((dialog) => {
   dialog.addEventListener("click", (event) => {
     if (event.target !== dialog) return;
+    if (dialog === els.saveDeckDialog || dialog === els.deleteDeckDialog) return;
     if (dialog === els.mulliganDialog && state?.currentPlayer?.mulliganPending) return;
     if (dialog === els.recapDialog) {
       closeRecapDialog();

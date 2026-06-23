@@ -1675,11 +1675,29 @@ async function applyAction(room, actor, body) {
         defenderName: room.players[room.prioritySeat].name,
         cards: attackerCards,
         totals: combatPartyTotals(attackerCards),
+        damageApplied: false,
         at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
       addLog(room, `${actor.name} passed priority for blockers to ${room.players[room.prioritySeat].name}.`, actor, {
         kind: "combat",
         cards: room.combatSnapshot.cards,
+      });
+      break;
+    }
+    case "takeCombatDamage": {
+      const snapshot = room.combatSnapshot;
+      if (room.priorityMode !== "combat" || !snapshot) throw new Error("There is no active combat damage to take.");
+      if (actor.seat !== Number(snapshot.defenderSeat)) throw new Error("Only the defending player can take this combat damage.");
+      if (snapshot.damageApplied) throw new Error("Combat damage has already been applied.");
+      const damage = Math.max(0, Math.round(Number(snapshot.totals?.power) || 0));
+      actor.life = Math.max(-999, Math.min(999, actor.life - damage));
+      snapshot.damageApplied = true;
+      snapshot.damageTaken = damage;
+      addLog(room, `${actor.name} took ${damage} combat damage and moved to ${actor.life} life.`, actor, {
+        kind: "life",
+        seat: actor.seat,
+        value: actor.life,
+        combatDamage: damage,
       });
       break;
     }

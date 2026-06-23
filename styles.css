@@ -245,6 +245,11 @@ h2 {
 .rail-bars i:nth-child(2) { height: 11px; }
 .rail-bars i:nth-child(3) { height: 16px; }
 
+.combat-rail-button {
+  color: var(--warn);
+  box-shadow: inset 0 0 0 1px rgba(159, 79, 22, 0.38);
+}
+
 #showInvitesButton.top-icon-button {
   width: 34px;
   padding: 0;
@@ -380,6 +385,24 @@ body.landing-mode .topbar {
   font-size: 0.92rem;
 }
 
+.saved-deck-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.saved-deck-toolbar input {
+  min-height: 34px;
+  padding: 6px 9px;
+}
+
+.saved-deck-toolbar span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
 .saved-deck-list,
 .active-lobbies-list {
   display: grid;
@@ -434,6 +457,22 @@ body.landing-mode .topbar {
 
 .save-deck-dialog-card {
   width: min(620px, calc(100vw - 28px));
+}
+
+.save-deck-dialog-card .dialog-actions {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.deck-list-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.deck-list-label strong {
+  color: var(--accent-strong);
+  font-size: 0.75rem;
 }
 
 .confirmation-dialog-card {
@@ -590,6 +629,65 @@ body.dark-mode .action-popover {
 .utility-popover h3 {
   margin: 0 0 7px;
   font-size: 0.82rem;
+}
+
+.combat-popover {
+  top: 4px;
+  left: 44px;
+  display: grid;
+  gap: 10px;
+  width: min(780px, calc(100vw - 56px));
+  max-height: calc(100vh - 8px);
+  overflow: auto;
+  border-color: rgba(159, 79, 22, 0.48);
+  padding: 12px;
+}
+
+.combat-popover-summary {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.combat-popover-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 8px;
+  align-items: start;
+}
+
+.combat-popover-card {
+  position: relative;
+  width: min(100%, clamp(118px, calc(118px * var(--card-scale)), 190px));
+  justify-self: center;
+}
+
+.combat-popover-card.image-card img {
+  max-height: none;
+}
+
+.combat-popover-card-stats {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  z-index: 4;
+  border-radius: 5px;
+  background: rgba(12, 18, 16, 0.9);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 900;
+  padding: 4px 6px;
+}
+
+.combat-damage-button {
+  justify-self: end;
+  background: var(--warn);
+}
+
+.combat-damage-button.compact {
+  min-height: 28px;
+  padding: 0 8px;
+  font-size: 0.68rem;
+  white-space: nowrap;
 }
 
 .utility-note {
@@ -932,7 +1030,7 @@ body.dark-mode .turn-card {
 
 .play-area {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) minmax(204px, 27vh);
+  grid-template-rows: minmax(0, 1fr) minmax(220px, 29vh);
   gap: 6px;
   min-height: 0;
   grid-column: 1;
@@ -1189,6 +1287,12 @@ body.dark-mode .combat-snapshot-ribbon {
   color: #7c3f12;
   font-size: 1rem;
   font-weight: 900;
+}
+
+.combat-snapshot-actions {
+  display: flex;
+  gap: 5px;
+  align-items: center;
 }
 
 body.dark-mode .combat-snapshot-dismiss {
@@ -1471,6 +1575,34 @@ body.dark-mode .commander-pill {
 
 .player-counter-empty {
   opacity: 0.7;
+}
+
+.player-counter-chip.editable {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 26px 28px 26px;
+  gap: 4px;
+  align-items: center;
+  width: 100%;
+  border-radius: 6px;
+  padding: 3px 4px 3px 7px;
+}
+
+.player-counter-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.player-counter-chip.editable strong {
+  color: var(--ink);
+  font-size: 0.74rem;
+  text-align: center;
+}
+
+.player-counter-chip.editable .player-counter-button {
+  min-height: 24px;
+  border-radius: 4px;
+  font-size: 0.72rem;
 }
 
 body.dark-mode .player-counter-chip,
@@ -2006,6 +2138,8 @@ body.ctrl-zoom .card:hover {
 }
 
 .card-zoom-overlay .card {
+  position: relative;
+  inset: auto;
   width: 100%;
   height: 100%;
   min-height: 0;
@@ -2398,7 +2532,7 @@ body.dark-mode .board-reference-tabs {
 }
 
 .reference-player-board .free-card {
-  width: clamp(66px, 6.8vw, 96px);
+  width: calc(96px * var(--card-scale));
 }
 
 .reference-player-board .free-card.image-card img {
@@ -2422,7 +2556,7 @@ body.dark-mode .board-reference-tabs {
 }
 
 .reference-player-board .pile-zone .card-grid {
-  grid-template-columns: repeat(auto-fill, minmax(58px, 76px));
+  grid-template-columns: repeat(auto-fill, minmax(calc(68px * var(--card-scale)), calc(82px * var(--card-scale))));
   justify-content: center;
   gap: 4px;
 }
@@ -2433,6 +2567,10 @@ body.dark-mode .board-reference-tabs {
 
 .reference-player-board .pile-zone .card {
   min-height: 0;
+}
+
+.reference-player-board .pile-zone .card.image-card {
+  width: 100%;
 }
 
 .recap-dialog-card {
@@ -2729,13 +2867,13 @@ body.dark-mode .recap-card {
 
 .turn-dock {
   position: fixed;
-  right: 16px;
+  right: 4px;
   bottom: var(--turn-dock-bottom, 16px);
   z-index: 25;
   display: flex;
   gap: 5px;
   align-items: center;
-  padding: 5px;
+  padding: 5px 5px 5px 0;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.92);
@@ -3190,6 +3328,21 @@ body.dark-mode .commander-zone > span {
     grid-template-columns: 1fr;
   }
 
+  .saved-deck-row,
+  .active-lobby-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .saved-deck-actions,
+  .active-lobby-actions {
+    flex-wrap: wrap;
+  }
+
+  .combat-popover-cards {
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  }
+
   .mtg-board-layout {
     grid-template-columns: 1fr;
   }
@@ -3223,7 +3376,7 @@ body.dark-mode .commander-zone > span {
   }
 
   .turn-dock {
-    right: 10px;
+    right: 4px;
     bottom: var(--turn-dock-bottom, 10px);
     max-width: calc(100vw - 20px);
     flex-wrap: wrap;

@@ -16,6 +16,7 @@
           <button id="randomFirstPlayerButton" class="top-icon-button hidden" type="button" title="Choose random first player" aria-label="Choose random first player"><span aria-hidden="true">&#8644;</span></button>
           <button id="clockButton" class="top-icon-button rail-clock-button hidden" type="button" title="Game clock" aria-label="Open game clock"><span aria-hidden="true">&#9201;</span><small id="clockRailValue">0:00</small></button>
           <button id="statisticsButton" class="top-icon-button hidden" type="button" title="Game statistics" aria-label="Open game statistics"><span class="rail-bars" aria-hidden="true"><i></i><i></i><i></i></span></button>
+          <button id="combatButton" class="top-icon-button combat-rail-button hidden" type="button" title="Current combat" aria-label="Open current combat">&#9876;</button>
           <button id="sidebarToggle" class="top-icon-button hidden" type="button" title="Show controls" aria-label="Show controls" aria-expanded="false">&#9776;</button>
           <button id="showInvitesButton" class="top-icon-button hidden" type="button" title="Settings and links" aria-label="Settings and links">&#9881;</button>
           <button id="exitGameButton" class="top-icon-button hidden" type="button" title="Exit to active lobbies" aria-label="Exit to active lobbies">&#8617;</button>
@@ -109,6 +110,10 @@
             <div class="saved-deck-heading">
               <h3>Saved Decks</h3>
               <button id="newSavedDeckButton" type="button">New Deck</button>
+            </div>
+            <div class="saved-deck-toolbar">
+              <input id="savedDeckSearchInput" type="search" placeholder="Filter saved decks" aria-label="Filter saved decks">
+              <span id="savedDeckSummary">0 decks</span>
             </div>
             <div id="savedDeckList" class="saved-deck-list"></div>
           </div>
@@ -225,6 +230,16 @@
         <h3>Turn Log</h3>
         <div id="statisticsTurnLog" class="statistics-turn-log"></div>
       </div>
+    </section>
+
+    <section id="combatPopover" class="action-popover combat-popover hidden" role="dialog" aria-labelledby="combatPopoverTitle">
+      <header class="popover-header">
+        <h2 id="combatPopoverTitle">Current Combat</h2>
+        <button id="closeCombatButton" class="popover-close" type="button" title="Close" aria-label="Close current combat">x</button>
+      </header>
+      <p id="combatPopoverSummary" class="combat-popover-summary">No combat is active.</p>
+      <div id="combatPopoverCards" class="combat-popover-cards"></div>
+      <button id="combatPopoverDamageButton" class="combat-damage-button" type="button">Take All Damage</button>
     </section>
 
     <section id="diceNotice" class="table-notice dice-notice hidden" role="status">
@@ -348,10 +363,13 @@
 
     <dialog id="saveDeckDialog">
       <form id="saveDeckForm" method="dialog" class="dialog-card save-deck-dialog-card">
-        <div>
-          <h2 id="saveDeckDialogTitle">Save Deck</h2>
-          <p class="dialog-note">Decks are private to this account.</p>
-        </div>
+        <header class="popover-header">
+          <div>
+            <h2 id="saveDeckDialogTitle">Save Deck</h2>
+            <p class="dialog-note">Decks are private to this account.</p>
+          </div>
+          <button id="closeSaveDeckButton" class="popover-close" type="button" title="Dismiss" aria-label="Dismiss deck editor">x</button>
+        </header>
         <input id="savedDeckIdInput" type="hidden">
         <label>
           Deck name
@@ -362,13 +380,25 @@
           <input id="savedDeckCommanderInput" type="text" maxlength="120">
         </label>
         <label>
-          Deck list
+          <span class="deck-list-label">Deck list <strong id="savedDeckCount">0 cards</strong></span>
           <textarea id="savedDeckListInput" rows="14" maxlength="100000" required></textarea>
         </label>
         <div class="dialog-actions">
-          <button value="cancel" class="secondary" type="submit">Cancel</button>
           <button id="submitSavedDeckButton" value="save" type="submit">Save Deck</button>
         </div>
+      </form>
+    </dialog>
+
+    <dialog id="deleteDeckDialog">
+      <form id="deleteDeckForm" method="dialog" class="dialog-card confirmation-dialog-card">
+        <header class="popover-header">
+          <div>
+            <h2>Delete Saved Deck?</h2>
+            <p id="deleteDeckSummary" class="dialog-note">This cannot be undone.</p>
+          </div>
+          <button id="closeDeleteDeckButton" class="popover-close" type="button" title="Dismiss" aria-label="Dismiss delete confirmation">x</button>
+        </header>
+        <button id="confirmDeleteDeckButton" class="danger" value="delete" type="submit">Delete Deck</button>
       </form>
     </dialog>
 
