@@ -293,14 +293,33 @@ body.landing-mode .topbar {
   display: none;
 }
 
+body.landing-mode {
+  background: #050807;
+  color: #b8ffc2;
+  font-family: "Cascadia Mono", "Lucida Console", Consolas, monospace;
+}
+
+body.landing-mode::before {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  pointer-events: none;
+  content: "";
+  background: repeating-linear-gradient(to bottom, transparent 0, transparent 3px, rgba(172, 255, 185, 0.035) 3px, rgba(172, 255, 185, 0.035) 4px);
+}
+
 .landing-panel {
-  width: min(420px, calc(100vw - 32px));
+  width: min(680px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
   overflow: auto;
   place-self: center;
   grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
-  padding: 28px;
+  border: 2px solid #62d983;
+  border-radius: 2px;
+  background: #07100c;
+  box-shadow: 0 0 0 5px #0b1711, 0 0 0 7px rgba(207, 145, 65, 0.75), 0 0 42px rgba(82, 218, 126, 0.18);
+  padding: 34px;
 }
 
 .landing-panel.account-view {
@@ -313,21 +332,155 @@ body.landing-mode .topbar {
 
 .landing-menu {
   display: grid;
-  gap: 28px;
-  text-align: center;
+  gap: 22px;
+  text-align: left;
 }
 
 .landing-menu h1 {
-  font-size: 2rem;
+  margin: 4px 0 0;
+  color: #f2d68b;
+  font-size: 4.2rem;
+  line-height: 0.88;
+  text-align: center;
+  text-transform: uppercase;
+  text-shadow: 3px 3px 0 #843c2c, 6px 6px 0 rgba(0, 0, 0, 0.72);
+}
+
+.landing-menu h1 span {
+  color: #89f3a1;
+}
+
+.terminal-status,
+.terminal-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0;
+  border-bottom: 1px solid rgba(98, 217, 131, 0.42);
+  color: #63ce7f;
+  font-size: 0.7rem;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.terminal-status {
+  padding-bottom: 8px;
+}
+
+.terminal-footer {
+  justify-content: center;
+  border-top: 1px solid rgba(98, 217, 131, 0.42);
+  border-bottom: 0;
+  padding-top: 10px;
+  text-align: center;
+}
+
+.mana-signal {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.mana-signal span {
+  width: 10px;
+  height: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  border-radius: 50%;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.mana-white { background: #efe8c7; color: #efe8c7; }
+.mana-blue { background: #4c9bd6; color: #4c9bd6; }
+.mana-black { background: #796d88; color: #796d88; }
+.mana-red { background: #d45d45; color: #d45d45; }
+.mana-green { background: #59bd77; color: #59bd77; }
+
+.landing-prompt {
+  margin: 0;
+  color: #a8f7b6;
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+.terminal-cursor {
+  display: inline-block;
+  width: 0.62em;
+  height: 1em;
+  margin-left: 5px;
+  vertical-align: -0.18em;
+  background: currentColor;
+  animation: terminalBlink 0.9s steps(1) infinite;
 }
 
 .landing-actions {
   display: grid;
-  gap: 10px;
+  gap: 8px;
+  width: min(430px, 100%);
+  margin: 0 auto;
 }
 
 .landing-actions button {
   width: 100%;
+  min-height: 46px;
+  border: 1px solid #4fb56b;
+  border-radius: 0;
+  background: #0b1c12;
+  color: #b8ffc2;
+  font-weight: 800;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.landing-actions button::before {
+  content: "> ";
+  color: #f1ca70;
+}
+
+.landing-actions button:hover:not(:disabled),
+.landing-actions button:focus-visible {
+  outline: 2px solid #f1ca70;
+  outline-offset: 2px;
+  background: #173823;
+  color: #fff6cf;
+}
+
+body.landing-mode .landing-actions button.secondary {
+  background: #08120d;
+  color: #7fb68a;
+}
+
+body.landing-mode .landing-actions button:disabled {
+  border-color: #314a37;
+  color: #54705a;
+}
+
+body.landing-mode .landing-subpanel,
+body.landing-mode .room-form {
+  color: #b8ffc2;
+  font-family: inherit;
+}
+
+body.landing-mode .landing-panel label,
+body.landing-mode .landing-note,
+body.landing-mode .account-status {
+  color: #8bcf98;
+}
+
+body.landing-mode .landing-panel input,
+body.landing-mode .landing-panel select,
+body.landing-mode .landing-panel textarea {
+  border-color: #3c8c52;
+  border-radius: 0;
+  background: #040a07;
+  color: #c6ffd0;
+}
+
+body.landing-mode .landing-panel button:not(.landing-actions button) {
+  border-radius: 0;
+}
+
+@keyframes terminalBlink {
+  50% { opacity: 0; }
 }
 
 .landing-subpanel,
@@ -632,12 +785,13 @@ body.dark-mode .action-popover {
 }
 
 .combat-popover {
-  top: 4px;
-  left: 44px;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   display: grid;
   gap: 10px;
-  width: min(780px, calc(100vw - 56px));
-  max-height: calc(100vh - 8px);
+  width: min(780px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
   overflow: auto;
   border-color: rgba(159, 79, 22, 0.48);
   padding: 12px;
@@ -659,6 +813,36 @@ body.dark-mode .action-popover {
   position: relative;
   width: min(100%, clamp(118px, calc(118px * var(--card-scale)), 190px));
   justify-self: center;
+}
+
+.combat-popover-card-wrap {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  border: 1px solid transparent;
+  padding: 5px;
+}
+
+.combat-popover-card-wrap.commander-attacker {
+  border-color: rgba(212, 135, 69, 0.72);
+  background: rgba(159, 79, 22, 0.1);
+}
+
+.combat-popover-card-detail {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  font-size: 0.7rem;
+  text-align: center;
+}
+
+.combat-popover-card-detail strong,
+.combat-popover-card-detail span {
+  overflow-wrap: anywhere;
+}
+
+.combat-popover-card-detail span {
+  color: var(--muted);
 }
 
 .combat-popover-card.image-card img {
@@ -2911,19 +3095,7 @@ body.dark-mode .recap-card {
 }
 
 .draw-reminder {
-  min-height: 40px;
-  padding: 0 18px;
-  border: 2px solid rgba(255, 255, 255, 0.88);
-  border-radius: 999px;
-  background: var(--warn);
-  color: #fff;
-  font-size: 0.9rem;
-  font-weight: 900;
-  box-shadow: 0 14px 34px rgba(27, 35, 32, 0.24);
-}
-
-.draw-reminder:active {
-  transform: translateY(1px);
+  background: var(--accent);
 }
 
 .turn-reminder {
@@ -2993,15 +3165,15 @@ body.dark-mode .table-notice {
 
 @keyframes drawPulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(159, 79, 22, 0.58);
+    box-shadow: 0 0 0 0 rgba(42, 157, 143, 0.58);
     filter: brightness(1);
   }
   70% {
-    box-shadow: 0 0 0 13px rgba(159, 79, 22, 0);
+    box-shadow: 0 0 0 13px rgba(42, 157, 143, 0);
     filter: brightness(1.18);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(159, 79, 22, 0);
+    box-shadow: 0 0 0 0 rgba(42, 157, 143, 0);
     filter: brightness(1);
   }
 }
@@ -3292,6 +3464,14 @@ body.dark-mode .commander-zone > span {
 @media (max-width: 900px) {
   body {
     overflow: auto;
+  }
+
+  .landing-panel {
+    padding: 24px 18px;
+  }
+
+  .landing-menu h1 {
+    font-size: 2.55rem;
   }
 
   .app-shell {

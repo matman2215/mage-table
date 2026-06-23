@@ -107,6 +107,8 @@ const els = {
   saveCurrentDeckButton: document.querySelector("#saveCurrentDeckButton"),
   drawButton: document.querySelector("#drawButton"),
   drawReminder: document.querySelector("#drawReminder"),
+  drawReminderAction: document.querySelector("#drawReminderAction"),
+  dismissDrawButton: document.querySelector("#dismissDrawButton"),
   untapReminder: document.querySelector("#untapReminder"),
   untapAllButton: document.querySelector("#untapAllButton"),
   dismissUntapButton: document.querySelector("#dismissUntapButton"),
@@ -227,7 +229,6 @@ let stateSnapshot = "";
 let observedTurnKey = "";
 let pendingTurnDrawPrompt = "";
 let pendingTurnUntapPrompt = "";
-let drawFlashTimer = null;
 let openLifeMenuKey = "";
 let boardReferenceSeat = null;
 let dismissedCombatSnapshotId = "";
@@ -1006,8 +1007,6 @@ function flashDrawButton() {
   els.drawButton.title = "Draw for turn";
   els.drawReminder.classList.remove("hidden");
   els.drawReminder.classList.add("draw-button-flash");
-  if (drawFlashTimer) clearTimeout(drawFlashTimer);
-  drawFlashTimer = setTimeout(clearDrawButtonFlash, 20000);
 }
 
 function clearDrawButtonFlash() {
@@ -1015,8 +1014,10 @@ function clearDrawButtonFlash() {
   els.drawButton.removeAttribute("title");
   els.drawReminder.classList.add("hidden");
   els.drawReminder.classList.remove("draw-button-flash");
-  if (drawFlashTimer) clearTimeout(drawFlashTimer);
-  drawFlashTimer = null;
+}
+
+function dismissDrawReminder() {
+  clearDrawButtonFlash();
 }
 
 function dismissUntapReminder() {
@@ -1372,7 +1373,11 @@ function combatDamageButton(snapshot, compact = false) {
   button.type = "button";
   button.className = `combat-damage-button${compact ? " compact" : ""}`;
   const isDefender = Number(snapshot?.defenderSeat) === Number(state?.currentSeat);
-  button.textContent = snapshot?.damageApplied ? "Damage Applied" : compact ? "All Damage" : "Take All Damage";
+  const includesCommander = (snapshot?.cards || []).some((card) => card.isCommander && card.isCreature);
+  button.textContent = snapshot?.damageApplied
+    ? includesCommander ? "Combat + Commander Applied" : "Damage Applied"
+    : compact ? includesCommander ? "Combat + CMD" : "All Damage"
+      : includesCommander ? "Take Combat + Commander Damage" : "Take All Damage";
   button.disabled = Boolean(snapshot?.damageApplied) || !isDefender;
   button.title = snapshot?.damageApplied
     ? "Combat damage has already been applied"
@@ -1407,9 +1412,17 @@ function renderCombatPanel() {
   }
   const totals = snapshot.totals || { creatures: 0, power: 0, toughness: 0 };
   els.combatPopoverTitle.textContent = `${snapshot.attackerName || "Attacker"} Attacking`;
-  els.combatPopoverSummary.textContent = `${snapshot.cards.length} card${snapshot.cards.length === 1 ? "" : "s"} attacking ${snapshot.defenderName || "the defending player"} - ${totals.power} total power / ${totals.toughness} total toughness.`;
+  const commanderDamage = Array.isArray(snapshot.commanderDamage) ? snapshot.commanderDamage : [];
+  const damageStatus = snapshot.damageApplied
+    ? commanderDamage.length
+      ? ` Combat + commander damage applied: ${snapshot.damageTaken || 0} combat; ${commanderDamage.map((entry) => `${entry.damage} from ${entry.name}`).join(", ")}.`
+      : ` ${snapshot.damageTaken || 0} combat damage applied.`
+    : "";
+  els.combatPopoverSummary.textContent = `${snapshot.cards.length} card${snapshot.cards.length === 1 ? "" : "s"} attacking ${snapshot.defenderName || "the defending player"}. Total attacking power: ${totals.power}. Party toughness: ${totals.toughness}.${damageStatus}`;
   els.combatPopoverCards.innerHTML = "";
   snapshot.cards.forEach((card) => {
+    const wrap = document.createElement("article");
+    wrap.className = `combat-popover-card-wrap${card.isCommander ? " commander-attacker" : ""}`;
     const item = displayCardElement(card, card.typeLine || "Attacker", "combatPanel");
     item.classList.add("combat-popover-card");
     if (card.isCreature) {
@@ -1418,7 +1431,12 @@ function renderCombatPanel() {
       stats.textContent = `${card.totalPower}/${card.totalToughness}`;
       item.append(stats);
     }
-    els.combatPopoverCards.append(item);
+    const detail = document.createElement("div");
+    detail.className = "combat-popover-card-detail";
+    const quantityText = Number(card.quantity) > 1 ? ` across ${card.quantity} creatures` : "";
+    detail.innerHTML = `<strong>${escapeHtml(cardDisplayName(card))}${card.isCommander ? " - Commander" : ""}</strong><span>Calculated total: ${Number(card.totalPower) || 0}/${Number(card.totalToughness) || 0}${quantityText}</span>`;
+    wrap.append(item, detail);
+    els.combatPopoverCards.append(wrap);
   });
   const replacement = combatDamageButton(snapshot);
   els.combatPopoverDamageButton.replaceWith(replacement);
@@ -2230,6 +2248,12 @@ function cardElement(card, seat, zone, index = 0) {
     }
     if (zone === "battlefield") {
       if (canActNow() && seat === state.currentSeat) {
+        if (event.shiftKey) {
+          if (selectedBattlefieldCards.has(card.id)) selectedBattlefieldCards.delete(card.id);
+          else selectedBattlefieldCards.add(card.id);
+          renderPlayers();
+          return;
+        }
         if (selectedBattlefieldCards.size > 1 && selectedBattlefieldCards.has(card.id)) {
           tapSelectedBattlefieldCards("toggle");
           return;
@@ -2523,6 +2547,7 @@ function startBattlefieldSelection(event, zone) {
     zone,
     layer,
     rectNode,
+    additive: event.shiftKey,
     startClientX: event.clientX,
     startClientY: event.clientY,
   };
@@ -2582,7 +2607,7 @@ function finishBattlefieldSelection(event) {
   };
   drag.rectNode.remove();
   battlefieldSelectionDrag = null;
-  selectedBattlefieldCards.clear();
+  if (!drag.additive) selectedBattlefieldCards.clear();
   if (distance >= 4) {
     drag.layer.querySelectorAll(`.card[data-zone="battlefield"][data-seat="${state.currentSeat}"]`).forEach((node) => {
       if (rectsOverlap(node.getBoundingClientRect(), selectionRect)) selectedBattlefieldCards.add(node.dataset.cardId);
@@ -4298,11 +4323,13 @@ els.drawButton.addEventListener("click", () => {
   sendAction("draw");
 });
 
-els.drawReminder.addEventListener("click", () => {
+els.drawReminderAction.addEventListener("click", () => {
   if (els.drawButton.disabled) return;
   clearDrawButtonFlash();
   sendAction("draw");
 });
+
+els.dismissDrawButton.addEventListener("click", dismissDrawReminder);
 
 els.untapAllButton.addEventListener("click", async () => {
   dismissUntapReminder();

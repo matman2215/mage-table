@@ -1528,6 +1528,7 @@ function compactCardSnapshot(card) {
   const stats = cardCombatStats(card);
   return {
     id: card.id,
+    owner: Number.isInteger(Number(card.owner)) ? Number(card.owner) : null,
     name: card.name,
     displayName: card.displayName || card.name,
     typeLine: card.typeLine || "",
@@ -1536,6 +1537,7 @@ function compactCardSnapshot(card) {
     counters: normalizeCounters(card.counters || {}),
     power: card.power || "",
     toughness: card.toughness || "",
+    isCommander: Boolean(card.isCommander),
     isCreature: stats.isCreature,
     quantity: stats.quantity,
     effectivePower: stats.power,
@@ -1690,14 +1692,44 @@ async function applyAction(room, actor, body) {
       if (actor.seat !== Number(snapshot.defenderSeat)) throw new Error("Only the defending player can take this combat damage.");
       if (snapshot.damageApplied) throw new Error("Combat damage has already been applied.");
       const damage = Math.max(0, Math.round(Number(snapshot.totals?.power) || 0));
+      const commanderDamageBySeat = new Map();
+      snapshot.cards
+        .filter((card) => card.isCommander && card.isCreature)
+        .forEach((card) => {
+          const sourceSeat = card.owner !== null && Number.isInteger(Number(card.owner))
+            ? Number(card.owner)
+            : Number(snapshot.attackerSeat);
+          const sourcePlayer = room.players[sourceSeat] || room.players[Number(snapshot.attackerSeat)];
+          if (!sourcePlayer) return;
+          const amount = Math.max(0, Math.round(Number(card.totalPower) || 0));
+          if (!amount) return;
+          const existing = commanderDamageBySeat.get(sourcePlayer.seat) || {
+            seat: sourcePlayer.seat,
+            name: sourcePlayer.commander || card.displayName || card.name || `${sourcePlayer.name} commander`,
+            damage: 0,
+          };
+          existing.damage += amount;
+          commanderDamageBySeat.set(sourcePlayer.seat, existing);
+        });
+      const commanderDamage = [...commanderDamageBySeat.values()].map((entry) => {
+        const counterName = `Commander Damage: ${entry.name}`;
+        adjustPlayerCounter(actor, counterName, entry.damage);
+        return { ...entry, counterName };
+      });
       actor.life = Math.max(-999, Math.min(999, actor.life - damage));
       snapshot.damageApplied = true;
       snapshot.damageTaken = damage;
-      addLog(room, `${actor.name} took ${damage} combat damage and moved to ${actor.life} life.`, actor, {
+      snapshot.commanderDamage = commanderDamage;
+      const commanderTotal = commanderDamage.reduce((total, entry) => total + entry.damage, 0);
+      const commanderText = commanderTotal
+        ? `, including ${commanderTotal} commander damage from ${commanderDamage.map((entry) => entry.name).join(", ")}`
+        : "";
+      addLog(room, `${actor.name} took ${damage} combat damage${commanderText} and moved to ${actor.life} life.`, actor, {
         kind: "life",
         seat: actor.seat,
         value: actor.life,
         combatDamage: damage,
+        commanderDamage,
       });
       break;
     }

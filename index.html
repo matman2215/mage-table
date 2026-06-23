@@ -26,12 +26,25 @@
 
       <section id="setupPanel" class="setup-panel landing-panel">
         <div id="landingMenu" class="landing-menu">
-          <h1>Mage Table</h1>
+          <div class="terminal-status" aria-hidden="true">
+            <span>ARCANE TABLE SYSTEM</span>
+            <span>LINK READY</span>
+          </div>
+          <div class="mana-signal" aria-hidden="true">
+            <span class="mana-white"></span>
+            <span class="mana-blue"></span>
+            <span class="mana-black"></span>
+            <span class="mana-red"></span>
+            <span class="mana-green"></span>
+          </div>
+          <h1><span>Mage</span> Table</h1>
+          <p class="landing-prompt">&gt; SELECT A TABLE COMMAND<span aria-hidden="true" class="terminal-cursor"></span></p>
           <div class="landing-actions">
             <button id="createGameButton" type="button">Create Game</button>
             <button id="joinGameButton" class="secondary" type="button" disabled title="Coming soon">Join Game</button>
             <button id="loginButton" class="secondary" type="button">Log In</button>
           </div>
+          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // SYSTEM READY</p>
         </div>
         <form id="roomForm" class="room-form create-room-form hidden">
           <header class="create-room-header">
@@ -172,7 +185,10 @@
       <span class="spinner"></span>
     </div>
     <div id="turnReminderStack" class="turn-reminder-stack">
-      <button id="drawReminder" class="draw-reminder hidden" type="button">Draw for turn</button>
+      <section id="drawReminder" class="turn-reminder draw-reminder hidden" role="status">
+        <button id="drawReminderAction" type="button">Draw for turn</button>
+        <button id="dismissDrawButton" class="notice-dismiss" type="button" title="Dismiss" aria-label="Dismiss draw reminder">x</button>
+      </section>
       <section id="untapReminder" class="turn-reminder untap-reminder hidden" role="status">
         <button id="untapAllButton" type="button">Untap battlefield</button>
         <button id="dismissUntapButton" class="notice-dismiss" type="button" title="Dismiss" aria-label="Dismiss untap reminder">x</button>
