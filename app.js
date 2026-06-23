@@ -4,7 +4,30 @@ const els = {
   setupPanel: document.querySelector("#setupPanel"),
   landingMenu: document.querySelector("#landingMenu"),
   createGameButton: document.querySelector("#createGameButton"),
+  loginButton: document.querySelector("#loginButton"),
   backToLandingButton: document.querySelector("#backToLandingButton"),
+  activeLobbiesPanel: document.querySelector("#activeLobbiesPanel"),
+  activeLobbiesList: document.querySelector("#activeLobbiesList"),
+  backFromLobbiesButton: document.querySelector("#backFromLobbiesButton"),
+  createFromLobbiesButton: document.querySelector("#createFromLobbiesButton"),
+  accountPanel: document.querySelector("#accountPanel"),
+  accountPanelTitle: document.querySelector("#accountPanelTitle"),
+  backFromAccountButton: document.querySelector("#backFromAccountButton"),
+  accountSignedOut: document.querySelector("#accountSignedOut"),
+  accountDashboard: document.querySelector("#accountDashboard"),
+  accountUsername: document.querySelector("#accountUsername"),
+  accountStatus: document.querySelector("#accountStatus"),
+  showLoginButton: document.querySelector("#showLoginButton"),
+  showRegisterButton: document.querySelector("#showRegisterButton"),
+  loginForm: document.querySelector("#loginForm"),
+  loginUsernameInput: document.querySelector("#loginUsernameInput"),
+  loginPasswordInput: document.querySelector("#loginPasswordInput"),
+  registerForm: document.querySelector("#registerForm"),
+  registerUsernameInput: document.querySelector("#registerUsernameInput"),
+  registerPasswordInput: document.querySelector("#registerPasswordInput"),
+  logoutButton: document.querySelector("#logoutButton"),
+  newSavedDeckButton: document.querySelector("#newSavedDeckButton"),
+  savedDeckList: document.querySelector("#savedDeckList"),
   tablePanel: document.querySelector("#tablePanel"),
   roomForm: document.querySelector("#roomForm"),
   roomNameInput: document.querySelector("#roomNameInput"),
@@ -46,6 +69,7 @@ const els = {
   chatInput: document.querySelector("#chatInput"),
   sendChatButton: document.querySelector("#sendChatButton"),
   newRoomButton: document.querySelector("#newRoomButton"),
+  exitGameButton: document.querySelector("#exitGameButton"),
   roomTitle: document.querySelector("#roomTitle"),
   currentSeatBadge: document.querySelector("#currentSeatBadge"),
   showInvitesButton: document.querySelector("#showInvitesButton"),
@@ -71,6 +95,7 @@ const els = {
   deckInput: document.querySelector("#deckInput"),
   deckStats: document.querySelector("#deckStats"),
   loadDeckButton: document.querySelector("#loadDeckButton"),
+  saveCurrentDeckButton: document.querySelector("#saveCurrentDeckButton"),
   drawButton: document.querySelector("#drawButton"),
   drawReminder: document.querySelector("#drawReminder"),
   untapReminder: document.querySelector("#untapReminder"),
@@ -146,6 +171,15 @@ const els = {
   roomPasswordMessage: document.querySelector("#roomPasswordMessage"),
   joinRoomPasswordInput: document.querySelector("#joinRoomPasswordInput"),
   submitRoomPasswordButton: document.querySelector("#submitRoomPasswordButton"),
+  newLobbyDialog: document.querySelector("#newLobbyDialog"),
+  saveDeckDialog: document.querySelector("#saveDeckDialog"),
+  saveDeckForm: document.querySelector("#saveDeckForm"),
+  saveDeckDialogTitle: document.querySelector("#saveDeckDialogTitle"),
+  savedDeckIdInput: document.querySelector("#savedDeckIdInput"),
+  savedDeckNameInput: document.querySelector("#savedDeckNameInput"),
+  savedDeckCommanderInput: document.querySelector("#savedDeckCommanderInput"),
+  savedDeckListInput: document.querySelector("#savedDeckListInput"),
+  submitSavedDeckButton: document.querySelector("#submitSavedDeckButton"),
 };
 
 let state = null;
@@ -187,6 +221,9 @@ let lastDiceResult = "No rolls yet";
 let pendingCountPrompt = null;
 let keybindCaptureAction = "";
 let landingView = "menu";
+let account = null;
+let savedDecks = [];
+let accountMode = "login";
 const selectedBattlefieldCards = new Set();
 const playerCounterSelections = new Map();
 const dismissedReveals = new Set();
@@ -201,6 +238,7 @@ const cardScaleUserKey = "mage-table-card-scale-user";
 const popupOpacityKey = "mage-table-popup-opacity";
 const controlsOpacityKey = "mage-table-controls-opacity";
 const keybindStorageKey = "mage-table-keybinds";
+const activeLobbiesKey = "mage-table-active-lobbies";
 const basePlayerCounterOptions = ["Poison", "Energy", "Experience", "Oil", "Charge", "Rad", "Storm"];
 const keybindDefinitions = [
   { id: "selectAll", label: "Select all battlefield cards", defaultBinding: "a" },
@@ -249,9 +287,10 @@ function storeRoomPassword(roomId, password) {
 async function api(path, options = {}) {
   setLoading(true);
   try {
+    const { headers = {}, ...fetchOptions } = options;
     const response = await fetch(path, {
-      headers: { "Content-Type": "application/json" },
-      ...options,
+      ...fetchOptions,
+      headers: { "Content-Type": "application/json", ...headers },
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -266,6 +305,10 @@ async function api(path, options = {}) {
   }
 }
 
+function accountApi(path, options = {}) {
+  return api(path, options);
+}
+
 function setLoading(isLoading) {
   pendingRequests += isLoading ? 1 : -1;
   pendingRequests = Math.max(0, pendingRequests);
@@ -274,7 +317,7 @@ function setLoading(isLoading) {
 }
 
 function applyCardScale(value, { persist = true } = {}) {
-  const scale = Math.max(80, Math.min(200, Number(value) || 100));
+  const scale = Math.max(80, Math.min(300, Number(value) || 100));
   document.documentElement.style.setProperty("--card-scale", String(scale / 100));
   els.uiScaleInput.value = String(scale);
   els.uiScaleValue.textContent = `${scale}%`;
@@ -348,9 +391,210 @@ function syncSidebarState() {
 }
 
 function renderLanding() {
-  const showMenu = landingView !== "create";
-  els.landingMenu.classList.toggle("hidden", !showMenu);
-  els.roomForm.classList.toggle("hidden", showMenu);
+  els.landingMenu.classList.toggle("hidden", landingView !== "menu");
+  els.roomForm.classList.toggle("hidden", landingView !== "create");
+  els.activeLobbiesPanel.classList.toggle("hidden", landingView !== "lobbies");
+  els.accountPanel.classList.toggle("hidden", landingView !== "account");
+  els.setupPanel.classList.toggle("account-view", landingView === "account");
+  els.setupPanel.classList.toggle("lobbies-view", landingView === "lobbies");
+  els.loginButton.textContent = account ? "Account" : "Log In";
+  if (landingView === "lobbies") renderActiveLobbies();
+  if (landingView === "account") renderAccountPanel();
+}
+
+function activeLobbies() {
+  try {
+    const entries = JSON.parse(localStorage.getItem(activeLobbiesKey) || "[]");
+    return Array.isArray(entries) ? entries.filter((entry) => entry?.roomId && entry?.url) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeActiveLobbies(entries) {
+  localStorage.setItem(activeLobbiesKey, JSON.stringify(entries.slice(0, 20)));
+}
+
+function rememberActiveLobby(room) {
+  if (!room?.id || !currentToken) return;
+  const entry = {
+    roomId: room.id,
+    name: room.name || "Mage Table",
+    seatName: room.currentPlayer?.name || `Seat ${(Number(room.currentSeat) || 0) + 1}`,
+    url: sameOriginRoomUrl(room.selfUrl || `/?room=${encodeURIComponent(room.id)}&token=${encodeURIComponent(currentToken)}`),
+    lastVisitedAt: Date.now(),
+  };
+  const entries = activeLobbies().filter((item) => item.roomId !== entry.roomId || item.url !== entry.url);
+  writeActiveLobbies([entry, ...entries]);
+}
+
+function renderActiveLobbies() {
+  const entries = activeLobbies();
+  els.activeLobbiesList.innerHTML = "";
+  if (!entries.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-list-message";
+    empty.textContent = "No active lobbies are saved on this browser yet.";
+    els.activeLobbiesList.append(empty);
+    return;
+  }
+  entries.forEach((entry) => {
+    const row = document.createElement("div");
+    row.className = "active-lobby-row";
+    const details = document.createElement("div");
+    details.className = "active-lobby-details";
+    const visited = Number(entry.lastVisitedAt) > 0 ? new Date(entry.lastVisitedAt).toLocaleString() : "Unknown";
+    details.innerHTML = `<strong>${escapeHtml(entry.name)}</strong><span>${escapeHtml(entry.seatName)} - Last opened ${escapeHtml(visited)}</span>`;
+    const actions = document.createElement("div");
+    actions.className = "active-lobby-actions";
+    const open = document.createElement("button");
+    open.type = "button";
+    open.textContent = "Open";
+    open.addEventListener("click", () => {
+      history.replaceState(null, "", sameOriginRoomUrl(entry.url));
+      refreshState();
+    });
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "secondary";
+    remove.textContent = "Remove";
+    remove.addEventListener("click", () => {
+      writeActiveLobbies(activeLobbies().filter((item) => item.roomId !== entry.roomId || item.url !== entry.url));
+      renderActiveLobbies();
+    });
+    actions.append(open, remove);
+    row.append(details, actions);
+    els.activeLobbiesList.append(row);
+  });
+}
+
+function leaveGameForLanding(view = "lobbies") {
+  if (state) rememberActiveLobby(state);
+  state = null;
+  closeRoomEvents();
+  closeActionPopovers();
+  landingView = view;
+  history.replaceState(null, "", "/");
+  render();
+}
+
+function setAccountStatus(message = "", isError = false) {
+  els.accountStatus.textContent = message;
+  els.accountStatus.classList.toggle("hidden", !message);
+  els.accountStatus.classList.toggle("error", Boolean(message) && isError);
+}
+
+function renderAccountPanel() {
+  const signedIn = Boolean(account);
+  els.accountSignedOut.classList.toggle("hidden", signedIn);
+  els.accountDashboard.classList.toggle("hidden", !signedIn);
+  els.accountPanelTitle.textContent = signedIn ? "Your Account" : "Account";
+  els.loginForm.classList.toggle("hidden", accountMode !== "login");
+  els.registerForm.classList.toggle("hidden", accountMode !== "register");
+  els.showLoginButton.classList.toggle("active", accountMode === "login");
+  els.showLoginButton.classList.toggle("secondary", accountMode !== "login");
+  els.showRegisterButton.classList.toggle("active", accountMode === "register");
+  els.showRegisterButton.classList.toggle("secondary", accountMode !== "register");
+  if (!signedIn) return;
+  els.accountUsername.textContent = account.username;
+  renderSavedDecks();
+}
+
+function renderAccountControls() {
+  els.saveCurrentDeckButton.classList.toggle("hidden", !account);
+}
+
+function renderSavedDecks() {
+  els.savedDeckList.innerHTML = "";
+  if (!savedDecks.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-list-message";
+    empty.textContent = "No saved decks yet.";
+    els.savedDeckList.append(empty);
+    return;
+  }
+  savedDecks.forEach((deck) => {
+    const row = document.createElement("div");
+    row.className = "saved-deck-row";
+    const details = document.createElement("div");
+    details.className = "saved-deck-details";
+    details.innerHTML = `<strong>${escapeHtml(deck.name)}</strong><span>${escapeHtml(deck.commander || "No commander")} - Updated ${escapeHtml(new Date(deck.updatedAt).toLocaleDateString())}</span>`;
+    const actions = document.createElement("div");
+    actions.className = "saved-deck-actions";
+    const use = document.createElement("button");
+    use.type = "button";
+    use.textContent = "Use";
+    use.addEventListener("click", () => useSavedDeck(deck));
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "secondary";
+    edit.textContent = "Edit";
+    edit.addEventListener("click", () => openSaveDeckDialog(deck));
+    actions.append(use, edit);
+    row.append(details, actions);
+    els.savedDeckList.append(row);
+  });
+}
+
+function useSavedDeck(deck) {
+  els.deckInput.value = deck.decklist;
+  els.setupDeckInput.value = deck.decklist;
+  els.commanderInput.value = deck.commander || "";
+  landingView = "create";
+  setAccountStatus();
+  renderLanding();
+}
+
+function openSaveDeckDialog(deck = null, values = null) {
+  if (!account) {
+    landingView = "account";
+    accountMode = "login";
+    renderLanding();
+    return;
+  }
+  const source = deck || values || {};
+  els.savedDeckIdInput.value = deck?.id || "";
+  els.savedDeckNameInput.value = source.name || "";
+  els.savedDeckCommanderInput.value = source.commander || "";
+  els.savedDeckListInput.value = source.decklist || "";
+  els.saveDeckDialogTitle.textContent = deck ? "Edit Saved Deck" : "Save Deck";
+  els.saveDeckDialog.showModal();
+  requestAnimationFrame(() => els.savedDeckNameInput.focus());
+}
+
+async function loadSavedDecks() {
+  if (!account) {
+    savedDecks = [];
+    return;
+  }
+  try {
+    const result = await accountApi("/api/account/decks");
+    savedDecks = result.decks || [];
+  } catch (error) {
+    if (error.status === 401) clearAccountSession();
+    else throw error;
+  }
+  if (landingView === "account") renderAccountPanel();
+}
+
+function clearAccountSession() {
+  account = null;
+  savedDecks = [];
+  renderAccountControls();
+  if (!state) renderLanding();
+}
+
+async function restoreAccountSession() {
+  try {
+    const result = await accountApi("/api/account");
+    account = result.account;
+    await loadSavedDecks();
+  } catch {
+    clearAccountSession();
+    return;
+  }
+  renderAccountControls();
+  if (!state) renderLanding();
 }
 
 function closeActionPopovers(except = null) {
@@ -374,6 +618,7 @@ async function refreshState({ quiet = false } = {}) {
     const nextSnapshot = JSON.stringify(nextState);
     if (quiet && stateSnapshot === nextSnapshot) return;
     state = nextState;
+    rememberActiveLobby(state);
     stateSnapshot = nextSnapshot;
     queuedRoomUpdateSeq = 0;
     connectRoomEvents();
@@ -546,6 +791,7 @@ function render() {
     els.clockButton.classList.add("hidden");
     els.statisticsButton.classList.add("hidden");
     els.sidebarToggle.classList.add("hidden");
+    els.exitGameButton.classList.add("hidden");
     closeActionPopovers();
     els.diceNotice.classList.add("hidden");
     els.showInvitesButton.classList.add("hidden");
@@ -568,6 +814,7 @@ function render() {
   els.clockButton.classList.remove("hidden");
   els.statisticsButton.classList.remove("hidden");
   els.sidebarToggle.classList.remove("hidden");
+  els.exitGameButton.classList.remove("hidden");
   els.randomFirstPlayerButton.classList.toggle("hidden", !state.currentPlayer.isHost || state.players.length < 2);
   renderInvites();
   renderRoomSettings();
@@ -582,6 +829,7 @@ function render() {
   renderDiceNotice();
   renderClockPanel();
   renderStatisticsPanel();
+  renderAccountControls();
   renderKeybindSettings();
   renderBoardReference();
   if (els.libraryDialog.open) renderLibraryDialog();
@@ -1436,7 +1684,11 @@ function renderLog() {
   state.log.forEach((entry) => {
     const div = document.createElement("div");
     div.className = "log-entry";
-    div.textContent = `${entry.at} - ${entry.message}`;
+    const timestamp = Number(entry.timestamp);
+    const localTime = Number.isFinite(timestamp) && timestamp > 0
+      ? new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      : entry.at;
+    div.textContent = `${localTime} - ${entry.message}`;
     els.actionLog.append(div);
   });
 }
@@ -3548,10 +3800,90 @@ els.createGameButton.addEventListener("click", () => {
   requestAnimationFrame(() => els.roomNameInput.focus());
 });
 
+els.loginButton.addEventListener("click", () => {
+  landingView = "account";
+  setAccountStatus();
+  renderLanding();
+});
+
 els.backToLandingButton.addEventListener("click", () => {
   landingView = "menu";
   renderLanding();
 });
+
+els.backFromLobbiesButton.addEventListener("click", () => {
+  landingView = "menu";
+  renderLanding();
+});
+
+els.createFromLobbiesButton.addEventListener("click", () => {
+  landingView = "create";
+  renderLanding();
+});
+
+els.backFromAccountButton.addEventListener("click", () => {
+  landingView = "menu";
+  setAccountStatus();
+  renderLanding();
+});
+
+els.showLoginButton.addEventListener("click", () => {
+  accountMode = "login";
+  setAccountStatus();
+  renderAccountPanel();
+});
+
+els.showRegisterButton.addEventListener("click", () => {
+  accountMode = "register";
+  setAccountStatus();
+  renderAccountPanel();
+});
+
+async function completeAccountAuthentication(path, username, password) {
+  const result = await api(path, {
+    method: "POST",
+    body: JSON.stringify({ username, password }),
+  });
+  account = result.account;
+  await loadSavedDecks();
+  accountMode = "login";
+  setAccountStatus("Signed in.");
+  renderLanding();
+}
+
+els.loginForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    await completeAccountAuthentication("/api/accounts/login", els.loginUsernameInput.value, els.loginPasswordInput.value);
+    els.loginPasswordInput.value = "";
+  } catch (error) {
+    setAccountStatus(error.message, true);
+  }
+});
+
+els.registerForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    await completeAccountAuthentication("/api/accounts/register", els.registerUsernameInput.value, els.registerPasswordInput.value);
+    els.registerPasswordInput.value = "";
+  } catch (error) {
+    setAccountStatus(error.message, true);
+  }
+});
+
+els.logoutButton.addEventListener("click", async () => {
+  try {
+    await accountApi("/api/account/logout", { method: "POST", body: "{}" });
+  } catch {
+    // Local logout still clears an expired or unreachable session.
+  }
+  clearAccountSession();
+  accountMode = "login";
+  setAccountStatus("Logged out.");
+  renderLanding();
+});
+
+els.newSavedDeckButton.addEventListener("click", () => openSaveDeckDialog());
 
 els.roomForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -3578,13 +3910,20 @@ els.roomForm.addEventListener("submit", async (event) => {
 });
 
 els.newRoomButton.addEventListener("click", () => {
-  state = null;
-  closeRoomEvents();
-  closeActionPopovers();
-  landingView = "menu";
-  history.replaceState(null, "", "/");
-  render();
+  if (!state) {
+    landingView = "create";
+    renderLanding();
+    return;
+  }
+  els.newLobbyDialog.returnValue = "";
+  els.newLobbyDialog.showModal();
 });
+
+els.newLobbyDialog.addEventListener("close", () => {
+  if (els.newLobbyDialog.returnValue === "confirm") leaveGameForLanding("create");
+});
+
+els.exitGameButton.addEventListener("click", () => leaveGameForLanding("lobbies"));
 
 els.singlePlayerInput.addEventListener("change", () => {
   els.playerCountInput.disabled = els.singlePlayerInput.checked;
@@ -3696,6 +4035,48 @@ els.loadDeckButton.addEventListener("click", async () => {
     alert(error.message);
   } finally {
     els.loadDeckButton.disabled = false;
+  }
+});
+
+els.saveCurrentDeckButton.addEventListener("click", () => {
+  const commander = state?.currentPlayer?.commander || els.commanderInput.value || "";
+  openSaveDeckDialog(null, {
+    name: commander ? `${commander} Deck` : "My Deck",
+    commander,
+    decklist: els.deckInput.value || els.setupDeckInput.value,
+  });
+});
+
+els.saveDeckForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (event.submitter?.value === "cancel") {
+    els.saveDeckDialog.close();
+    return;
+  }
+  const deckId = els.savedDeckIdInput.value;
+  const path = deckId ? `/api/account/decks/${encodeURIComponent(deckId)}` : "/api/account/decks";
+  try {
+    await accountApi(path, {
+      method: deckId ? "PUT" : "POST",
+      body: JSON.stringify({
+        name: els.savedDeckNameInput.value,
+        commander: els.savedDeckCommanderInput.value,
+        decklist: els.savedDeckListInput.value,
+      }),
+    });
+    await loadSavedDecks();
+    els.saveDeckDialog.close();
+    if (landingView === "account") setAccountStatus("Deck saved.");
+  } catch (error) {
+    if (error.status === 401) {
+      clearAccountSession();
+      els.saveDeckDialog.close();
+      landingView = "account";
+      setAccountStatus("Your session expired. Log in again.", true);
+      renderLanding();
+      return;
+    }
+    alert(error.message);
   }
 });
 
@@ -4109,4 +4490,5 @@ loadOpacitySettings();
 renderKeybindSettings();
 els.playerCountInput.disabled = els.singlePlayerInput.checked;
 refreshState();
+restoreAccountSession();
 startPolling();

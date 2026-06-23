@@ -14,6 +14,17 @@ Then open:
 http://localhost:3000
 ```
 
+## Account storage
+
+The first account iteration uses Node's built-in SQLite support. Accounts, hashed passwords, sessions, and saved decklists are stored in `data/mage-table.db` by default. Override the path with `MAGE_TABLE_DB_PATH`:
+
+```powershell
+$env:MAGE_TABLE_DB_PATH='C:\mage-table-data\mage-table.db'
+.\start-server.bat
+```
+
+The database path must be on persistent storage in a hosted environment. This initial account system does not yet include email verification, password recovery, login rate limiting, or persistent game snapshots.
+
 If port `3000` is already occupied by an older local run, use:
 
 ```powershell

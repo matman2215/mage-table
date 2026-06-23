@@ -2,10 +2,12 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { AccountStore } = require("./account-store");
 
 const port = Number(process.env.PORT || 3000);
 const publicDir = __dirname;
 const rooms = new Map();
+const accountStore = new AccountStore();
 const scryfallCache = new Map();
 const scryfallTokenSearchCache = new Map();
 let lastScryfallRequestAt = 0;
@@ -18,13 +20,46 @@ function id(prefix) {
   return `${prefix}-${crypto.randomBytes(5).toString("hex")}`;
 }
 
-function sendJson(res, status, data) {
+function sendJson(res, status, data, headers = {}) {
   const body = JSON.stringify(data);
   res.writeHead(status, {
     "Content-Type": "application/json",
     "Content-Length": Buffer.byteLength(body),
+    "Cache-Control": "no-store",
+    ...headers,
   });
   res.end(body);
+}
+
+function bearerToken(req) {
+  const match = String(req.headers.authorization || "").match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() : "";
+}
+
+function cookieValue(req, name) {
+  const cookies = String(req.headers.cookie || "").split(";");
+  for (const cookie of cookies) {
+    const [key, ...parts] = cookie.trim().split("=");
+    if (key === name) return decodeURIComponent(parts.join("="));
+  }
+  return "";
+}
+
+function sessionTokenFromRequest(req) {
+  return cookieValue(req, "mage_table_session") || bearerToken(req);
+}
+
+function sessionCookie(req, token, maxAgeSeconds = 30 * 24 * 60 * 60) {
+  const forwardedProto = firstForwardedValue(req.headers["x-forwarded-proto"]);
+  const secure = forwardedProto === "https" || Boolean(req.socket.encrypted);
+  const value = token ? encodeURIComponent(token) : "";
+  return `mage_table_session=${value}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAgeSeconds}${secure ? "; Secure" : ""}`;
+}
+
+function authenticatedAccount(req, res) {
+  const account = accountStore.accountForSession(sessionTokenFromRequest(req));
+  if (!account) sendJson(res, 401, { error: "Sign in is required.", code: "AUTH_REQUIRED" });
+  return account;
 }
 
 function sendSse(res, event, data) {
@@ -141,9 +176,11 @@ function readBody(req) {
 }
 
 function addLog(room, message, actor = null, detail = null) {
+  const timestamp = Date.now();
   room.log.unshift({
     id: id("log"),
     message,
+    timestamp,
     at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
   });
   room.log = room.log.slice(0, 80);
@@ -159,6 +196,7 @@ function addLog(room, message, actor = null, detail = null) {
     actorName: actor.name,
     message,
     detail,
+    timestamp,
     at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
   });
   room.events = room.events.slice(-240);
@@ -2065,6 +2103,56 @@ const server = http.createServer(async (req, res) => {
     const origin = requestOrigin(req);
     const requestUrl = new URL(req.url, origin);
 
+    if (req.method === "POST" && requestUrl.pathname === "/api/accounts/register") {
+      const body = await readBody(req);
+      const result = accountStore.createAccount(body.username, body.password);
+      return sendJson(res, 201, { account: result.account }, { "Set-Cookie": sessionCookie(req, result.sessionToken) });
+    }
+
+    if (req.method === "POST" && requestUrl.pathname === "/api/accounts/login") {
+      const body = await readBody(req);
+      const result = accountStore.login(body.username, body.password);
+      if (!result) return sendJson(res, 401, { error: "Username or password is incorrect.", code: "INVALID_LOGIN" });
+      return sendJson(res, 200, { account: result.account }, { "Set-Cookie": sessionCookie(req, result.sessionToken) });
+    }
+
+    if (req.method === "GET" && requestUrl.pathname === "/api/account") {
+      const account = authenticatedAccount(req, res);
+      if (!account) return;
+      return sendJson(res, 200, { account });
+    }
+
+    if (req.method === "POST" && requestUrl.pathname === "/api/account/logout") {
+      const account = authenticatedAccount(req, res);
+      if (!account) return;
+      accountStore.deleteSession(sessionTokenFromRequest(req));
+      return sendJson(res, 200, { ok: true }, { "Set-Cookie": sessionCookie(req, "", 0) });
+    }
+
+    if (requestUrl.pathname === "/api/account/decks") {
+      const account = authenticatedAccount(req, res);
+      if (!account) return;
+      if (req.method === "GET") return sendJson(res, 200, { decks: accountStore.listDecks(account.id) });
+      if (req.method === "POST") {
+        const body = await readBody(req);
+        return sendJson(res, 201, { deck: accountStore.saveDeck(account.id, body) });
+      }
+    }
+
+    const accountDeckMatch = requestUrl.pathname.match(/^\/api\/account\/decks\/([^/]+)$/);
+    if (accountDeckMatch && ["PUT", "DELETE"].includes(req.method)) {
+      const account = authenticatedAccount(req, res);
+      if (!account) return;
+      const deckId = decodeURIComponent(accountDeckMatch[1]);
+      if (req.method === "DELETE") {
+        const deleted = accountStore.deleteDeck(account.id, deckId);
+        if (!deleted) return sendJson(res, 404, { error: "Saved deck was not found." });
+        return sendJson(res, 200, { ok: true });
+      }
+      const body = await readBody(req);
+      return sendJson(res, 200, { deck: accountStore.saveDeck(account.id, body, deckId) });
+    }
+
     if (req.method === "POST" && requestUrl.pathname === "/api/rooms") {
       const body = await readBody(req);
       const playerCount = Math.max(1, Math.min(4, Number(body.playerCount) || 1));
@@ -2179,6 +2267,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  accountStore,
   applyAction,
   createRoom,
   maybeStartRoomClock,

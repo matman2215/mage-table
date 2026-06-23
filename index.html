@@ -18,7 +18,8 @@
           <button id="statisticsButton" class="top-icon-button hidden" type="button" title="Game statistics" aria-label="Open game statistics"><span class="rail-bars" aria-hidden="true"><i></i><i></i><i></i></span></button>
           <button id="sidebarToggle" class="top-icon-button hidden" type="button" title="Show controls" aria-label="Show controls" aria-expanded="false">&#9776;</button>
           <button id="showInvitesButton" class="top-icon-button hidden" type="button" title="Settings and links" aria-label="Settings and links">&#9881;</button>
-          <button id="newRoomButton" class="top-icon-button" type="button" title="New room" aria-label="New room">+</button>
+          <button id="exitGameButton" class="top-icon-button hidden" type="button" title="Exit to active lobbies" aria-label="Exit to active lobbies">&#8617;</button>
+          <button id="newRoomButton" class="top-icon-button" type="button" title="Create new lobby" aria-label="Create new lobby">+</button>
         </div>
       </header>
 
@@ -28,7 +29,7 @@
           <div class="landing-actions">
             <button id="createGameButton" type="button">Create Game</button>
             <button id="joinGameButton" class="secondary" type="button" disabled title="Coming soon">Join Game</button>
-            <button id="loginButton" class="secondary" type="button" disabled title="Coming soon">Log In</button>
+            <button id="loginButton" class="secondary" type="button">Log In</button>
           </div>
         </div>
         <form id="roomForm" class="room-form create-room-form hidden">
@@ -58,6 +59,61 @@
           </label>
           <button type="submit">Create Invite Links</button>
         </form>
+        <section id="activeLobbiesPanel" class="landing-subpanel hidden">
+          <header class="create-room-header">
+            <button id="backFromLobbiesButton" class="secondary compact-icon-button" type="button" title="Back" aria-label="Back to landing screen">&#8592;</button>
+            <h2>Active Lobbies</h2>
+          </header>
+          <p class="landing-note">Games remembered on this browser.</p>
+          <div id="activeLobbiesList" class="active-lobbies-list"></div>
+          <button id="createFromLobbiesButton" type="button">Create Game</button>
+        </section>
+        <section id="accountPanel" class="landing-subpanel account-panel hidden">
+          <header class="create-room-header">
+            <button id="backFromAccountButton" class="secondary compact-icon-button" type="button" title="Back" aria-label="Back to landing screen">&#8592;</button>
+            <h2 id="accountPanelTitle">Account</h2>
+          </header>
+          <div id="accountSignedOut">
+            <div class="account-mode-tabs" role="tablist" aria-label="Account mode">
+              <button id="showLoginButton" class="account-mode-button active" type="button">Log In</button>
+              <button id="showRegisterButton" class="account-mode-button secondary" type="button">Create Account</button>
+            </div>
+            <form id="loginForm" class="account-form">
+              <label>
+                Username
+                <input id="loginUsernameInput" type="text" minlength="3" maxlength="24" autocomplete="username" required>
+              </label>
+              <label>
+                Password
+                <input id="loginPasswordInput" type="password" minlength="8" maxlength="128" autocomplete="current-password" required>
+              </label>
+              <button type="submit">Log In</button>
+            </form>
+            <form id="registerForm" class="account-form hidden">
+              <label>
+                Username
+                <input id="registerUsernameInput" type="text" minlength="3" maxlength="24" pattern="[A-Za-z0-9_-]+" autocomplete="username" required>
+              </label>
+              <label>
+                Password
+                <input id="registerPasswordInput" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
+              </label>
+              <button type="submit">Create Account</button>
+            </form>
+          </div>
+          <div id="accountDashboard" class="account-dashboard hidden">
+            <div class="account-identity-row">
+              <span>Signed in as <strong id="accountUsername"></strong></span>
+              <button id="logoutButton" class="secondary" type="button">Log Out</button>
+            </div>
+            <div class="saved-deck-heading">
+              <h3>Saved Decks</h3>
+              <button id="newSavedDeckButton" type="button">New Deck</button>
+            </div>
+            <div id="savedDeckList" class="saved-deck-list"></div>
+          </div>
+          <p id="accountStatus" class="account-status hidden" role="status"></p>
+        </section>
       </section>
 
       <section id="tablePanel" class="table-panel hidden">
@@ -82,6 +138,7 @@
             <div id="deckStats" class="deck-stats hidden"></div>
             <div class="button-row">
               <button id="loadDeckButton" type="button">Load to Library</button>
+              <button id="saveCurrentDeckButton" class="secondary hidden" type="button">Save Deck</button>
             </div>
           </div>
 
@@ -221,7 +278,7 @@
           <summary>Card Scale</summary>
           <label>
             Card size
-            <input id="uiScaleInput" type="range" min="80" max="200" step="5" value="100">
+            <input id="uiScaleInput" type="range" min="80" max="300" step="5" value="100">
           </label>
           <div class="scale-readout"><span id="uiScaleValue">100%</span></div>
         </details>
@@ -272,6 +329,45 @@
         <div class="dialog-actions">
           <button value="cancel" class="secondary" type="submit">Cancel</button>
           <button id="submitRoomPasswordButton" value="unlock" type="submit">Join Room</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="newLobbyDialog">
+      <form method="dialog" class="dialog-card confirmation-dialog-card">
+        <div>
+          <h2>Create a New Lobby?</h2>
+          <p>Your current lobby will remain active and can be reopened from Active Lobbies.</p>
+        </div>
+        <div class="dialog-actions">
+          <button value="cancel" class="secondary" type="submit">Stay Here</button>
+          <button id="confirmNewLobbyButton" value="confirm" type="submit">Create New Lobby</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="saveDeckDialog">
+      <form id="saveDeckForm" method="dialog" class="dialog-card save-deck-dialog-card">
+        <div>
+          <h2 id="saveDeckDialogTitle">Save Deck</h2>
+          <p class="dialog-note">Decks are private to this account.</p>
+        </div>
+        <input id="savedDeckIdInput" type="hidden">
+        <label>
+          Deck name
+          <input id="savedDeckNameInput" type="text" maxlength="80" required>
+        </label>
+        <label>
+          Commander
+          <input id="savedDeckCommanderInput" type="text" maxlength="120">
+        </label>
+        <label>
+          Deck list
+          <textarea id="savedDeckListInput" rows="14" maxlength="100000" required></textarea>
+        </label>
+        <div class="dialog-actions">
+          <button value="cancel" class="secondary" type="submit">Cancel</button>
+          <button id="submitSavedDeckButton" value="save" type="submit">Save Deck</button>
         </div>
       </form>
     </dialog>

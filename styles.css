@@ -290,10 +290,20 @@ body.landing-mode .topbar {
 
 .landing-panel {
   width: min(420px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
   place-self: center;
   grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
   padding: 28px;
+}
+
+.landing-panel.account-view {
+  width: min(620px, calc(100vw - 32px));
+}
+
+.landing-panel.lobbies-view {
+  width: min(560px, calc(100vw - 32px));
 }
 
 .landing-menu {
@@ -313,6 +323,121 @@ body.landing-mode .topbar {
 
 .landing-actions button {
   width: 100%;
+}
+
+.landing-subpanel,
+.account-form,
+.account-dashboard {
+  display: grid;
+  gap: 14px;
+}
+
+.landing-note,
+.account-status {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.account-status.error {
+  color: #e18a54;
+}
+
+.account-mode-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.account-mode-button.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.account-identity-row,
+.saved-deck-heading,
+.saved-deck-row,
+.active-lobby-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.account-identity-row {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 12px;
+}
+
+.account-identity-row button,
+.saved-deck-heading button {
+  min-height: 34px;
+  padding: 0 10px;
+}
+
+.saved-deck-heading h3 {
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.saved-deck-list,
+.active-lobbies-list {
+  display: grid;
+  min-height: 56px;
+}
+
+.saved-deck-row,
+.active-lobby-row {
+  border-top: 1px solid var(--line);
+  padding: 10px 0;
+}
+
+.saved-deck-row:first-child,
+.active-lobby-row:first-child {
+  border-top: 0;
+}
+
+.saved-deck-details,
+.active-lobby-details {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.saved-deck-details strong,
+.active-lobby-details strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.saved-deck-details span,
+.active-lobby-details span,
+.empty-list-message {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.saved-deck-actions,
+.active-lobby-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 5px;
+}
+
+.saved-deck-actions button,
+.active-lobby-actions button {
+  min-height: 32px;
+  padding: 0 9px;
+  font-size: 0.72rem;
+}
+
+.save-deck-dialog-card {
+  width: min(620px, calc(100vw - 28px));
+}
+
+.confirmation-dialog-card {
+  width: min(430px, calc(100vw - 28px));
 }
 
 .create-room-form {
