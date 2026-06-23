@@ -27,10 +27,34 @@ const els = {
   registerUsernameInput: document.querySelector("#registerUsernameInput"),
   registerPasswordInput: document.querySelector("#registerPasswordInput"),
   logoutButton: document.querySelector("#logoutButton"),
+  accountDecksTab: document.querySelector("#accountDecksTab"),
+  accountGamesTab: document.querySelector("#accountGamesTab"),
+  accountStartGameButton: document.querySelector("#accountStartGameButton"),
+  accountDecksView: document.querySelector("#accountDecksView"),
+  accountGamesView: document.querySelector("#accountGamesView"),
   newSavedDeckButton: document.querySelector("#newSavedDeckButton"),
   savedDeckSearchInput: document.querySelector("#savedDeckSearchInput"),
   savedDeckSummary: document.querySelector("#savedDeckSummary"),
   savedDeckList: document.querySelector("#savedDeckList"),
+  deckBuilderForm: document.querySelector("#deckBuilderForm"),
+  deckBuilderTitle: document.querySelector("#deckBuilderTitle"),
+  deckBuilderCount: document.querySelector("#deckBuilderCount"),
+  deckBuilderNameInput: document.querySelector("#deckBuilderNameInput"),
+  deckBuilderCommanderInput: document.querySelector("#deckBuilderCommanderInput"),
+  deckBuilderListInput: document.querySelector("#deckBuilderListInput"),
+  deckBuilderPreview: document.querySelector("#deckBuilderPreview"),
+  deckBuilderStatus: document.querySelector("#deckBuilderStatus"),
+  saveBuilderDeckButton: document.querySelector("#saveBuilderDeckButton"),
+  duplicateBuilderDeckButton: document.querySelector("#duplicateBuilderDeckButton"),
+  deleteBuilderDeckButton: document.querySelector("#deleteBuilderDeckButton"),
+  startBuilderDeckGameButton: document.querySelector("#startBuilderDeckGameButton"),
+  deckCardSearchInput: document.querySelector("#deckCardSearchInput"),
+  deckCardSearchButton: document.querySelector("#deckCardSearchButton"),
+  deckCardSearchSummary: document.querySelector("#deckCardSearchSummary"),
+  deckCardSearchResults: document.querySelector("#deckCardSearchResults"),
+  activeGamesSummary: document.querySelector("#activeGamesSummary"),
+  activeGamesList: document.querySelector("#activeGamesList"),
+  refreshActiveGamesButton: document.querySelector("#refreshActiveGamesButton"),
   tablePanel: document.querySelector("#tablePanel"),
   roomForm: document.querySelector("#roomForm"),
   joinRoomForm: document.querySelector("#joinRoomForm"),
@@ -207,6 +231,11 @@ const els = {
   deleteDeckForm: document.querySelector("#deleteDeckForm"),
   deleteDeckSummary: document.querySelector("#deleteDeckSummary"),
   closeDeleteDeckButton: document.querySelector("#closeDeleteDeckButton"),
+  endGameDialog: document.querySelector("#endGameDialog"),
+  endGameForm: document.querySelector("#endGameForm"),
+  endGameSummary: document.querySelector("#endGameSummary"),
+  closeEndGameButton: document.querySelector("#closeEndGameButton"),
+  confirmEndGameButton: document.querySelector("#confirmEndGameButton"),
 };
 
 let state = null;
@@ -249,7 +278,14 @@ let keybindCaptureAction = "";
 let landingView = "menu";
 let account = null;
 let savedDecks = [];
+let activeGames = [];
 let accountMode = "login";
+let accountWorkspaceTab = "decks";
+let selectedBuilderDeckId = "";
+let deckBuilderInitialized = false;
+let deckCardSearchResults = [];
+let pendingGameDeck = null;
+let pendingEndGameId = "";
 let pendingDeleteDeckId = "";
 const selectedBattlefieldCards = new Set();
 const playerCounterSelections = new Map();
@@ -424,6 +460,7 @@ function renderLanding() {
   els.activeLobbiesPanel.classList.toggle("hidden", landingView !== "lobbies");
   els.accountPanel.classList.toggle("hidden", landingView !== "account");
   els.setupPanel.classList.toggle("account-view", landingView === "account");
+  els.setupPanel.classList.toggle("account-workspace-shell", landingView === "account" && Boolean(account));
   els.setupPanel.classList.toggle("lobbies-view", landingView === "lobbies");
   els.loginButton.textContent = account ? "Account" : "Log In";
   updateRoomCreationControls();
@@ -537,7 +574,7 @@ function renderAccountPanel() {
   const signedIn = Boolean(account);
   els.accountSignedOut.classList.toggle("hidden", signedIn);
   els.accountDashboard.classList.toggle("hidden", !signedIn);
-  els.accountPanelTitle.textContent = signedIn ? "Your Account" : "Account";
+  els.accountPanelTitle.textContent = signedIn ? "Deck Builder" : "Account";
   els.loginForm.classList.toggle("hidden", accountMode !== "login");
   els.registerForm.classList.toggle("hidden", accountMode !== "register");
   els.showLoginButton.classList.toggle("active", accountMode === "login");
@@ -546,7 +583,15 @@ function renderAccountPanel() {
   els.showRegisterButton.classList.toggle("secondary", accountMode !== "register");
   if (!signedIn) return;
   els.accountUsername.textContent = account.username;
+  els.accountDecksTab.classList.toggle("active", accountWorkspaceTab === "decks");
+  els.accountDecksTab.classList.toggle("secondary", accountWorkspaceTab !== "decks");
+  els.accountGamesTab.classList.toggle("active", accountWorkspaceTab === "games");
+  els.accountGamesTab.classList.toggle("secondary", accountWorkspaceTab !== "games");
+  els.accountDecksView.classList.toggle("hidden", accountWorkspaceTab !== "decks");
+  els.accountGamesView.classList.toggle("hidden", accountWorkspaceTab !== "games");
   renderSavedDecks();
+  renderDeckBuilderPreview();
+  renderActiveGames();
 }
 
 function renderAccountControls() {
@@ -571,35 +616,184 @@ function renderSavedDecks() {
   }
   filtered.forEach((deck) => {
     const row = document.createElement("div");
-    row.className = "saved-deck-row";
-    const details = document.createElement("div");
-    details.className = "saved-deck-details";
+    row.className = `saved-deck-row${deck.id === selectedBuilderDeckId ? " selected" : ""}`;
+    const details = document.createElement("button");
+    details.type = "button";
+    details.className = "saved-deck-details deck-library-select";
     const cardCount = deckListCardCount(deck.decklist);
     details.innerHTML = `<strong>${escapeHtml(deck.name)}</strong><span>${cardCount} cards - ${escapeHtml(deck.commander || "No commander")} - Updated ${escapeHtml(new Date(deck.updatedAt).toLocaleDateString())}</span>`;
-    const actions = document.createElement("div");
-    actions.className = "saved-deck-actions";
-    const use = document.createElement("button");
-    use.type = "button";
-    use.textContent = "Use";
-    use.addEventListener("click", () => useSavedDeck(deck));
-    const edit = document.createElement("button");
-    edit.type = "button";
-    edit.className = "secondary";
-    edit.textContent = "Edit";
-    edit.addEventListener("click", () => openSaveDeckDialog(deck));
-    const duplicate = document.createElement("button");
-    duplicate.type = "button";
-    duplicate.className = "secondary";
-    duplicate.textContent = "Copy";
-    duplicate.addEventListener("click", () => duplicateSavedDeck(deck));
-    const remove = document.createElement("button");
-    remove.type = "button";
-    remove.className = "danger";
-    remove.textContent = "Delete";
-    remove.addEventListener("click", () => openDeleteDeckDialog(deck));
-    actions.append(use, edit, duplicate, remove);
-    row.append(details, actions);
+    details.addEventListener("click", () => selectBuilderDeck(deck));
+    const play = document.createElement("button");
+    play.type = "button";
+    play.className = "deck-row-play";
+    play.textContent = "Play";
+    play.addEventListener("click", () => startGameWithDeck(deck));
+    row.append(details, play);
     els.savedDeckList.append(row);
+  });
+}
+
+function parseDeckBuilderEntries(decklist = "") {
+  return String(decklist || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = line.match(/^(?:SB:\s*)?(\d+)\s*[xX]?\s+(.+)$/i);
+      return match ? { quantity: Math.max(1, Number(match[1]) || 1), name: match[2].trim() } : { quantity: 1, name: line };
+    });
+}
+
+function serializeDeckBuilderEntries(entries) {
+  return entries.filter((entry) => entry.quantity > 0 && entry.name).map((entry) => `${entry.quantity} ${entry.name}`).join("\n");
+}
+
+function selectBuilderDeck(deck) {
+  selectedBuilderDeckId = deck.id;
+  els.deckBuilderNameInput.value = deck.name;
+  els.deckBuilderCommanderInput.value = deck.commander || "";
+  els.deckBuilderListInput.value = deck.decklist;
+  els.deckBuilderStatus.textContent = `Updated ${new Date(deck.updatedAt).toLocaleString()}`;
+  renderSavedDecks();
+  renderDeckBuilderPreview();
+}
+
+function newBuilderDeck() {
+  selectedBuilderDeckId = "";
+  els.deckBuilderNameInput.value = "";
+  els.deckBuilderCommanderInput.value = "";
+  els.deckBuilderListInput.value = "";
+  els.deckBuilderStatus.textContent = "New unsaved deck";
+  renderSavedDecks();
+  renderDeckBuilderPreview();
+  requestAnimationFrame(() => els.deckBuilderNameInput.focus());
+}
+
+function currentBuilderDeck() {
+  return {
+    id: selectedBuilderDeckId,
+    name: els.deckBuilderNameInput.value.trim(),
+    commander: els.deckBuilderCommanderInput.value.trim(),
+    decklist: els.deckBuilderListInput.value.trim(),
+  };
+}
+
+function renderDeckBuilderPreview() {
+  if (!account) return;
+  const entries = parseDeckBuilderEntries(els.deckBuilderListInput.value);
+  const total = entries.reduce((sum, entry) => sum + entry.quantity, 0);
+  const selectedDeck = savedDecks.find((deck) => deck.id === selectedBuilderDeckId);
+  els.deckBuilderTitle.textContent = selectedDeck ? selectedDeck.name : "New Deck";
+  els.deckBuilderCount.textContent = `${total} card${total === 1 ? "" : "s"}`;
+  els.duplicateBuilderDeckButton.disabled = !selectedDeck;
+  els.deleteBuilderDeckButton.disabled = !selectedDeck;
+  els.startBuilderDeckGameButton.disabled = !els.deckBuilderListInput.value.trim();
+  els.deckBuilderPreview.innerHTML = "";
+  if (!entries.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-list-message";
+    empty.textContent = "Add cards with Scryfall search or paste a decklist.";
+    els.deckBuilderPreview.append(empty);
+    return;
+  }
+  entries.forEach((entry) => {
+    const row = document.createElement("div");
+    row.className = "deck-card-row";
+    const minus = document.createElement("button");
+    minus.type = "button";
+    minus.className = "secondary deck-quantity-button";
+    minus.textContent = "-";
+    minus.title = `Remove one ${entry.name}`;
+    minus.addEventListener("click", () => adjustBuilderCard(entry.name, -1));
+    const quantity = document.createElement("strong");
+    quantity.textContent = String(entry.quantity);
+    const name = document.createElement("span");
+    name.textContent = entry.name;
+    const plus = document.createElement("button");
+    plus.type = "button";
+    plus.className = "secondary deck-quantity-button";
+    plus.textContent = "+";
+    plus.title = `Add one ${entry.name}`;
+    plus.addEventListener("click", () => adjustBuilderCard(entry.name, 1));
+    row.append(minus, quantity, name, plus);
+    els.deckBuilderPreview.append(row);
+  });
+}
+
+function adjustBuilderCard(cardName, delta) {
+  const entries = parseDeckBuilderEntries(els.deckBuilderListInput.value);
+  const entry = entries.find((candidate) => candidate.name.toLowerCase() === cardName.toLowerCase());
+  if (entry) entry.quantity = Math.max(0, entry.quantity + delta);
+  else if (delta > 0) entries.push({ quantity: delta, name: cardName });
+  els.deckBuilderListInput.value = serializeDeckBuilderEntries(entries);
+  els.deckBuilderStatus.textContent = "Unsaved changes";
+  renderDeckBuilderPreview();
+}
+
+function renderDeckCardSearchResults() {
+  els.deckCardSearchResults.innerHTML = "";
+  deckCardSearchResults.forEach((card) => {
+    const item = document.createElement("article");
+    item.className = "deck-search-result";
+    const imageUrl = card.images?.normal || card.images?.small || card.faces?.[0]?.imageUrl || "";
+    if (imageUrl) item.innerHTML = `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(card.name)}">`;
+    const details = document.createElement("div");
+    details.innerHTML = `<strong>${escapeHtml(card.name)}</strong><span>${escapeHtml(card.typeLine || "Card")}</span>`;
+    const add = document.createElement("button");
+    add.type = "button";
+    add.textContent = "Add";
+    add.addEventListener("click", () => adjustBuilderCard(card.name, 1));
+    item.append(details, add);
+    els.deckCardSearchResults.append(item);
+  });
+}
+
+function renderActiveGames() {
+  if (!account) return;
+  els.activeGamesSummary.textContent = `${activeGames.length} game${activeGames.length === 1 ? "" : "s"}`;
+  els.activeGamesList.innerHTML = "";
+  if (!activeGames.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-list-message";
+    empty.textContent = "No active games are attached to this account.";
+    els.activeGamesList.append(empty);
+    return;
+  }
+  activeGames.forEach((game) => {
+    const row = document.createElement("article");
+    row.className = "active-game-row";
+    const identity = document.createElement("div");
+    identity.className = "active-game-identity";
+    identity.innerHTML = `<strong>${escapeHtml(game.name)}</strong><span>${game.isHost ? "Host" : "Player"}</span>`;
+    const players = document.createElement("div");
+    players.className = "active-game-players";
+    players.innerHTML = game.players.map((player) => `<span><strong>${escapeHtml(player.name)}</strong>${escapeHtml(player.commander || "No commander")}</span>`).join("");
+    const turn = document.createElement("div");
+    turn.className = "active-game-turn";
+    turn.innerHTML = `<strong>Turn ${Number(game.turnNumber) || 1}</strong><span>${escapeHtml(game.activePlayer)} active</span>`;
+    const lastPlayed = document.createElement("time");
+    lastPlayed.dateTime = new Date(game.lastPlayedAt).toISOString();
+    lastPlayed.textContent = new Date(game.lastPlayedAt).toLocaleString();
+    const actions = document.createElement("div");
+    actions.className = "active-game-actions";
+    const open = document.createElement("button");
+    open.type = "button";
+    open.textContent = "Open";
+    open.addEventListener("click", () => {
+      history.replaceState(null, "", sameOriginRoomUrl(game.selfUrl));
+      refreshState();
+    });
+    actions.append(open);
+    if (game.isHost) {
+      const end = document.createElement("button");
+      end.type = "button";
+      end.className = "danger";
+      end.textContent = "End";
+      end.addEventListener("click", () => openEndGameDialog(game));
+      actions.append(end);
+    }
+    row.append(identity, players, turn, lastPlayed, actions);
+    els.activeGamesList.append(row);
   });
 }
 
@@ -621,14 +815,51 @@ function updateSavedDeckCount() {
 
 async function duplicateSavedDeck(deck) {
   try {
-    await accountApi("/api/account/decks", {
+    const result = await accountApi("/api/account/decks", {
       method: "POST",
       body: JSON.stringify({ name: `${deck.name} Copy`, commander: deck.commander, decklist: deck.decklist }),
     });
+    selectedBuilderDeckId = result.deck.id;
     await loadSavedDecks();
-    setAccountStatus("Deck copied.");
+    els.deckBuilderStatus.textContent = "Deck duplicated";
   } catch (error) {
     setAccountStatus(error.message, true);
+  }
+}
+
+async function saveBuilderDeck() {
+  const deck = currentBuilderDeck();
+  if (!deck.name) throw new Error("Deck name is required.");
+  if (!deck.decklist) throw new Error("Add at least one card before saving.");
+  const path = deck.id ? `/api/account/decks/${encodeURIComponent(deck.id)}` : "/api/account/decks";
+  const result = await accountApi(path, {
+    method: deck.id ? "PUT" : "POST",
+    body: JSON.stringify(deck),
+  });
+  selectedBuilderDeckId = result.deck.id;
+  await loadSavedDecks();
+  els.deckBuilderStatus.textContent = "Deck saved";
+}
+
+async function searchDeckBuilderCards() {
+  const query = els.deckCardSearchInput.value.trim();
+  if (query.length < 2) {
+    els.deckCardSearchSummary.textContent = "Enter at least two characters.";
+    return;
+  }
+  els.deckCardSearchButton.disabled = true;
+  els.deckCardSearchSummary.textContent = "Searching Scryfall...";
+  try {
+    const result = await api(`/api/scryfall/cards?q=${encodeURIComponent(query)}`);
+    deckCardSearchResults = result.cards || [];
+    els.deckCardSearchSummary.textContent = `${deckCardSearchResults.length} result${deckCardSearchResults.length === 1 ? "" : "s"}`;
+    renderDeckCardSearchResults();
+  } catch (error) {
+    deckCardSearchResults = [];
+    renderDeckCardSearchResults();
+    els.deckCardSearchSummary.textContent = error.message;
+  } finally {
+    els.deckCardSearchButton.disabled = false;
   }
 }
 
@@ -639,9 +870,29 @@ function openDeleteDeckDialog(deck) {
 }
 
 function useSavedDeck(deck) {
-  els.deckInput.value = deck.decklist;
-  els.setupDeckInput.value = deck.decklist;
-  els.commanderInput.value = deck.commander || "";
+  startGameWithDeck(deck);
+}
+
+function startGameWithDeck(deck) {
+  pendingGameDeck = {
+    name: deck.name || "Saved Deck",
+    commander: deck.commander || "",
+    decklist: deck.decklist || "",
+  };
+  els.deckInput.value = pendingGameDeck.decklist;
+  els.setupDeckInput.value = pendingGameDeck.decklist;
+  els.commanderInput.value = pendingGameDeck.commander;
+  els.roomNameInput.value = `${pendingGameDeck.name} Game`.slice(0, 40);
+  landingView = "create";
+  setAccountStatus();
+  renderLanding();
+}
+
+function startGameWithoutDeck() {
+  pendingGameDeck = null;
+  els.deckInput.value = "";
+  els.setupDeckInput.value = "";
+  els.commanderInput.value = "";
   landingView = "create";
   setAccountStatus();
   renderLanding();
@@ -673,6 +924,15 @@ async function loadSavedDecks() {
   try {
     const result = await accountApi("/api/account/decks");
     savedDecks = result.decks || [];
+    if (!deckBuilderInitialized) {
+      deckBuilderInitialized = true;
+      if (savedDecks[0]) selectBuilderDeck(savedDecks[0]);
+      else newBuilderDeck();
+    } else if (selectedBuilderDeckId) {
+      const selected = savedDecks.find((deck) => deck.id === selectedBuilderDeckId);
+      if (selected) selectBuilderDeck(selected);
+      else newBuilderDeck();
+    }
   } catch (error) {
     if (error.status === 401) clearAccountSession();
     else throw error;
@@ -680,9 +940,44 @@ async function loadSavedDecks() {
   if (landingView === "account") renderAccountPanel();
 }
 
+async function loadActiveGames() {
+  if (!account) {
+    activeGames = [];
+    return;
+  }
+  try {
+    const result = await accountApi("/api/account/games");
+    activeGames = result.games || [];
+  } catch (error) {
+    if (error.status === 401) clearAccountSession();
+    else throw error;
+  }
+  if (landingView === "account") renderActiveGames();
+}
+
+async function loadAccountWorkspaceData() {
+  await Promise.all([loadSavedDecks(), loadActiveGames()]);
+  if (landingView === "account") renderAccountPanel();
+}
+
+function setAccountWorkspaceTab(tab) {
+  accountWorkspaceTab = tab === "games" ? "games" : "decks";
+  renderAccountPanel();
+  if (accountWorkspaceTab === "games") loadActiveGames().catch((error) => setAccountStatus(error.message, true));
+}
+
+function openEndGameDialog(game) {
+  pendingEndGameId = game.id;
+  els.endGameSummary.textContent = `End ${game.name}? Players will no longer be able to rejoin this game.`;
+  els.endGameDialog.showModal();
+}
+
 function clearAccountSession() {
   account = null;
   savedDecks = [];
+  activeGames = [];
+  selectedBuilderDeckId = "";
+  deckBuilderInitialized = false;
   renderAccountControls();
   if (!state) renderLanding();
 }
@@ -691,13 +986,16 @@ async function restoreAccountSession() {
   try {
     const result = await accountApi("/api/account");
     account = result.account;
-    await loadSavedDecks();
+    await loadAccountWorkspaceData();
   } catch {
     clearAccountSession();
     return;
   }
   renderAccountControls();
-  if (!state) renderLanding();
+  if (!state) {
+    landingView = "account";
+    renderLanding();
+  }
 }
 
 function closeActionPopovers(except = null) {
@@ -729,6 +1027,17 @@ async function refreshState({ quiet = false } = {}) {
   } catch (error) {
     if (["PASSWORD_REQUIRED", "INVALID_PASSWORD"].includes(error.code)) {
       showRoomPasswordDialog(error.message);
+      return;
+    }
+    if (error.code === "GAME_ENDED") {
+      state = null;
+      closeRoomEvents();
+      history.replaceState(null, "", "/");
+      landingView = account ? "account" : "menu";
+      accountWorkspaceTab = "games";
+      if (account) await loadActiveGames();
+      setAccountStatus("That game has ended.");
+      render();
       return;
     }
     if (!quiet) alert(error.message);
@@ -1225,9 +1534,12 @@ function renderDeckSetup() {
   const setupKey = `${state.id}:${state.currentSeat}`;
   if (loadedDeckSetupFor !== setupKey) {
     loadedDeckSetupFor = setupKey;
+    const deckToLoad = pendingGameDeck;
     els.playerNameInput.value = state.currentPlayer.name;
-    els.commanderInput.value = state.currentPlayer.commander || "";
-    els.setupDeckInput.value = "";
+    els.commanderInput.value = deckToLoad?.commander || state.currentPlayer.commander || "";
+    els.setupDeckInput.value = deckToLoad?.decklist || "";
+    els.deckInput.value = deckToLoad?.decklist || "";
+    pendingGameDeck = null;
   }
 }
 
@@ -4051,12 +4363,12 @@ els.loginButton.addEventListener("click", () => {
 });
 
 els.backToLandingButton.addEventListener("click", () => {
-  landingView = "menu";
+  landingView = account ? "account" : "menu";
   renderLanding();
 });
 
 els.backFromJoinButton.addEventListener("click", () => {
-  landingView = "menu";
+  landingView = account ? "account" : "menu";
   setJoinRoomStatus();
   renderLanding();
 });
@@ -4095,7 +4407,9 @@ async function completeAccountAuthentication(path, username, password) {
     body: JSON.stringify({ username, password }),
   });
   account = result.account;
-  await loadSavedDecks();
+  accountWorkspaceTab = "decks";
+  deckBuilderInitialized = false;
+  await loadAccountWorkspaceData();
   accountMode = "login";
   setAccountStatus("Signed in.");
   renderLanding();
@@ -4133,8 +4447,58 @@ els.logoutButton.addEventListener("click", async () => {
   renderLanding();
 });
 
-els.newSavedDeckButton.addEventListener("click", () => openSaveDeckDialog());
+els.accountDecksTab.addEventListener("click", () => setAccountWorkspaceTab("decks"));
+els.accountGamesTab.addEventListener("click", () => setAccountWorkspaceTab("games"));
+els.accountStartGameButton.addEventListener("click", startGameWithoutDeck);
+els.newSavedDeckButton.addEventListener("click", newBuilderDeck);
 els.savedDeckSearchInput.addEventListener("input", renderSavedDecks);
+els.deckBuilderListInput.addEventListener("input", () => {
+  els.deckBuilderStatus.textContent = "Unsaved changes";
+  renderDeckBuilderPreview();
+});
+els.deckBuilderNameInput.addEventListener("input", () => {
+  els.deckBuilderStatus.textContent = "Unsaved changes";
+});
+els.deckBuilderCommanderInput.addEventListener("input", () => {
+  els.deckBuilderStatus.textContent = "Unsaved changes";
+});
+els.deckBuilderForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const submit = event.submitter || els.saveBuilderDeckButton;
+  if (submit) submit.disabled = true;
+  try {
+    await saveBuilderDeck();
+  } catch (error) {
+    els.deckBuilderStatus.textContent = error.message;
+  } finally {
+    if (submit) submit.disabled = false;
+  }
+});
+els.startBuilderDeckGameButton.addEventListener("click", () => startGameWithDeck(currentBuilderDeck()));
+els.duplicateBuilderDeckButton.addEventListener("click", async () => {
+  const deck = savedDecks.find((candidate) => candidate.id === selectedBuilderDeckId);
+  if (deck) await duplicateSavedDeck(deck);
+});
+els.deleteBuilderDeckButton.addEventListener("click", () => {
+  const deck = savedDecks.find((candidate) => candidate.id === selectedBuilderDeckId);
+  if (deck) openDeleteDeckDialog(deck);
+});
+els.deckCardSearchButton.addEventListener("click", searchDeckBuilderCards);
+els.deckCardSearchInput.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  searchDeckBuilderCards();
+});
+els.refreshActiveGamesButton.addEventListener("click", async () => {
+  els.refreshActiveGamesButton.disabled = true;
+  try {
+    await loadActiveGames();
+  } catch (error) {
+    setAccountStatus(error.message, true);
+  } finally {
+    els.refreshActiveGamesButton.disabled = false;
+  }
+});
 els.savedDeckListInput.addEventListener("input", updateSavedDeckCount);
 els.closeSaveDeckButton.addEventListener("click", () => els.saveDeckDialog.close());
 els.saveDeckDialog.addEventListener("cancel", (event) => event.preventDefault());
@@ -4149,13 +4513,46 @@ els.deleteDeckForm.addEventListener("submit", async (event) => {
   if (event.submitter?.value !== "delete" || !pendingDeleteDeckId) return;
   const deckId = pendingDeleteDeckId;
   try {
+    const deletedSelectedDeck = selectedBuilderDeckId === deckId;
     await accountApi(`/api/account/decks/${encodeURIComponent(deckId)}`, { method: "DELETE" });
     pendingDeleteDeckId = "";
+    if (deletedSelectedDeck) selectedBuilderDeckId = "";
     els.deleteDeckDialog.close();
     await loadSavedDecks();
+    if (deletedSelectedDeck) {
+      if (savedDecks[0]) selectBuilderDeck(savedDecks[0]);
+      else newBuilderDeck();
+    }
     setAccountStatus("Deck deleted.");
   } catch (error) {
     setAccountStatus(error.message, true);
+  }
+});
+
+els.closeEndGameButton.addEventListener("click", () => {
+  pendingEndGameId = "";
+  els.endGameDialog.close();
+});
+els.endGameDialog.addEventListener("cancel", (event) => event.preventDefault());
+els.endGameForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (event.submitter?.value === "cancel") {
+    pendingEndGameId = "";
+    els.endGameDialog.close();
+    return;
+  }
+  if (event.submitter?.value !== "end" || !pendingEndGameId) return;
+  els.confirmEndGameButton.disabled = true;
+  try {
+    await accountApi(`/api/account/games/${encodeURIComponent(pendingEndGameId)}/end`, { method: "POST", body: "{}" });
+    pendingEndGameId = "";
+    els.endGameDialog.close();
+    await loadActiveGames();
+    setAccountStatus("Game ended.");
+  } catch (error) {
+    setAccountStatus(error.message, true);
+  } finally {
+    els.confirmEndGameButton.disabled = false;
   }
 });
 
@@ -4228,7 +4625,15 @@ els.newLobbyDialog.addEventListener("close", () => {
   if (els.newLobbyDialog.returnValue === "confirm") leaveGameForLanding("create");
 });
 
-els.exitGameButton.addEventListener("click", () => leaveGameForLanding("lobbies"));
+els.exitGameButton.addEventListener("click", () => {
+  if (!account) {
+    leaveGameForLanding("lobbies");
+    return;
+  }
+  accountWorkspaceTab = "games";
+  leaveGameForLanding("account");
+  loadActiveGames().catch((error) => setAccountStatus(error.message, true));
+});
 
 els.singlePlayerInput.addEventListener("change", () => {
   updateRoomCreationControls();

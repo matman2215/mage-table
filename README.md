@@ -2,7 +2,7 @@
 
 Mage Table is a dependency-free prototype for a manual multiplayer Magic-style card table.
 
-Run the Node server, then open the local URL in a browser. Create a room, choose 2-6 players, import a deck list for the current seat, draw cards, move cards between zones, adjust life totals, track phases, and copy each invite link.
+Run the Node server, then open the local URL in a browser. Create a solo or 2-4 player room, import a deck list for the current seat, draw cards, move cards between zones, adjust life totals, and share private links or a room code.
 
 ```powershell
 .\start-server.bat
@@ -23,7 +23,9 @@ $env:MAGE_TABLE_DB_PATH='C:\mage-table-data\mage-table.db'
 .\start-server.bat
 ```
 
-The database path must be on persistent storage in a hosted environment. This initial account system does not yet include email verification, password recovery, login rate limiting, or persistent game snapshots.
+The same database now stores accounts, decks, active game snapshots, indexed game members, and game events. The schema is created automatically at startup. The database path must be on persistent storage in a hosted environment.
+
+Runtime-only connections are not stored. After a restart, active games recover with all players marked offline, live presence connections reset, and game clocks resynchronized without counting server downtime.
 
 If port `3000` is already occupied by an older local run, use:
 
@@ -399,13 +401,12 @@ http://localhost:3032
 
 ## Current Model
 
-This version stores room state in the local Node server. Invite links contain a room id and private seat token.
+Invite links contain a room id and private seat token. Active rooms are kept in memory for live play and transactionally snapshotted to SQLite after room mutations. When the server starts, unfinished games are hydrated from SQLite before requests are accepted.
 
-- It polls for updates every two seconds.
 - Other players cannot receive another player's private hand or library through the API.
-- Rooms are currently in memory, so restarting the server clears active games.
-
-For hosted online play outside your computer, the next step is deploying this with persistent storage or moving the same model to Supabase or Firebase.
+- SSE subscribers, live presence connections, and undo/redo stacks are runtime-only.
+- Current room state, players, seat tokens, cards, clocks, logs, and events survive a restart.
+- Ended games remain stored as tombstones and cannot be reopened.
 
 ## Deployment
 
@@ -424,6 +425,14 @@ For a GitHub-connected host such as Render or Railway:
 3. Use `npm start` as the start command.
 4. Leave the build command blank or use the host default, since this app has no build step.
 5. Open the public URL assigned by the host and create rooms from there.
+
+For persistence, attach a disk or volume to the single Node service and point `MAGE_TABLE_DB_PATH` at that mount. For example:
+
+```text
+MAGE_TABLE_DB_PATH=/var/data/mage-table.db
+```
+
+The mount directory must survive deploys and service restarts. This SQLite deployment model supports one Mage Table server instance. Running multiple instances requires a shared database such as PostgreSQL plus cross-instance room event delivery.
 
 After deployment, future code changes are normally made locally, committed, pushed to GitHub, and redeployed by the host. If you deploy by manually uploading files instead of GitHub, you must upload the changed files again and restart/redeploy the service.
 

@@ -6,7 +6,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check app.js && node --check account-store.js && node --check server.js"
+    "check": "node --check app.js && node --check account-store.js && node --check game-store.js && node --check server.js",
+    "test": "node --test test/*.test.js"
   },
   "engines": {
     "node": ">=22"

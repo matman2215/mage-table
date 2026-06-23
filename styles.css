@@ -512,6 +512,513 @@ body.landing-mode .landing-panel button:not(.landing-actions button) {
   color: #fff;
 }
 
+.landing-panel.account-workspace-shell {
+  position: relative;
+  width: calc(100vw - 20px);
+  height: calc(100vh - 20px);
+  max-height: calc(100vh - 20px);
+  border: 1px solid #34433e;
+  border-radius: 4px;
+  background: #101513;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.42);
+  color: #edf4f0;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  padding: 0;
+  overflow: hidden;
+}
+
+.account-workspace-shell .account-panel {
+  display: block;
+  min-width: 0;
+  height: 100%;
+}
+
+.account-workspace-shell .account-panel-header {
+  display: none;
+}
+
+.account-workspace {
+  display: grid;
+  grid-template-rows: 52px minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+
+.account-workspace-bar {
+  display: grid;
+  grid-template-columns: minmax(160px, auto) minmax(240px, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  border-bottom: 1px solid #34433e;
+  background: #171f1c;
+  padding: 0 12px;
+}
+
+.workspace-brand {
+  display: flex;
+  gap: 9px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.workspace-brand strong {
+  color: #8ee7d6;
+  font-size: 0.92rem;
+}
+
+.workspace-brand span,
+.account-workspace-actions > span {
+  color: #a6b4ae;
+  font-size: 0.7rem;
+}
+
+.account-workspace-tabs {
+  display: flex;
+  align-self: stretch;
+  gap: 2px;
+}
+
+.account-workspace-tab {
+  min-height: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #a6b4ae;
+  padding: 0 16px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.account-workspace-tab.active {
+  border-bottom-color: #2a9d8f;
+  background: rgba(42, 157, 143, 0.1);
+  color: #edf4f0;
+}
+
+.account-workspace-actions {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+}
+
+.account-workspace-actions button,
+.deck-library-heading button,
+.deck-builder-header-actions button,
+.deck-builder-footer button,
+.active-games-heading button,
+.active-game-actions button {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 0.72rem;
+}
+
+.account-workspace-view {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.deck-workspace {
+  display: grid;
+  grid-template-columns: minmax(260px, 310px) minmax(0, 1fr);
+}
+
+.deck-library-rail {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 10px;
+  min-height: 0;
+  border-right: 1px solid #34433e;
+  background: #131a17;
+  padding: 14px 10px;
+}
+
+.deck-library-heading,
+.deck-builder-header,
+.active-games-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.deck-library-heading > div,
+.deck-builder-header > div:first-child,
+.active-games-heading > div {
+  display: grid;
+  gap: 2px;
+}
+
+.deck-library-heading h2,
+.deck-builder-header h2,
+.active-games-heading h2 {
+  margin: 0;
+  font-size: 0.98rem;
+}
+
+.deck-library-heading span,
+.deck-builder-header span,
+.active-games-heading span {
+  color: #a6b4ae;
+  font-size: 0.7rem;
+}
+
+.account-workspace-shell input,
+.account-workspace-shell textarea {
+  border-color: #34433e;
+  border-radius: 4px;
+  background: #0d1210;
+  color: #edf4f0;
+}
+
+body.landing-mode .account-workspace-shell input,
+body.landing-mode .account-workspace-shell textarea {
+  border-color: #34433e;
+  background: #0d1210;
+  color: #edf4f0;
+}
+
+body.landing-mode .account-workspace-shell label {
+  color: #a6b4ae;
+}
+
+.deck-library-rail > input {
+  min-height: 34px;
+  padding: 6px 9px;
+  font-size: 0.76rem;
+}
+
+.account-workspace-shell .saved-deck-list {
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.account-workspace-shell .saved-deck-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  border: 1px solid transparent;
+  padding: 4px;
+}
+
+.account-workspace-shell .saved-deck-row.selected {
+  border-color: rgba(42, 157, 143, 0.7);
+  background: rgba(42, 157, 143, 0.1);
+}
+
+.deck-library-select {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  min-height: 42px;
+  background: transparent;
+  color: #edf4f0;
+  padding: 5px 6px;
+  text-align: left;
+}
+
+.deck-library-select strong,
+.deck-library-select span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deck-library-select span {
+  color: #a6b4ae;
+  font-size: 0.66rem;
+}
+
+.deck-row-play {
+  min-height: 30px;
+  padding: 0 8px;
+  font-size: 0.68rem;
+}
+
+.deck-builder-main {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.deck-builder-form {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+  padding: 14px;
+}
+
+.deck-builder-header {
+  border-bottom: 1px solid #34433e;
+  padding-bottom: 10px;
+}
+
+.deck-builder-header-actions,
+.deck-builder-footer {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+}
+
+.deck-builder-metadata {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(220px, 1.2fr);
+  gap: 10px;
+}
+
+.account-workspace-shell label {
+  color: #a6b4ae;
+  font-size: 0.72rem;
+}
+
+.deck-builder-metadata input {
+  min-height: 34px;
+  padding: 6px 9px;
+  font-size: 0.78rem;
+}
+
+.deck-card-search {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.deck-card-search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px;
+}
+
+.deck-card-search-row input,
+.deck-card-search-row button {
+  min-height: 34px;
+  font-size: 0.76rem;
+}
+
+.workspace-note {
+  margin: 0;
+  color: #a6b4ae;
+  font-size: 0.7rem;
+}
+
+.deck-card-search-results {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(148px, 176px);
+  gap: 7px;
+  min-height: 0;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.deck-search-result {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 7px;
+  align-items: center;
+  border: 1px solid #34433e;
+  background: #131a17;
+  padding: 5px;
+}
+
+.deck-search-result img {
+  grid-row: span 2;
+  width: 42px;
+  aspect-ratio: 0.714;
+  object-fit: cover;
+}
+
+.deck-search-result > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.deck-search-result strong,
+.deck-search-result span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deck-search-result strong {
+  font-size: 0.68rem;
+}
+
+.deck-search-result span {
+  color: #a6b4ae;
+  font-size: 0.58rem;
+}
+
+.deck-search-result button {
+  min-height: 26px;
+  padding: 0 7px;
+  font-size: 0.64rem;
+}
+
+.deck-builder-content {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.8fr) minmax(300px, 1.2fr);
+  gap: 12px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.deck-structured-list,
+.deck-raw-list {
+  min-height: 0;
+}
+
+.deck-structured-list {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 7px;
+}
+
+.deck-structured-list h3 {
+  margin: 0;
+  font-size: 0.78rem;
+}
+
+.deck-builder-preview {
+  min-height: 0;
+  overflow: auto;
+  border-top: 1px solid #34433e;
+}
+
+.deck-card-row {
+  display: grid;
+  grid-template-columns: 26px 28px minmax(0, 1fr) 26px;
+  gap: 5px;
+  align-items: center;
+  min-height: 34px;
+  border-bottom: 1px solid rgba(52, 67, 62, 0.72);
+  font-size: 0.72rem;
+}
+
+.deck-card-row > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deck-quantity-button {
+  width: 26px;
+  min-height: 26px;
+  padding: 0;
+}
+
+.deck-raw-list {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.deck-raw-list textarea {
+  height: 100%;
+  min-height: 160px;
+  resize: none;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.deck-builder-footer {
+  justify-content: flex-end;
+  border-top: 1px solid #34433e;
+  padding-top: 10px;
+}
+
+.deck-builder-footer .workspace-note {
+  margin-right: auto;
+}
+
+.active-games-workspace {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 0;
+  padding: 16px;
+}
+
+.active-games-heading {
+  padding-bottom: 13px;
+}
+
+.active-games-columns,
+.active-game-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.8fr) minmax(260px, 1.5fr) minmax(110px, 0.6fr) minmax(150px, 0.75fr) minmax(120px, auto);
+  gap: 12px;
+  align-items: center;
+}
+
+.active-games-columns {
+  border-block: 1px solid #34433e;
+  color: #a6b4ae;
+  padding: 8px;
+  font-size: 0.65rem;
+  font-weight: 800;
+}
+
+.active-games-list {
+  min-height: 0;
+  overflow: auto;
+}
+
+.active-game-row {
+  border-bottom: 1px solid #34433e;
+  padding: 10px 8px;
+}
+
+.active-game-identity,
+.active-game-turn,
+.active-game-players span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.active-game-identity span,
+.active-game-turn span,
+.active-game-players span,
+.active-game-row time {
+  color: #a6b4ae;
+  font-size: 0.68rem;
+}
+
+.active-game-players {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px 10px;
+}
+
+.active-game-players strong {
+  color: #edf4f0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.active-game-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.account-workspace-shell > .account-status,
+.account-workspace-shell .account-panel > .account-status {
+  position: absolute;
+  left: 14px;
+  bottom: 10px;
+  z-index: 5;
+  border: 1px solid #34433e;
+  background: #171f1c;
+  padding: 7px 10px;
+}
+
 .account-identity-row,
 .saved-deck-heading,
 .saved-deck-row,
@@ -3566,6 +4073,86 @@ body.dark-mode .commander-zone > span {
 
   .landing-menu h1 {
     font-size: 2.55rem;
+  }
+
+  .landing-panel.account-workspace-shell {
+    width: calc(100vw - 12px);
+    height: auto;
+    min-height: calc(100vh - 12px);
+    max-height: none;
+    overflow: auto;
+  }
+
+  .account-workspace {
+    grid-template-rows: auto minmax(0, 1fr);
+    min-height: calc(100vh - 14px);
+  }
+
+  .account-workspace-bar {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .account-workspace-tabs,
+  .account-workspace-actions {
+    min-height: 36px;
+    flex-wrap: wrap;
+  }
+
+  .account-workspace-tab {
+    min-height: 34px;
+  }
+
+  .deck-workspace {
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+
+  .deck-library-rail {
+    max-height: 310px;
+    border-right: 0;
+    border-bottom: 1px solid #34433e;
+  }
+
+  .deck-builder-form {
+    height: auto;
+    min-height: 720px;
+  }
+
+  .deck-builder-metadata,
+  .deck-builder-content {
+    grid-template-columns: 1fr;
+  }
+
+  .deck-builder-content {
+    overflow: visible;
+  }
+
+  .deck-builder-preview {
+    max-height: 300px;
+  }
+
+  .deck-raw-list textarea {
+    min-height: 280px;
+  }
+
+  .active-games-workspace {
+    overflow: visible;
+  }
+
+  .active-games-columns {
+    display: none;
+  }
+
+  .active-game-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    align-items: stretch;
+  }
+
+  .active-game-actions {
+    justify-content: flex-start;
   }
 
   .app-shell {

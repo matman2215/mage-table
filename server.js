@@ -3,18 +3,23 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { AccountStore } = require("./account-store");
+const { GameStore } = require("./game-store");
 
 const port = Number(process.env.PORT || 3000);
 const publicDir = __dirname;
 const rooms = new Map();
 const accountStore = new AccountStore();
+const gameStore = new GameStore();
 const scryfallCache = new Map();
 const scryfallTokenSearchCache = new Map();
+const scryfallCardSearchCache = new Map();
 let lastScryfallRequestAt = 0;
 const scryfallRequestTimeoutMs = 25000;
 const scryfallMaxAttempts = 3;
 const presenceTimeoutMs = 30000;
 const phases = ["Untap", "Upkeep", "Draw", "Main 1", "Combat", "Main 2", "End"];
+
+gameStore.loadActiveRooms().forEach((room) => rooms.set(room.id, room));
 
 function id(prefix) {
   return `${prefix}-${crypto.randomBytes(5).toString("hex")}`;
@@ -74,9 +79,13 @@ function sessionCookie(req, token, maxAgeSeconds = 30 * 24 * 60 * 60) {
 }
 
 function authenticatedAccount(req, res) {
-  const account = accountStore.accountForSession(sessionTokenFromRequest(req));
+  const account = optionalAccount(req);
   if (!account) sendJson(res, 401, { error: "Sign in is required.", code: "AUTH_REQUIRED" });
   return account;
+}
+
+function optionalAccount(req) {
+  return accountStore.accountForSession(sessionTokenFromRequest(req));
 }
 
 function sendSse(res, event, data) {
@@ -98,6 +107,27 @@ function broadcastRoomUpdate(room) {
       room.subscribers.delete(res);
     }
   }
+}
+
+function persistRoom(room) {
+  gameStore.saveRoom(room);
+}
+
+function persistRoomQuietly(room) {
+  try {
+    persistRoom(room);
+  } catch (error) {
+    console.error(`Could not persist room ${room?.id || "unknown"}:`, error);
+  }
+}
+
+function sendMissingRoom(res, roomId, message = "Room not found") {
+  const persisted = gameStore.gameStatus(roomId);
+  if (persisted?.status === "ended") {
+    sendJson(res, 410, { error: "This game has ended.", code: "GAME_ENDED" });
+    return;
+  }
+  sendJson(res, 404, { error: message, code: "ROOM_NOT_FOUND" });
 }
 
 function presenceConnectionCount(room, seat) {
@@ -347,12 +377,15 @@ function pushUndoSnapshot(room, snapshot) {
   room.undoStack = room.undoStack.slice(-40);
 }
 
-function createRoom(name, playerCount, origin, password = "", inviteMode = "links") {
+function createRoom(name, playerCount, origin, password = "", inviteMode = "links", hostAccountId = "") {
   const createdAt = Date.now();
   const normalizedInviteMode = playerCount > 1 && inviteMode === "code" ? "code" : "links";
   const room = {
     id: id("room"),
     name,
+    createdAt,
+    updatedAt: createdAt,
+    endedAt: 0,
     inviteMode: normalizedInviteMode,
     joinCode: normalizedInviteMode === "code" ? createJoinCode() : "",
     activePlayer: 0,
@@ -402,6 +435,7 @@ function createRoom(name, playerCount, origin, password = "", inviteMode = "link
       commander: "",
       isHost: seat === 0,
       claimed: seat === 0,
+      accountId: seat === 0 ? hostAccountId : "",
       deckLoaded: false,
       deckStats: null,
       libraryPreview: null,
@@ -422,6 +456,7 @@ function createRoom(name, playerCount, origin, password = "", inviteMode = "link
   setRoomPassword(room, password);
   addLog(room, `${name} created with ${playerCount} seats.`);
   rooms.set(room.id, room);
+  persistRoom(room);
   return viewRoom(room, room.players[0].token, origin);
 }
 
@@ -441,6 +476,7 @@ function viewRoom(room, token, origin) {
     eventSeq: Number(room.eventSeq) || 0,
     settings: room.settings || { friendlyMulligans: true, darkMode: true },
     passwordProtected: Boolean(room.passwordHash),
+    endedAt: Number(room.endedAt) || 0,
     inviteMode: room.inviteMode || "links",
     joinCode: currentPlayer.isHost && room.inviteMode === "code" ? room.joinCode : "",
     claimedSeatCount: room.players.filter((player) => player.claimed).length,
@@ -715,6 +751,57 @@ async function searchScryfallTokens(query) {
     .map(summarizeScryfallCard);
   scryfallTokenSearchCache.set(cacheKey, cards);
   return cards;
+}
+
+async function searchScryfallCards(query) {
+  const searchText = String(query || "").trim().slice(0, 120);
+  if (searchText.length < 2) return [];
+  const cacheKey = searchText.toLowerCase();
+  if (scryfallCardSearchCache.has(cacheKey)) return scryfallCardSearchCache.get(cacheKey);
+  const scryfallQuery = /\b[a-z]+:/i.test(searchText)
+    ? searchText
+    : `name:"${searchText.replace(/"/g, "").trim()}"`;
+  const url = `https://api.scryfall.com/cards/search?order=name&unique=cards&q=${encodeURIComponent(scryfallQuery)}`;
+  const response = await throttledScryfallFetch(url);
+  if (!response.ok) {
+    if (response.status === 404) return [];
+    throw new Error("Scryfall card search failed");
+  }
+  const payload = await response.json();
+  const cards = (payload.data || []).slice(0, 24).map(summarizeScryfallCard);
+  scryfallCardSearchCache.set(cacheKey, cards);
+  return cards;
+}
+
+function accountGameSummary(room, accountId, origin) {
+  const player = room.players.find((candidate) => candidate.accountId === accountId);
+  if (!player) return null;
+  const activePlayer = room.players[Number(room.activePlayer) || 0] || room.players[0];
+  return {
+    id: room.id,
+    name: room.name,
+    isHost: Boolean(player.isHost),
+    turnNumber: Number(room.turnNumber) || 1,
+    activePlayer: activePlayer?.name || "Player 1",
+    createdAt: Number(room.createdAt) || 0,
+    lastPlayedAt: Number(room.updatedAt) || Number(room.createdAt) || 0,
+    selfUrl: `${origin}/?room=${encodeURIComponent(room.id)}&token=${encodeURIComponent(player.token)}`,
+    players: room.players
+      .filter((candidate) => candidate.claimed)
+      .map((candidate) => ({
+        seat: candidate.seat,
+        name: candidate.name,
+        commander: candidate.commander || "",
+      })),
+  };
+}
+
+function activeGamesForAccount(accountId, origin) {
+  return [...rooms.values()]
+    .filter((room) => !room.endedAt && room.players.some((player) => player.accountId === accountId))
+    .map((room) => accountGameSummary(room, accountId, origin))
+    .filter(Boolean)
+    .sort((left, right) => right.lastPlayedAt - left.lastPlayedAt);
 }
 
 function addCollectionAliases(results, card, summary) {
@@ -2205,6 +2292,33 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true }, { "Set-Cookie": sessionCookie(req, "", 0) });
     }
 
+    if (req.method === "GET" && requestUrl.pathname === "/api/account/games") {
+      const account = authenticatedAccount(req, res);
+      if (!account) return;
+      return sendJson(res, 200, { games: activeGamesForAccount(account.id, origin) });
+    }
+
+    const endAccountGameMatch = requestUrl.pathname.match(/^\/api\/account\/games\/([^/]+)\/end$/);
+    if (req.method === "POST" && endAccountGameMatch) {
+      const account = authenticatedAccount(req, res);
+      if (!account) return;
+      const room = rooms.get(decodeURIComponent(endAccountGameMatch[1]));
+      if (!room) return sendJson(res, 404, { error: "Game not found.", code: "GAME_NOT_FOUND" });
+      const host = room.players.find((player) => player.isHost);
+      if (!host || host.accountId !== account.id) {
+        return sendJson(res, 403, { error: "Only the host can end this game.", code: "HOST_REQUIRED" });
+      }
+      if (!room.endedAt) {
+        room.endedAt = Date.now();
+        room.updatedAt = room.endedAt;
+        room.updateSeq = (Number(room.updateSeq) || 0) + 1;
+        addLog(room, `${host.name} ended the game.`, host, { kind: "gameEnded" });
+        persistRoom(room);
+        broadcastRoomUpdate(room);
+      }
+      return sendJson(res, 200, { ok: true, endedAt: room.endedAt });
+    }
+
     if (requestUrl.pathname === "/api/account/decks") {
       const account = authenticatedAccount(req, res);
       if (!account) return;
@@ -2234,23 +2348,30 @@ const server = http.createServer(async (req, res) => {
       const playerCount = Math.max(1, Math.min(4, Number(body.playerCount) || 1));
       const password = String(body.password || "").slice(0, 128);
       const inviteMode = body.inviteMode === "code" ? "code" : "links";
-      return sendJson(res, 201, createRoom(String(body.name || "Mage Table").slice(0, 40), playerCount, origin, password, inviteMode));
+      const account = optionalAccount(req);
+      return sendJson(res, 201, createRoom(String(body.name || "Mage Table").slice(0, 40), playerCount, origin, password, inviteMode, account?.id || ""));
     }
 
     if (req.method === "POST" && requestUrl.pathname === "/api/rooms/join") {
       const body = await readBody(req);
       const joinCode = normalizeJoinCode(body.code);
       if (!joinCode) return sendJson(res, 400, { error: "Enter a room code.", code: "JOIN_CODE_REQUIRED" });
-      const room = [...rooms.values()].find((candidate) => candidate.inviteMode === "code" && candidate.joinCode === joinCode);
+      const room = [...rooms.values()].find((candidate) => !candidate.endedAt && candidate.inviteMode === "code" && candidate.joinCode === joinCode);
       if (!room) return sendJson(res, 404, { error: "That room code was not found.", code: "JOIN_CODE_NOT_FOUND" });
       const passwordError = roomPasswordError(room, String(body.password || ""));
       if (passwordError) return sendJson(res, passwordError.status, passwordError);
+      const account = optionalAccount(req);
+      const existingPlayer = account ? room.players.find((candidate) => candidate.accountId === account.id) : null;
+      if (existingPlayer) return sendJson(res, 200, viewRoom(room, existingPlayer.token, origin));
       const player = room.players.find((candidate) => !candidate.claimed);
       if (!player) return sendJson(res, 409, { error: "This room is full.", code: "ROOM_FULL" });
       player.claimed = true;
+      player.accountId = account?.id || "";
       player.presenceLastSeenAt = Date.now();
+      room.updatedAt = Date.now();
       room.updateSeq = (Number(room.updateSeq) || 0) + 1;
       addLog(room, `${player.name} joined with the room code.`, player, { kind: "join", seat: player.seat });
+      persistRoom(room);
       broadcastRoomUpdate(room);
       broadcastPresence(room);
       return sendJson(res, 200, viewRoom(room, player.token, origin));
@@ -2259,17 +2380,28 @@ const server = http.createServer(async (req, res) => {
     const roomMatch = requestUrl.pathname.match(/^\/api\/rooms\/([^/]+)$/);
     if (req.method === "GET" && roomMatch) {
       const room = rooms.get(roomMatch[1]);
+      if (!room) return sendMissingRoom(res, roomMatch[1], "Room or seat not found");
+      if (room?.endedAt) return sendJson(res, 410, { error: "This game has ended.", code: "GAME_ENDED" });
       const token = requestUrl.searchParams.get("token");
       const passwordError = roomPasswordError(room, requestUrl.searchParams.get("password") || "");
       if (passwordError) return sendJson(res, passwordError.status, passwordError);
       const player = room?.players.find((candidate) => candidate.token === token);
+      const account = optionalAccount(req);
+      let roomChanged = false;
+      if (player && account && !player.accountId && !room.players.some((candidate) => candidate.accountId === account.id)) {
+        player.accountId = account.id;
+        roomChanged = true;
+      }
       if (player && !player.claimed) {
         player.claimed = true;
         player.presenceLastSeenAt = Date.now();
+        room.updatedAt = Date.now();
         room.updateSeq = (Number(room.updateSeq) || 0) + 1;
         addLog(room, `${player.name} joined from a private invite link.`, player, { kind: "join", seat: player.seat });
+        roomChanged = true;
         broadcastRoomUpdate(room);
       }
+      if (roomChanged) persistRoom(room);
       const view = room && viewRoom(room, token, origin);
       if (!view) return sendJson(res, 404, { error: "Room or seat not found" });
       return sendJson(res, 200, view);
@@ -2278,6 +2410,8 @@ const server = http.createServer(async (req, res) => {
     const streamMatch = requestUrl.pathname.match(/^\/api\/rooms\/([^/]+)\/stream$/);
     if (req.method === "GET" && streamMatch) {
       const room = rooms.get(streamMatch[1]);
+      if (!room) return sendMissingRoom(res, streamMatch[1], "Room or seat not found");
+      if (room?.endedAt) return sendJson(res, 410, { error: "This game has ended.", code: "GAME_ENDED" });
       const token = requestUrl.searchParams.get("token");
       const actor = room?.players.find((player) => player.token === token);
       if (!room || !actor) return sendJson(res, 404, { error: "Room or seat not found" });
@@ -2288,6 +2422,7 @@ const server = http.createServer(async (req, res) => {
       room.presenceConnections = room.presenceConnections || new Map();
       room.presenceConnections.set(actor.seat, presenceConnectionCount(room, actor.seat) + 1);
       touchPresence(room, actor, connectedAt);
+      persistRoom(room);
       res.writeHead(200, {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache, no-transform",
@@ -2311,6 +2446,7 @@ const server = http.createServer(async (req, res) => {
         if (remaining) room.presenceConnections.set(actor.seat, remaining);
         else room.presenceConnections.delete(actor.seat);
         touchPresence(room, actor, disconnectedAt);
+        persistRoomQuietly(room);
         broadcastPresence(room);
       });
       return;
@@ -2319,7 +2455,8 @@ const server = http.createServer(async (req, res) => {
     const presenceMatch = requestUrl.pathname.match(/^\/api\/rooms\/([^/]+)\/presence$/);
     if (req.method === "POST" && presenceMatch) {
       const room = rooms.get(presenceMatch[1]);
-      if (!room) return sendJson(res, 404, { error: "Room not found" });
+      if (!room) return sendMissingRoom(res, presenceMatch[1]);
+      if (room.endedAt) return sendJson(res, 410, { error: "This game has ended.", code: "GAME_ENDED" });
       const body = await readBody(req);
       const actor = room.players.find((player) => player.token === body.token);
       if (!actor) return sendJson(res, 403, { error: "Invalid seat token" });
@@ -2328,6 +2465,7 @@ const server = http.createServer(async (req, res) => {
       const now = Date.now();
       syncRoomClock(room, now);
       touchPresence(room, actor, now);
+      persistRoom(room);
       const payload = presencePayload(room, now);
       broadcastPresence(room);
       return sendJson(res, 200, payload);
@@ -2339,20 +2477,31 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { cards });
     }
 
+    if (req.method === "GET" && requestUrl.pathname === "/api/scryfall/cards") {
+      const query = requestUrl.searchParams.get("q") || "";
+      const cards = await searchScryfallCards(query);
+      return sendJson(res, 200, { cards });
+    }
+
     const actionMatch = requestUrl.pathname.match(/^\/api\/rooms\/([^/]+)\/actions$/);
     if (req.method === "POST" && actionMatch) {
       const room = rooms.get(actionMatch[1]);
-      if (!room) return sendJson(res, 404, { error: "Room not found" });
+      if (!room) return sendMissingRoom(res, actionMatch[1]);
+      if (room.endedAt) return sendJson(res, 410, { error: "This game has ended.", code: "GAME_ENDED" });
       const body = await readBody(req);
       const actor = room.players.find((player) => player.token === body.token);
       if (!actor) return sendJson(res, 403, { error: "Invalid seat token" });
       const passwordError = roomPasswordError(room, body.password || "");
       if (passwordError) return sendJson(res, passwordError.status, passwordError);
       const actionAt = Date.now();
+      const account = optionalAccount(req);
+      if (account && !actor.accountId && !room.players.some((player) => player.accountId === account.id)) actor.accountId = account.id;
       syncRoomClock(room, actionAt);
       touchPresence(room, actor, actionAt);
       await applyAction(room, actor, body);
+      room.updatedAt = actionAt;
       room.updateSeq = (Number(room.updateSeq) || 0) + 1;
+      persistRoom(room);
       broadcastRoomUpdate(room);
       broadcastPresence(room);
       return sendJson(res, 200, viewRoom(room, actor.token, origin));
@@ -2374,8 +2523,10 @@ module.exports = {
   accountStore,
   applyAction,
   createRoom,
+  gameStore,
   maybeStartRoomClock,
   presencePayload,
+  persistRoom,
   rooms,
   server,
   syncRoomClock,

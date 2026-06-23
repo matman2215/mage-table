@@ -112,7 +112,7 @@
           <button id="createFromLobbiesButton" type="button">Create Game</button>
         </section>
         <section id="accountPanel" class="landing-subpanel account-panel hidden">
-          <header class="create-room-header">
+          <header class="create-room-header account-panel-header">
             <button id="backFromAccountButton" class="secondary compact-icon-button" type="button" title="Back" aria-label="Back to landing screen">&#8592;</button>
             <h2 id="accountPanelTitle">Account</h2>
           </header>
@@ -144,20 +144,98 @@
               <button type="submit">Create Account</button>
             </form>
           </div>
-          <div id="accountDashboard" class="account-dashboard hidden">
-            <div class="account-identity-row">
-              <span>Signed in as <strong id="accountUsername"></strong></span>
-              <button id="logoutButton" class="secondary" type="button">Log Out</button>
-            </div>
-            <div class="saved-deck-heading">
-              <h3>Saved Decks</h3>
-              <button id="newSavedDeckButton" type="button">New Deck</button>
-            </div>
-            <div class="saved-deck-toolbar">
-              <input id="savedDeckSearchInput" type="search" placeholder="Filter saved decks" aria-label="Filter saved decks">
-              <span id="savedDeckSummary">0 decks</span>
-            </div>
-            <div id="savedDeckList" class="saved-deck-list"></div>
+          <div id="accountDashboard" class="account-workspace hidden">
+            <header class="account-workspace-bar">
+              <div class="workspace-brand">
+                <strong>Mage Table</strong>
+                <span>Deck Workshop</span>
+              </div>
+              <nav class="account-workspace-tabs" aria-label="Account workspace">
+                <button id="accountDecksTab" class="account-workspace-tab active" type="button">Decks</button>
+                <button id="accountGamesTab" class="account-workspace-tab secondary" type="button">Active Games</button>
+              </nav>
+              <div class="account-workspace-actions">
+                <span>Signed in as <strong id="accountUsername"></strong></span>
+                <button id="accountStartGameButton" type="button">Start Game</button>
+                <button id="logoutButton" class="secondary" type="button">Log Out</button>
+              </div>
+            </header>
+
+            <section id="accountDecksView" class="account-workspace-view deck-workspace">
+              <aside class="deck-library-rail">
+                <header class="deck-library-heading">
+                  <div>
+                    <h2>Deck Library</h2>
+                    <span id="savedDeckSummary">0 decks</span>
+                  </div>
+                  <button id="newSavedDeckButton" type="button">New Deck</button>
+                </header>
+                <input id="savedDeckSearchInput" type="search" placeholder="Filter decks" aria-label="Filter saved decks">
+                <div id="savedDeckList" class="saved-deck-list"></div>
+              </aside>
+
+              <main class="deck-builder-main">
+                <form id="deckBuilderForm" class="deck-builder-form">
+                  <header class="deck-builder-header">
+                    <div>
+                      <h2 id="deckBuilderTitle">New Deck</h2>
+                      <span id="deckBuilderCount">0 cards</span>
+                    </div>
+                    <div class="deck-builder-header-actions">
+                      <button id="duplicateBuilderDeckButton" class="secondary" type="button">Duplicate</button>
+                      <button id="deleteBuilderDeckButton" class="danger" type="button">Delete</button>
+                    </div>
+                  </header>
+                  <div class="deck-builder-metadata">
+                    <label>
+                      Deck name
+                      <input id="deckBuilderNameInput" type="text" maxlength="80" placeholder="Untitled deck" required>
+                    </label>
+                    <label>
+                      Commander
+                      <input id="deckBuilderCommanderInput" type="text" maxlength="120" placeholder="Commander name">
+                    </label>
+                  </div>
+                  <section class="deck-card-search">
+                    <div class="deck-card-search-row">
+                      <input id="deckCardSearchInput" type="search" maxlength="120" placeholder="Search Scryfall for a card" aria-label="Search Scryfall for a card">
+                      <button id="deckCardSearchButton" type="button">Search</button>
+                    </div>
+                    <p id="deckCardSearchSummary" class="workspace-note">Search for cards to add to this deck.</p>
+                    <div id="deckCardSearchResults" class="deck-card-search-results"></div>
+                  </section>
+                  <div class="deck-builder-content">
+                    <section class="deck-structured-list">
+                      <h3>Card List</h3>
+                      <div id="deckBuilderPreview" class="deck-builder-preview"></div>
+                    </section>
+                    <label class="deck-raw-list">
+                      Raw decklist
+                      <textarea id="deckBuilderListInput" rows="18" maxlength="100000" placeholder="1 Sol Ring&#10;1 Command Tower"></textarea>
+                    </label>
+                  </div>
+                  <footer class="deck-builder-footer">
+                    <span id="deckBuilderStatus" class="workspace-note" role="status"></span>
+                    <button id="startBuilderDeckGameButton" class="secondary" type="button">Start Game with Deck</button>
+                    <button id="saveBuilderDeckButton" type="submit">Save Deck</button>
+                  </footer>
+                </form>
+              </main>
+            </section>
+
+            <section id="accountGamesView" class="account-workspace-view active-games-workspace hidden">
+              <header class="active-games-heading">
+                <div>
+                  <h2>Active Games</h2>
+                  <span id="activeGamesSummary">0 games</span>
+                </div>
+                <button id="refreshActiveGamesButton" class="secondary" type="button">Refresh</button>
+              </header>
+              <div class="active-games-columns" aria-hidden="true">
+                <span>Game</span><span>Players and commanders</span><span>Turn</span><span>Last played</span><span>Actions</span>
+              </div>
+              <div id="activeGamesList" class="active-games-list"></div>
+            </section>
           </div>
           <p id="accountStatus" class="account-status hidden" role="status"></p>
         </section>
@@ -444,6 +522,22 @@
           <button id="closeDeleteDeckButton" class="popover-close" type="button" title="Dismiss" aria-label="Dismiss delete confirmation">x</button>
         </header>
         <button id="confirmDeleteDeckButton" class="danger" value="delete" type="submit">Delete Deck</button>
+      </form>
+    </dialog>
+
+    <dialog id="endGameDialog">
+      <form id="endGameForm" method="dialog" class="dialog-card confirmation-dialog-card">
+        <header class="popover-header">
+          <div>
+            <h2>End Active Game?</h2>
+            <p id="endGameSummary" class="dialog-note">Players will no longer be able to rejoin this game.</p>
+          </div>
+          <button id="closeEndGameButton" class="popover-close" type="button" title="Dismiss" aria-label="Dismiss end game confirmation">x</button>
+        </header>
+        <div class="dialog-actions">
+          <button value="cancel" class="secondary" type="submit">Keep Game</button>
+          <button id="confirmEndGameButton" class="danger" value="end" type="submit">End Game</button>
+        </div>
       </form>
     </dialog>
 
