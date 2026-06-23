@@ -4,6 +4,7 @@ const els = {
   setupPanel: document.querySelector("#setupPanel"),
   landingMenu: document.querySelector("#landingMenu"),
   createGameButton: document.querySelector("#createGameButton"),
+  joinGameButton: document.querySelector("#joinGameButton"),
   loginButton: document.querySelector("#loginButton"),
   backToLandingButton: document.querySelector("#backToLandingButton"),
   activeLobbiesPanel: document.querySelector("#activeLobbiesPanel"),
@@ -32,11 +33,20 @@ const els = {
   savedDeckList: document.querySelector("#savedDeckList"),
   tablePanel: document.querySelector("#tablePanel"),
   roomForm: document.querySelector("#roomForm"),
+  joinRoomForm: document.querySelector("#joinRoomForm"),
+  backFromJoinButton: document.querySelector("#backFromJoinButton"),
+  joinCodeInput: document.querySelector("#joinCodeInput"),
+  joinCodePasswordInput: document.querySelector("#joinCodePasswordInput"),
+  joinRoomStatus: document.querySelector("#joinRoomStatus"),
+  joinRoomSubmitButton: document.querySelector("#joinRoomSubmitButton"),
   roomNameInput: document.querySelector("#roomNameInput"),
   roomPasswordInput: document.querySelector("#roomPasswordInput"),
   singlePlayerInput: document.querySelector("#singlePlayerInput"),
   playerCountLabel: document.querySelector("#playerCountLabel"),
   playerCountInput: document.querySelector("#playerCountInput"),
+  inviteMethodFieldset: document.querySelector("#inviteMethodFieldset"),
+  inviteMethodInputs: [...document.querySelectorAll('input[name="inviteMethod"]')],
+  createRoomSubmitButton: document.querySelector("#createRoomSubmitButton"),
   inviteList: document.querySelector("#inviteList"),
   sidebarToggle: document.querySelector("#sidebarToggle"),
   diceButton: document.querySelector("#diceButton"),
@@ -410,13 +420,35 @@ function syncSidebarState() {
 function renderLanding() {
   els.landingMenu.classList.toggle("hidden", landingView !== "menu");
   els.roomForm.classList.toggle("hidden", landingView !== "create");
+  els.joinRoomForm.classList.toggle("hidden", landingView !== "join");
   els.activeLobbiesPanel.classList.toggle("hidden", landingView !== "lobbies");
   els.accountPanel.classList.toggle("hidden", landingView !== "account");
   els.setupPanel.classList.toggle("account-view", landingView === "account");
   els.setupPanel.classList.toggle("lobbies-view", landingView === "lobbies");
   els.loginButton.textContent = account ? "Account" : "Log In";
+  updateRoomCreationControls();
   if (landingView === "lobbies") renderActiveLobbies();
   if (landingView === "account") renderAccountPanel();
+}
+
+function selectedInviteMode() {
+  return els.inviteMethodInputs.find((input) => input.checked)?.value === "code" ? "code" : "links";
+}
+
+function updateRoomCreationControls() {
+  const solo = els.singlePlayerInput.checked;
+  els.playerCountInput.disabled = solo;
+  els.playerCountLabel.classList.toggle("disabled-field", solo);
+  els.inviteMethodFieldset.classList.toggle("hidden", solo);
+  els.createRoomSubmitButton.textContent = solo
+    ? "Create Solo Game"
+    : selectedInviteMode() === "code" ? "Create Join Code" : "Create Private Links";
+}
+
+function setJoinRoomStatus(message = "", isError = false) {
+  els.joinRoomStatus.textContent = message;
+  els.joinRoomStatus.classList.toggle("hidden", !message);
+  els.joinRoomStatus.classList.toggle("error", Boolean(message) && isError);
 }
 
 function activeLobbies() {
@@ -919,31 +951,51 @@ function render() {
 
 function renderInvites() {
   els.inviteList.innerHTML = "";
-  if (!state.currentPlayer.isHost || state.invites.length === 0) {
+  if (!state.currentPlayer.isHost) {
     const empty = document.createElement("p");
     empty.className = "dialog-note";
-    empty.textContent = state.currentPlayer.isHost ? "This room does not have additional invite links." : "Only the host can see invite links.";
+    empty.textContent = "Only the host can see room access details.";
     els.inviteList.append(empty);
-  }
-  state.invites.forEach((invite) => {
-    const inviteUrl = sameOriginRoomUrl(invite.url, { absolute: true });
+  } else if (state.inviteMode === "code" && state.joinCode) {
     const item = document.createElement("div");
-    item.className = "invite-item";
+    item.className = "join-code-item";
     const label = document.createElement("div");
     label.className = "invite-seat";
-    label.innerHTML = `<strong>${escapeHtml(invite.name)}</strong><span>Seat ${invite.seat + 1} board link</span>`;
+    label.innerHTML = `<strong>Room Code</strong><span>${state.roomFull ? "Room full" : `${state.claimedSeatCount} of ${state.players.length} seats claimed`}</span>`;
     const code = document.createElement("code");
-    code.textContent = inviteUrl;
+    code.textContent = state.joinCode;
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = "Copy";
-    button.addEventListener("click", () => copyText(inviteUrl));
+    button.addEventListener("click", () => copyText(state.joinCode));
     item.append(label, code, button);
     els.inviteList.append(item);
-  });
-  if (forceInviteDialog && state.currentPlayer.isHost && state.invites.length > 0) {
+  } else if (!state.invites.length) {
+    const empty = document.createElement("p");
+    empty.className = "dialog-note";
+    empty.textContent = "This room does not have additional invites.";
+    els.inviteList.append(empty);
+  } else {
+    state.invites.forEach((invite) => {
+      const inviteUrl = sameOriginRoomUrl(invite.url, { absolute: true });
+      const item = document.createElement("div");
+      item.className = "invite-item";
+      const label = document.createElement("div");
+      label.className = "invite-seat";
+      label.innerHTML = `<strong>${escapeHtml(invite.name)}</strong><span>Seat ${invite.seat + 1} board link${invite.claimed ? " - claimed" : ""}</span>`;
+      const code = document.createElement("code");
+      code.textContent = inviteUrl;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = "Copy";
+      button.addEventListener("click", () => copyText(inviteUrl));
+      item.append(label, code, button);
+      els.inviteList.append(item);
+    });
+  }
+  if (forceInviteDialog && state.currentPlayer.isHost) {
     forceInviteDialog = false;
-    els.inviteDialog.showModal();
+    if (state.invites.length > 0 || state.joinCode) els.inviteDialog.showModal();
   }
 }
 
@@ -3985,6 +4037,13 @@ els.createGameButton.addEventListener("click", () => {
   requestAnimationFrame(() => els.roomNameInput.focus());
 });
 
+els.joinGameButton.addEventListener("click", () => {
+  landingView = "join";
+  setJoinRoomStatus();
+  renderLanding();
+  requestAnimationFrame(() => els.joinCodeInput.focus());
+});
+
 els.loginButton.addEventListener("click", () => {
   landingView = "account";
   setAccountStatus();
@@ -3993,6 +4052,12 @@ els.loginButton.addEventListener("click", () => {
 
 els.backToLandingButton.addEventListener("click", () => {
   landingView = "menu";
+  renderLanding();
+});
+
+els.backFromJoinButton.addEventListener("click", () => {
+  landingView = "menu";
+  setJoinRoomStatus();
   renderLanding();
 });
 
@@ -4105,6 +4170,7 @@ els.roomForm.addEventListener("submit", async (event) => {
         name: els.roomNameInput.value.trim() || "Mage Table",
         password: els.roomPasswordInput.value,
         playerCount: els.singlePlayerInput.checked ? 1 : Number(els.playerCountInput.value),
+        inviteMode: els.singlePlayerInput.checked ? "links" : selectedInviteMode(),
       }),
     });
     storeRoomPassword(room.id, els.roomPasswordInput.value);
@@ -4117,6 +4183,36 @@ els.roomForm.addEventListener("submit", async (event) => {
     if (submitButton) submitButton.disabled = false;
   }
 });
+
+els.joinRoomForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  els.joinRoomSubmitButton.disabled = true;
+  setJoinRoomStatus();
+  try {
+    const password = els.joinCodePasswordInput.value;
+    const room = await api("/api/rooms/join", {
+      method: "POST",
+      body: JSON.stringify({ code: els.joinCodeInput.value, password }),
+    });
+    storeRoomPassword(room.id, password);
+    history.replaceState(null, "", sameOriginRoomUrl(room.selfUrl));
+    forceInviteDialog = false;
+    await refreshState();
+  } catch (error) {
+    setJoinRoomStatus(error.message, true);
+  } finally {
+    els.joinRoomSubmitButton.disabled = false;
+  }
+});
+
+els.joinCodeInput.addEventListener("input", () => {
+  els.joinCodeInput.value = els.joinCodeInput.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+  setJoinRoomStatus();
+});
+
+els.joinCodePasswordInput.addEventListener("input", () => setJoinRoomStatus());
+
+els.inviteMethodInputs.forEach((input) => input.addEventListener("change", updateRoomCreationControls));
 
 els.newRoomButton.addEventListener("click", () => {
   if (!state) {
@@ -4135,8 +4231,7 @@ els.newLobbyDialog.addEventListener("close", () => {
 els.exitGameButton.addEventListener("click", () => leaveGameForLanding("lobbies"));
 
 els.singlePlayerInput.addEventListener("change", () => {
-  els.playerCountInput.disabled = els.singlePlayerInput.checked;
-  els.playerCountLabel.classList.toggle("disabled-field", els.singlePlayerInput.checked);
+  updateRoomCreationControls();
 });
 
 els.roomPasswordForm.addEventListener("submit", async (event) => {

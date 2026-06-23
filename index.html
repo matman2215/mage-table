@@ -41,7 +41,7 @@
           <p class="landing-prompt">&gt; SELECT A TABLE COMMAND<span aria-hidden="true" class="terminal-cursor"></span></p>
           <div class="landing-actions">
             <button id="createGameButton" type="button">Create Game</button>
-            <button id="joinGameButton" class="secondary" type="button" disabled title="Coming soon">Join Game</button>
+            <button id="joinGameButton" class="secondary" type="button">Join Game</button>
             <button id="loginButton" class="secondary" type="button">Log In</button>
           </div>
           <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // SYSTEM READY</p>
@@ -71,7 +71,36 @@
               <option selected>4</option>
             </select>
           </label>
-          <button type="submit">Create Invite Links</button>
+          <fieldset id="inviteMethodFieldset" class="invite-method-fieldset">
+            <legend>Invite method</legend>
+            <div class="segmented-control invite-method-control">
+              <label>
+                <input type="radio" name="inviteMethod" value="links" checked>
+                <span>Private Links</span>
+              </label>
+              <label>
+                <input type="radio" name="inviteMethod" value="code">
+                <span>Join Code</span>
+              </label>
+            </div>
+          </fieldset>
+          <button id="createRoomSubmitButton" type="submit">Create Private Links</button>
+        </form>
+        <form id="joinRoomForm" class="room-form join-room-form hidden">
+          <header class="create-room-header">
+            <button id="backFromJoinButton" class="secondary compact-icon-button" type="button" title="Back" aria-label="Back to landing screen">&#8592;</button>
+            <h2>Join Game</h2>
+          </header>
+          <label>
+            Join code
+            <input id="joinCodeInput" class="join-code-input" type="text" minlength="6" maxlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABC123" required>
+          </label>
+          <label>
+            Room password (if required)
+            <input id="joinCodePasswordInput" type="password" maxlength="128" autocomplete="current-password" placeholder="No password">
+          </label>
+          <p id="joinRoomStatus" class="account-status hidden" role="status"></p>
+          <button id="joinRoomSubmitButton" type="submit">Join Room</button>
         </form>
         <section id="activeLobbiesPanel" class="landing-subpanel hidden">
           <header class="create-room-header">
@@ -301,8 +330,8 @@
     <dialog id="inviteDialog">
       <form method="dialog" class="dialog-card invite-dialog-card">
         <div>
-          <h2>Settings and Links</h2>
-          <p>Hosts can copy invite links here. Everyone can adjust local display settings.</p>
+          <h2>Settings and Invites</h2>
+          <p>Room access and local display settings.</p>
         </div>
         <div id="inviteList" class="invite-list"></div>
         <details class="settings-details">

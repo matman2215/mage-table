@@ -20,6 +20,23 @@ function id(prefix) {
   return `${prefix}-${crypto.randomBytes(5).toString("hex")}`;
 }
 
+const joinCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+function normalizeJoinCode(value) {
+  return String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+}
+
+function createJoinCode() {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    let code = "";
+    for (let index = 0; index < 6; index += 1) {
+      code += joinCodeAlphabet[crypto.randomInt(joinCodeAlphabet.length)];
+    }
+    if (![...rooms.values()].some((room) => room.joinCode === code)) return code;
+  }
+  throw new Error("Could not allocate a unique room code.");
+}
+
 function sendJson(res, status, data, headers = {}) {
   const body = JSON.stringify(data);
   res.writeHead(status, {
@@ -330,11 +347,14 @@ function pushUndoSnapshot(room, snapshot) {
   room.undoStack = room.undoStack.slice(-40);
 }
 
-function createRoom(name, playerCount, origin, password = "") {
+function createRoom(name, playerCount, origin, password = "", inviteMode = "links") {
   const createdAt = Date.now();
+  const normalizedInviteMode = playerCount > 1 && inviteMode === "code" ? "code" : "links";
   const room = {
     id: id("room"),
     name,
+    inviteMode: normalizedInviteMode,
+    joinCode: normalizedInviteMode === "code" ? createJoinCode() : "",
     activePlayer: 0,
     updateSeq: 0,
     phase: phases[0],
@@ -381,6 +401,7 @@ function createRoom(name, playerCount, origin, password = "") {
       name: `Player ${seat + 1}`,
       commander: "",
       isHost: seat === 0,
+      claimed: seat === 0,
       deckLoaded: false,
       deckStats: null,
       libraryPreview: null,
@@ -420,6 +441,10 @@ function viewRoom(room, token, origin) {
     eventSeq: Number(room.eventSeq) || 0,
     settings: room.settings || { friendlyMulligans: true, darkMode: true },
     passwordProtected: Boolean(room.passwordHash),
+    inviteMode: room.inviteMode || "links",
+    joinCode: currentPlayer.isHost && room.inviteMode === "code" ? room.joinCode : "",
+    claimedSeatCount: room.players.filter((player) => player.claimed).length,
+    roomFull: room.players.every((player) => player.claimed),
     currentSeat: currentPlayer.seat,
     selfUrl: `${origin}/?room=${encodeURIComponent(room.id)}&token=${encodeURIComponent(currentPlayer.token)}`,
     currentPlayer: {
@@ -449,12 +474,13 @@ function viewRoom(room, token, origin) {
     statistics: {
       commits: room.statistics?.commits || [],
     },
-    invites: currentPlayer.isHost
+    invites: currentPlayer.isHost && room.inviteMode === "links"
       ? room.players
           .filter((player) => player.seat !== currentPlayer.seat)
           .map((player) => ({
             seat: player.seat,
             name: player.name,
+            claimed: Boolean(player.claimed),
             url: `${origin}/?room=${encodeURIComponent(room.id)}&token=${encodeURIComponent(player.token)}`,
           }))
       : [],
@@ -2207,7 +2233,27 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       const playerCount = Math.max(1, Math.min(4, Number(body.playerCount) || 1));
       const password = String(body.password || "").slice(0, 128);
-      return sendJson(res, 201, createRoom(String(body.name || "Mage Table").slice(0, 40), playerCount, origin, password));
+      const inviteMode = body.inviteMode === "code" ? "code" : "links";
+      return sendJson(res, 201, createRoom(String(body.name || "Mage Table").slice(0, 40), playerCount, origin, password, inviteMode));
+    }
+
+    if (req.method === "POST" && requestUrl.pathname === "/api/rooms/join") {
+      const body = await readBody(req);
+      const joinCode = normalizeJoinCode(body.code);
+      if (!joinCode) return sendJson(res, 400, { error: "Enter a room code.", code: "JOIN_CODE_REQUIRED" });
+      const room = [...rooms.values()].find((candidate) => candidate.inviteMode === "code" && candidate.joinCode === joinCode);
+      if (!room) return sendJson(res, 404, { error: "That room code was not found.", code: "JOIN_CODE_NOT_FOUND" });
+      const passwordError = roomPasswordError(room, String(body.password || ""));
+      if (passwordError) return sendJson(res, passwordError.status, passwordError);
+      const player = room.players.find((candidate) => !candidate.claimed);
+      if (!player) return sendJson(res, 409, { error: "This room is full.", code: "ROOM_FULL" });
+      player.claimed = true;
+      player.presenceLastSeenAt = Date.now();
+      room.updateSeq = (Number(room.updateSeq) || 0) + 1;
+      addLog(room, `${player.name} joined with the room code.`, player, { kind: "join", seat: player.seat });
+      broadcastRoomUpdate(room);
+      broadcastPresence(room);
+      return sendJson(res, 200, viewRoom(room, player.token, origin));
     }
 
     const roomMatch = requestUrl.pathname.match(/^\/api\/rooms\/([^/]+)$/);
@@ -2216,6 +2262,14 @@ const server = http.createServer(async (req, res) => {
       const token = requestUrl.searchParams.get("token");
       const passwordError = roomPasswordError(room, requestUrl.searchParams.get("password") || "");
       if (passwordError) return sendJson(res, passwordError.status, passwordError);
+      const player = room?.players.find((candidate) => candidate.token === token);
+      if (player && !player.claimed) {
+        player.claimed = true;
+        player.presenceLastSeenAt = Date.now();
+        room.updateSeq = (Number(room.updateSeq) || 0) + 1;
+        addLog(room, `${player.name} joined from a private invite link.`, player, { kind: "join", seat: player.seat });
+        broadcastRoomUpdate(room);
+      }
       const view = room && viewRoom(room, token, origin);
       if (!view) return sendJson(res, 404, { error: "Room or seat not found" });
       return sendJson(res, 200, view);

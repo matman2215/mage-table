@@ -659,6 +659,90 @@ body.landing-mode .landing-panel button:not(.landing-actions button) {
   gap: 14px;
 }
 
+.invite-method-fieldset {
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.invite-method-fieldset legend {
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.segmented-control {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(127, 145, 137, 0.12);
+  padding: 4px;
+}
+
+.segmented-control label {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
+.segmented-control input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.segmented-control span {
+  display: grid;
+  place-items: center;
+  min-height: 36px;
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.segmented-control input:checked + span {
+  background: var(--accent);
+  color: #fff;
+}
+
+.segmented-control input:focus-visible + span {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 1px;
+}
+
+body.landing-mode .invite-method-fieldset legend {
+  color: #8bcf98;
+}
+
+body.landing-mode .segmented-control {
+  border-color: #3c8c52;
+  border-radius: 0;
+  background: #040a07;
+}
+
+body.landing-mode .segmented-control span {
+  border-radius: 0;
+  color: #78ad82;
+}
+
+body.landing-mode .segmented-control input:checked + span {
+  background: #1a5130;
+  color: #d7ffde;
+}
+
+.join-code-input {
+  font-size: 1.2rem;
+  font-weight: 900;
+  text-align: center;
+  text-transform: uppercase;
+}
+
 .invite-panel {
   margin-top: 16px;
 }
@@ -668,7 +752,8 @@ body.landing-mode .landing-panel button:not(.landing-actions button) {
   gap: 10px;
 }
 
-.invite-item {
+.invite-item,
+.join-code-item {
   display: grid;
   grid-template-columns: 150px 1fr auto;
   gap: 10px;
@@ -688,7 +773,8 @@ body.landing-mode .landing-panel button:not(.landing-actions button) {
   font-size: 0.78rem;
 }
 
-.invite-item code {
+.invite-item code,
+.join-code-item code {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -697,7 +783,15 @@ body.landing-mode .landing-panel button:not(.landing-actions button) {
   padding: 10px;
 }
 
-body.dark-mode .invite-item code {
+.join-code-item code {
+  color: var(--accent-strong);
+  font-size: 1.15rem;
+  font-weight: 900;
+  text-align: center;
+}
+
+body.dark-mode .invite-item code,
+body.dark-mode .join-code-item code {
   background: #0d1210;
 }
 
@@ -3504,7 +3598,8 @@ body.dark-mode .commander-zone > span {
     grid-column: 1;
   }
 
-  .invite-item {
+  .invite-item,
+  .join-code-item {
     grid-template-columns: 1fr;
   }
 
