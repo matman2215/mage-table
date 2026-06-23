@@ -11,6 +11,7 @@ const scryfallTokenSearchCache = new Map();
 let lastScryfallRequestAt = 0;
 const scryfallRequestTimeoutMs = 25000;
 const scryfallMaxAttempts = 3;
+const presenceTimeoutMs = 30000;
 const phases = ["Untap", "Upkeep", "Draw", "Main 1", "Combat", "Main 2", "End"];
 
 function id(prefix) {
@@ -41,6 +42,78 @@ function broadcastRoomUpdate(room) {
   for (const res of room.subscribers) {
     try {
       sendSse(res, "room-update", payload);
+    } catch {
+      room.subscribers.delete(res);
+    }
+  }
+}
+
+function presenceConnectionCount(room, seat) {
+  return Number(room?.presenceConnections?.get(Number(seat))) || 0;
+}
+
+function playerIsPresent(room, player, now = Date.now()) {
+  if (!player) return false;
+  return presenceConnectionCount(room, player.seat) > 0
+    || Number(player.presenceLastSeenAt) > now - presenceTimeoutMs;
+}
+
+function touchPresence(room, player, now = Date.now()) {
+  if (!room || !player) return;
+  player.presenceLastSeenAt = now;
+}
+
+function syncRoomClock(room, now = Date.now()) {
+  if (!room?.clock) return;
+  const clock = room.clock;
+  const lastSyncAt = Number(clock.lastSyncAt) || now;
+  const activePlayer = room.players[Number(room.activePlayer) || 0];
+  const presentUntil = presenceConnectionCount(room, activePlayer?.seat) > 0
+    ? now
+    : Number(activePlayer?.presenceLastSeenAt) + presenceTimeoutMs;
+  const activeElapsed = Math.max(0, Math.min(now, presentUntil) - lastSyncAt);
+  if (clock.running && activeElapsed > 0 && activePlayer) {
+    clock.totalMs = (Number(clock.totalMs) || 0) + activeElapsed;
+    clock.currentTurnMs = (Number(clock.currentTurnMs) || 0) + activeElapsed;
+    clock.playerMs[activePlayer.seat] = (Number(clock.playerMs[activePlayer.seat]) || 0) + activeElapsed;
+  }
+  clock.lastSyncAt = now;
+}
+
+function roomClockView(room, now = Date.now()) {
+  syncRoomClock(room, now);
+  const activePlayer = room.players[Number(room.activePlayer) || 0];
+  return {
+    running: Boolean(room.clock?.running),
+    totalMs: Number(room.clock?.totalMs) || 0,
+    currentTurnMs: Number(room.clock?.currentTurnMs) || 0,
+    playerMs: [...(room.clock?.playerMs || [])],
+    snapshotAt: now,
+    activePresent: playerIsPresent(room, activePlayer, now),
+    activeDeadlineAt: presenceConnectionCount(room, activePlayer?.seat) > 0
+      ? now + presenceTimeoutMs
+      : Number(activePlayer?.presenceLastSeenAt) + presenceTimeoutMs,
+  };
+}
+
+function presencePayload(room, now = Date.now()) {
+  return {
+    roomId: room.id,
+    clock: roomClockView(room, now),
+    players: room.players.map((player) => ({
+      seat: player.seat,
+      isPresent: playerIsPresent(room, player, now),
+      lastSeenAt: Number(player.presenceLastSeenAt) || 0,
+    })),
+  };
+}
+
+function broadcastPresence(room) {
+  if (!room?.subscribers) return;
+  const payload = presencePayload(room);
+  for (const res of room.subscribers) {
+    try {
+      sendSse(res, "presence-update", payload);
     } catch {
       room.subscribers.delete(res);
     }
@@ -109,11 +182,13 @@ function roomStateSnapshot(room) {
     stack: room.stack || [],
     chat: room.chat || [],
     log: room.log || [],
+    statistics: room.statistics || { pending: [], commits: [], lastEventSeq: 0 },
     players: room.players || [],
   }));
 }
 
 function restoreRoomState(room, snapshot) {
+  const livePresence = new Map((room.players || []).map((player) => [player.seat, Number(player.presenceLastSeenAt) || 0]));
   room.activePlayer = snapshot.activePlayer;
   room.updateSeq = snapshot.updateSeq;
   room.phase = snapshot.phase;
@@ -130,7 +205,11 @@ function restoreRoomState(room, snapshot) {
   room.stack = snapshot.stack || [];
   room.chat = snapshot.chat || [];
   room.log = snapshot.log || [];
+  room.statistics = snapshot.statistics || { pending: [], commits: [], lastEventSeq: 0 };
   room.players = snapshot.players || [];
+  room.players.forEach((player) => {
+    player.presenceLastSeenAt = Math.max(Number(player.presenceLastSeenAt) || 0, livePresence.get(player.seat) || 0);
+  });
 }
 
 function shouldTrackHistory(type) {
@@ -214,6 +293,7 @@ function pushUndoSnapshot(room, snapshot) {
 }
 
 function createRoom(name, playerCount, origin, password = "") {
+  const createdAt = Date.now();
   const room = {
     id: id("room"),
     name,
@@ -229,8 +309,21 @@ function createRoom(name, playerCount, origin, password = "") {
     diceNotice: null,
     reveals: [],
     subscribers: new Set(),
+    presenceConnections: new Map(),
     undoStack: [],
     redoStack: [],
+    clock: {
+      running: false,
+      totalMs: 0,
+      currentTurnMs: 0,
+      playerMs: Array(playerCount).fill(0),
+      lastSyncAt: createdAt,
+    },
+    statistics: {
+      pending: [],
+      commits: [],
+      lastEventSeq: 0,
+    },
     playtestOpponent: {
       name: "Playtest Opponent",
       commander: "Simulation",
@@ -264,6 +357,7 @@ function createRoom(name, playerCount, origin, password = "") {
       battlefield: [],
       graveyard: [],
       exile: [],
+      presenceLastSeenAt: seat === 0 ? createdAt : 0,
     })),
   };
   setRoomPassword(room, password);
@@ -275,6 +369,7 @@ function createRoom(name, playerCount, origin, password = "") {
 function viewRoom(room, token, origin) {
   const currentPlayer = room.players.find((player) => player.token === token);
   if (!currentPlayer) return null;
+  const now = Date.now();
   return {
     id: room.id,
     name: room.name,
@@ -312,6 +407,10 @@ function viewRoom(room, token, origin) {
     canRedo: Boolean(room.redoStack?.length),
     events: room.events || [],
     log: room.log,
+    clock: roomClockView(room, now),
+    statistics: {
+      commits: room.statistics?.commits || [],
+    },
     invites: currentPlayer.isHost
       ? room.players
           .filter((player) => player.seat !== currentPlayer.seat)
@@ -339,6 +438,8 @@ function viewRoom(room, token, origin) {
       battlefield: player.battlefield,
       graveyard: player.graveyard,
       exile: player.exile,
+      isPresent: playerIsPresent(room, player, now),
+      lastSeenAt: Number(player.presenceLastSeenAt) || 0,
     })),
   };
 }
@@ -438,6 +539,7 @@ function summarizeScryfallCard(card) {
     displayName: frontFace?.name || card.name,
     typeLine: frontFace?.typeLine || card.type_line || "",
     manaCost: frontFace?.manaCost || card.mana_cost || "",
+    manaValue: Number(card.cmc) || 0,
     oracleText: frontFace?.oracleText || card.oracle_text || card.card_faces?.map((face) => face.oracle_text).filter(Boolean).join("\n---\n") || "",
     images: cardImages(card),
     faces: faces.length > 1 ? faces : [],
@@ -595,6 +697,7 @@ async function buildDeck(text, ownerSeat) {
         name: entry.name,
         typeLine: "",
         manaCost: "",
+        manaValue: 0,
         oracleText: "",
         images: {},
         faces: [],
@@ -618,6 +721,7 @@ async function buildDeck(text, ownerSeat) {
         displayName: frontFace?.name || cardData.displayName || cardData.name,
         typeLine: cardData.typeLine,
         manaCost: cardData.manaCost,
+        manaValue: Number(cardData.manaValue) || manaValueFromCost(cardData.manaCost),
         oracleText: cardData.oracleText,
         imageUrl: frontFace?.imageUrl || cardData.images.normal || cardData.images.small || "",
         artUrl: frontFace?.artUrl || cardData.images.artCrop || "",
@@ -1294,6 +1398,93 @@ function resetPriority(room) {
   room.combatSnapshot = null;
 }
 
+function allPlayersReady(room) {
+  return room.players.every((player) => player.deckLoaded && !player.mulliganPending);
+}
+
+function maybeStartRoomClock(room, now = Date.now()) {
+  if (!room.clock || room.clock.running || !allPlayersReady(room)) return;
+  room.clock.running = true;
+  room.clock.lastSyncAt = now;
+  room.statistics.lastEventSeq = Number(room.eventSeq) || 0;
+}
+
+function resetRoomClock(room, now = Date.now()) {
+  room.clock = {
+    running: allPlayersReady(room),
+    totalMs: 0,
+    currentTurnMs: 0,
+    playerMs: Array(room.players.length).fill(0),
+    lastSyncAt: now,
+  };
+}
+
+function manaValueFromCost(manaCost) {
+  return [...String(manaCost || "").matchAll(/\{([^}]+)\}/g)].reduce((total, match) => {
+    const symbol = String(match[1] || "").toUpperCase();
+    if (/^\d+$/.test(symbol)) return total + Number(symbol);
+    if (["X", "Y", "Z", "T", "Q"].includes(symbol)) return total;
+    return total + 1;
+  }, 0);
+}
+
+function spellType(card) {
+  const typeLine = String(card?.typeLine || "");
+  if (/\bLand\b/i.test(typeLine) || card?.isLand) return "Land";
+  for (const type of ["Creature", "Instant", "Sorcery", "Artifact", "Enchantment", "Planeswalker", "Battle"]) {
+    if (new RegExp(`\\b${type}\\b`, "i").test(typeLine)) return type;
+  }
+  return "Other";
+}
+
+function stageSpellStatistic(room, actor, card, destination) {
+  const type = spellType(card);
+  if (type === "Land") return;
+  room.statistics = room.statistics || { pending: [], commits: [] };
+  room.statistics.pending.push({
+    id: id("cast"),
+    cardId: card.id,
+    cardName: card.displayName || card.name,
+    type,
+    manaUsed: Number.isFinite(Number(card.manaValue)) ? Number(card.manaValue) : manaValueFromCost(card.manaCost),
+    actorSeat: actor.seat,
+    actorName: actor.name,
+    activeSeat: Number(room.activePlayer) || 0,
+    turn: Number(room.turnNumber) || 1,
+    destination,
+  });
+  room.statistics.pending = room.statistics.pending.slice(-80);
+}
+
+function commitStatistics(room, reason) {
+  room.statistics = room.statistics || { pending: [], commits: [] };
+  const events = room.statistics.pending.splice(0);
+  const lastEventSeq = Number(room.statistics.lastEventSeq) || 0;
+  const logEvents = (room.events || [])
+    .filter((event) => Number(event.seq) > lastEventSeq)
+    .map((event) => ({ seq: event.seq, actorName: event.actorName, message: event.message, at: event.at }));
+  room.statistics.lastEventSeq = Number(room.eventSeq) || lastEventSeq;
+  const spellsByType = {};
+  let manaUsed = 0;
+  events.forEach((event) => {
+    spellsByType[event.type] = (Number(spellsByType[event.type]) || 0) + 1;
+    manaUsed += Number(event.manaUsed) || 0;
+  });
+  room.statistics.commits.push({
+    id: id("stats"),
+    turn: Number(room.turnNumber) || 1,
+    activeSeat: Number(room.activePlayer) || 0,
+    activeName: room.players[room.activePlayer]?.name || "Player",
+    reason,
+    events,
+    logEvents,
+    spellsByType,
+    manaUsed,
+    at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+  });
+  room.statistics.commits = room.statistics.commits.slice(-240);
+}
+
 function compactCardSnapshot(card) {
   if (!card) return null;
   const stats = cardCombatStats(card);
@@ -1398,6 +1589,7 @@ async function applyAction(room, actor, body) {
       room.turnNumber = 1;
       room.phase = phases[0];
       resetPriority(room);
+      resetRoomClock(room);
       room.diceNotice = {
         id: id("first"),
         mode: "firstPlayer",
@@ -1415,17 +1607,21 @@ async function applyAction(room, actor, body) {
     }
     case "turn": {
       assertActivePlayer(room, actor);
+      commitStatistics(room, "turn passed");
       const nextActive = (room.activePlayer + 1) % room.players.length;
       room.activePlayer = nextActive;
       if (room.players.length <= 1 || nextActive === 0) room.turnNumber = (Number(room.turnNumber) || 1) + 1;
       room.phase = phases[0];
       resetPriority(room);
+      room.clock.currentTurnMs = 0;
+      room.clock.lastSyncAt = Date.now();
       addLog(room, `Turn moved to ${room.players[room.activePlayer].name}.`, actor);
       break;
     }
     case "combatPass": {
       assertActivePlayer(room, actor);
       if (room.players.length <= 1) throw new Error("Combat priority is only available in multiplayer.");
+      commitStatistics(room, "combat priority passed");
       room.priorityMode = "combat";
       room.prioritySeat = nextSeat(room, actor.seat);
       const selectedIds = new Set((Array.isArray(body.cardIds) ? body.cardIds : []).map((cardId) => String(cardId || "")).filter(Boolean));
@@ -1464,6 +1660,7 @@ async function applyAction(room, actor, body) {
     case "passPriority": {
       if (room.players.length <= 1) throw new Error("Priority passing is only available in multiplayer.");
       if (!playerHasPriority(room, actor)) throw new Error("You do not have priority.");
+      commitStatistics(room, "priority passed");
       const next = nextSeat(room, actor.seat);
       room.prioritySeat = next;
       if (next === room.activePlayer) {
@@ -1570,6 +1767,7 @@ async function applyAction(room, actor, body) {
     case "keepHand": {
       if (!actor.deckLoaded) throw new Error("Load a deck before keeping a hand.");
       actor.mulliganPending = false;
+      maybeStartRoomClock(room);
       addLog(room, `${actor.name} kept their opening hand.`, actor);
       break;
     }
@@ -1651,6 +1849,9 @@ async function applyAction(room, actor, body) {
         throw new Error("You can only edit your own board state.");
       }
       const card = moveCard(actor, target, body.fromZone, body.toZone, body.cardId, destinationPlayer, body.position);
+      if (["hand", "commanderZone"].includes(body.fromZone) && body.toZone === "battlefield") {
+        stageSpellStatistic(room, actor, card, "battlefield");
+      }
       addLog(room, `${actor.name} moved ${card.name} to ${body.toZone}.`, actor, {
         kind: "move",
         cardName: card.name,
@@ -1670,6 +1871,9 @@ async function applyAction(room, actor, body) {
         throw new Error("You can only edit your own board state.");
       }
       const cards = moveMultipleCards(actor, target, body.fromZone, body.toZone, body.cards, destinationPlayer);
+      if (["hand", "commanderZone"].includes(body.fromZone) && body.toZone === "battlefield") {
+        cards.forEach((card) => stageSpellStatistic(room, actor, card, "battlefield"));
+      }
       addLog(room, `${actor.name} moved ${cards.length} selected card${cards.length === 1 ? "" : "s"} to ${body.toZone}.`, actor, {
         kind: "move",
         cardName: `${cards.length} selected card${cards.length === 1 ? "" : "s"}`,
@@ -1775,6 +1979,9 @@ async function applyAction(room, actor, body) {
       const target = room.players[Number(body.seat)];
       if (!target) throw new Error("Invalid player");
       const card = stackFromZone(room, actor, target, body.fromZone, body.cardId);
+      if (["hand", "commanderZone", "graveyard", "exile"].includes(body.fromZone)) {
+        stageSpellStatistic(room, actor, card, "stack");
+      }
       addLog(room, `${actor.name} put ${card.name} on the stack.`, actor);
       break;
     }
@@ -1884,6 +2091,11 @@ const server = http.createServer(async (req, res) => {
       if (!room || !actor) return sendJson(res, 404, { error: "Room or seat not found" });
       const passwordError = roomPasswordError(room, requestUrl.searchParams.get("password") || "");
       if (passwordError) return sendJson(res, passwordError.status, passwordError);
+      const connectedAt = Date.now();
+      syncRoomClock(room, connectedAt);
+      room.presenceConnections = room.presenceConnections || new Map();
+      room.presenceConnections.set(actor.seat, presenceConnectionCount(room, actor.seat) + 1);
+      touchPresence(room, actor, connectedAt);
       res.writeHead(200, {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache, no-transform",
@@ -1897,10 +2109,36 @@ const server = http.createServer(async (req, res) => {
       });
       room.subscribers = room.subscribers || new Set();
       room.subscribers.add(res);
+      sendSse(res, "presence-update", presencePayload(room, connectedAt));
+      broadcastPresence(room);
       req.on("close", () => {
+        const disconnectedAt = Date.now();
+        syncRoomClock(room, disconnectedAt);
         room.subscribers.delete(res);
+        const remaining = Math.max(0, presenceConnectionCount(room, actor.seat) - 1);
+        if (remaining) room.presenceConnections.set(actor.seat, remaining);
+        else room.presenceConnections.delete(actor.seat);
+        touchPresence(room, actor, disconnectedAt);
+        broadcastPresence(room);
       });
       return;
+    }
+
+    const presenceMatch = requestUrl.pathname.match(/^\/api\/rooms\/([^/]+)\/presence$/);
+    if (req.method === "POST" && presenceMatch) {
+      const room = rooms.get(presenceMatch[1]);
+      if (!room) return sendJson(res, 404, { error: "Room not found" });
+      const body = await readBody(req);
+      const actor = room.players.find((player) => player.token === body.token);
+      if (!actor) return sendJson(res, 403, { error: "Invalid seat token" });
+      const passwordError = roomPasswordError(room, body.password || "");
+      if (passwordError) return sendJson(res, passwordError.status, passwordError);
+      const now = Date.now();
+      syncRoomClock(room, now);
+      touchPresence(room, actor, now);
+      const payload = presencePayload(room, now);
+      broadcastPresence(room);
+      return sendJson(res, 200, payload);
     }
 
     if (req.method === "GET" && requestUrl.pathname === "/api/scryfall/tokens") {
@@ -1918,9 +2156,13 @@ const server = http.createServer(async (req, res) => {
       if (!actor) return sendJson(res, 403, { error: "Invalid seat token" });
       const passwordError = roomPasswordError(room, body.password || "");
       if (passwordError) return sendJson(res, passwordError.status, passwordError);
+      const actionAt = Date.now();
+      syncRoomClock(room, actionAt);
+      touchPresence(room, actor, actionAt);
       await applyAction(room, actor, body);
       room.updateSeq = (Number(room.updateSeq) || 0) + 1;
       broadcastRoomUpdate(room);
+      broadcastPresence(room);
       return sendJson(res, 200, viewRoom(room, actor.token, origin));
     }
 
@@ -1930,6 +2172,19 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(port, "0.0.0.0", () => {
-  console.log(`Mage Table running on port ${port}`);
-});
+if (require.main === module) {
+  server.listen(port, "0.0.0.0", () => {
+    console.log(`Mage Table running on port ${port}`);
+  });
+}
+
+module.exports = {
+  applyAction,
+  createRoom,
+  maybeStartRoomClock,
+  presencePayload,
+  rooms,
+  server,
+  syncRoomClock,
+  touchPresence,
+};

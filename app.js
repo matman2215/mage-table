@@ -2,6 +2,9 @@ const phases = ["Untap", "Upkeep", "Draw", "Main 1", "Combat", "Main 2", "End"];
 
 const els = {
   setupPanel: document.querySelector("#setupPanel"),
+  landingMenu: document.querySelector("#landingMenu"),
+  createGameButton: document.querySelector("#createGameButton"),
+  backToLandingButton: document.querySelector("#backToLandingButton"),
   tablePanel: document.querySelector("#tablePanel"),
   roomForm: document.querySelector("#roomForm"),
   roomNameInput: document.querySelector("#roomNameInput"),
@@ -13,6 +16,19 @@ const els = {
   sidebarToggle: document.querySelector("#sidebarToggle"),
   diceButton: document.querySelector("#diceButton"),
   randomFirstPlayerButton: document.querySelector("#randomFirstPlayerButton"),
+  clockButton: document.querySelector("#clockButton"),
+  clockRailValue: document.querySelector("#clockRailValue"),
+  clockPopover: document.querySelector("#clockPopover"),
+  closeClockButton: document.querySelector("#closeClockButton"),
+  totalGameClock: document.querySelector("#totalGameClock"),
+  currentTurnClock: document.querySelector("#currentTurnClock"),
+  playerClockList: document.querySelector("#playerClockList"),
+  clockStatus: document.querySelector("#clockStatus"),
+  statisticsButton: document.querySelector("#statisticsButton"),
+  statisticsPopover: document.querySelector("#statisticsPopover"),
+  closeStatisticsButton: document.querySelector("#closeStatisticsButton"),
+  statisticsSummary: document.querySelector("#statisticsSummary"),
+  statisticsTurnLog: document.querySelector("#statisticsTurnLog"),
   dicePopover: document.querySelector("#dicePopover"),
   closeDiceButton: document.querySelector("#closeDiceButton"),
   diceCountInput: document.querySelector("#diceCountInput"),
@@ -137,6 +153,8 @@ let currentToken = "";
 let pollTimer = null;
 let roomEvents = null;
 let roomEventsKey = "";
+let presenceHeartbeatTimer = null;
+let clockRenderTimer = null;
 let queuedRoomUpdateSeq = 0;
 let forceInviteDialog = false;
 let loadedDeckSetupFor = "";
@@ -168,6 +186,7 @@ let dismissedDiceNoticeId = "";
 let lastDiceResult = "No rolls yet";
 let pendingCountPrompt = null;
 let keybindCaptureAction = "";
+let landingView = "menu";
 const selectedBattlefieldCards = new Set();
 const playerCounterSelections = new Map();
 const dismissedReveals = new Set();
@@ -322,7 +341,22 @@ function recommendedCardScale() {
 
 function syncSidebarState() {
   document.body.classList.toggle("sidebar-collapsed", sidebarCollapsed);
-  els.sidebarToggle.textContent = sidebarCollapsed ? "Show" : "Hide";
+  const label = sidebarCollapsed ? "Show controls" : "Hide controls";
+  els.sidebarToggle.title = label;
+  els.sidebarToggle.setAttribute("aria-label", label);
+  els.sidebarToggle.setAttribute("aria-expanded", String(!sidebarCollapsed));
+}
+
+function renderLanding() {
+  const showMenu = landingView !== "create";
+  els.landingMenu.classList.toggle("hidden", !showMenu);
+  els.roomForm.classList.toggle("hidden", showMenu);
+}
+
+function closeActionPopovers(except = null) {
+  [els.dicePopover, els.clockPopover, els.statisticsPopover].forEach((popover) => {
+    if (popover && popover !== except) popover.classList.add("hidden");
+  });
 }
 
 async function refreshState({ quiet = false } = {}) {
@@ -373,6 +407,53 @@ function startPolling() {
   }, 30000);
 }
 
+function mergePresencePayload(payload) {
+  if (!state || payload?.roomId !== state.id) return;
+  if (payload.clock) state.clock = payload.clock;
+  const updates = new Map((payload.players || []).map((player) => [Number(player.seat), player]));
+  state.players.forEach((player) => {
+    const update = updates.get(Number(player.seat));
+    if (!update) return;
+    player.isPresent = Boolean(update.isPresent);
+    player.lastSeenAt = Number(update.lastSeenAt) || 0;
+  });
+  renderClockPanel();
+  renderPresenceIndicators();
+}
+
+async function sendPresenceHeartbeat() {
+  if (!state) return;
+  const roomId = state.id;
+  try {
+    const response = await fetch(`/api/rooms/${roomId}/presence`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: currentToken, password: roomPasswordFor(roomId) }),
+      keepalive: true,
+    });
+    if (!response.ok) return;
+    const payload = await response.json();
+    if (state?.id === roomId) mergePresencePayload(payload);
+  } catch {
+    // The SSE reconnect and next heartbeat will restore presence after a transient failure.
+  }
+}
+
+function startPresenceHeartbeat() {
+  if (presenceHeartbeatTimer) clearInterval(presenceHeartbeatTimer);
+  if (clockRenderTimer) clearInterval(clockRenderTimer);
+  sendPresenceHeartbeat();
+  presenceHeartbeatTimer = setInterval(sendPresenceHeartbeat, 15000);
+  clockRenderTimer = setInterval(renderClockPanel, 1000);
+}
+
+function stopPresenceHeartbeat() {
+  if (presenceHeartbeatTimer) clearInterval(presenceHeartbeatTimer);
+  if (clockRenderTimer) clearInterval(clockRenderTimer);
+  presenceHeartbeatTimer = null;
+  clockRenderTimer = null;
+}
+
 function connectRoomEvents() {
   if (!state || typeof EventSource === "undefined") return;
   const key = `${state.id}:${currentToken}:${roomPasswordFor(state.id)}`;
@@ -397,14 +478,22 @@ function connectRoomEvents() {
     }
     refreshState({ quiet: true });
   });
+  roomEvents.addEventListener("presence-update", (event) => {
+    try {
+      mergePresencePayload(JSON.parse(event.data || "{}"));
+    } catch {
+      // Ignore malformed transient events and wait for the next heartbeat.
+    }
+  });
   roomEvents.onerror = () => {
     scheduleQueuedRefresh(1500);
   };
+  startPresenceHeartbeat();
 }
 
 function closeRoomEvents() {
-  if (!roomEvents) return;
-  roomEvents.close();
+  stopPresenceHeartbeat();
+  if (roomEvents) roomEvents.close();
   roomEvents = null;
   roomEventsKey = "";
 }
@@ -445,14 +534,19 @@ function render() {
     lastDiceResult = "No rolls yet";
     if (els.diceResult) els.diceResult.textContent = lastDiceResult;
     document.body.classList.add("dark-mode");
+    document.body.classList.add("landing-mode");
     els.setupPanel.classList.remove("hidden");
+    renderLanding();
     els.tablePanel.classList.add("hidden");
     els.turnDock.classList.add("hidden");
     els.drawReminder.classList.add("hidden");
     els.untapReminder.classList.add("hidden");
     els.diceButton.classList.add("hidden");
     els.randomFirstPlayerButton.classList.add("hidden");
-    els.dicePopover.classList.add("hidden");
+    els.clockButton.classList.add("hidden");
+    els.statisticsButton.classList.add("hidden");
+    els.sidebarToggle.classList.add("hidden");
+    closeActionPopovers();
     els.diceNotice.classList.add("hidden");
     els.showInvitesButton.classList.add("hidden");
     els.deckSetupOverlay.classList.add("hidden");
@@ -461,6 +555,7 @@ function render() {
     return;
   }
 
+  document.body.classList.remove("landing-mode");
   applyTheme();
   els.setupPanel.classList.add("hidden");
   els.tablePanel.classList.remove("hidden");
@@ -470,6 +565,9 @@ function render() {
   els.currentSeatBadge.textContent = `You are ${state.currentPlayer.name} - Seat ${state.currentSeat + 1}`;
   els.showInvitesButton.classList.remove("hidden");
   els.diceButton.classList.remove("hidden");
+  els.clockButton.classList.remove("hidden");
+  els.statisticsButton.classList.remove("hidden");
+  els.sidebarToggle.classList.remove("hidden");
   els.randomFirstPlayerButton.classList.toggle("hidden", !state.currentPlayer.isHost || state.players.length < 2);
   renderInvites();
   renderRoomSettings();
@@ -482,6 +580,8 @@ function render() {
   renderLog();
   renderChat();
   renderDiceNotice();
+  renderClockPanel();
+  renderStatisticsPanel();
   renderKeybindSettings();
   renderBoardReference();
   if (els.libraryDialog.open) renderLibraryDialog();
@@ -820,6 +920,11 @@ function isSoloMode() {
   return state && state.players.length === 1;
 }
 
+function presenceDotMarkup(player) {
+  const online = Boolean(player?.isPresent);
+  return `<span class="presence-dot${online ? " online" : ""}" data-presence-seat="${Number(player?.seat) || 0}" title="${online ? "Present" : "Away"}" aria-label="${online ? "Present" : "Away"}"></span>`;
+}
+
 function isMyTurn() {
   return state && state.currentSeat === state.activePlayer;
 }
@@ -947,7 +1052,7 @@ function lifeRibbonCard(entry) {
     : `life-ribbon-card${player.seat === state.activePlayer ? " active-life-card" : ""}${player.seat === (state.prioritySeat ?? state.activePlayer) ? " priority-life-card" : ""}`;
   const identity = document.createElement("div");
   identity.className = "life-ribbon-identity";
-  identity.innerHTML = `<strong>${escapeHtml(player.name)}</strong><span>${escapeHtml(player.commander || (isPlaytest ? "Simulation" : "No commander"))}</span>`;
+  identity.innerHTML = `<strong>${isPlaytest ? "" : presenceDotMarkup(player)}${escapeHtml(player.name)}</strong><span>${escapeHtml(player.commander || (isPlaytest ? "Simulation" : "No commander"))}</span>`;
   item.append(identity, lifeMenuControl(entry));
   return item;
 }
@@ -1112,7 +1217,7 @@ function playerBoard(player, role) {
   const name = document.createElement("div");
   name.className = "player-name";
   name.innerHTML = `
-    <strong>${escapeHtml(player.name)}</strong>
+    <strong>${presenceDotMarkup(player)}${escapeHtml(player.name)}</strong>
     <span class="seat-pill">Seat ${player.seat + 1}</span>
     ${player.commander ? `<span class="commander-pill">${escapeHtml(player.commander)}</span>` : ""}
     ${player.seat === state.currentSeat ? '<span class="you-pill">Your board</span>' : ""}
@@ -1333,6 +1438,110 @@ function renderLog() {
     div.className = "log-entry";
     div.textContent = `${entry.at} - ${entry.message}`;
     els.actionLog.append(div);
+  });
+}
+
+function formatClockDuration(value) {
+  const totalSeconds = Math.max(0, Math.floor((Number(value) || 0) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+    : `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function effectiveClock() {
+  const clock = state?.clock || {};
+  const playerMs = [...(clock.playerMs || state?.players?.map(() => 0) || [])];
+  const now = Date.now();
+  const elapsed = clock.running && clock.activePresent
+    ? Math.max(0, Math.min(now, Number(clock.activeDeadlineAt) || now) - (Number(clock.snapshotAt) || now))
+    : 0;
+  const activeSeat = Number(state?.activePlayer) || 0;
+  playerMs[activeSeat] = (Number(playerMs[activeSeat]) || 0) + elapsed;
+  return {
+    ...clock,
+    totalMs: (Number(clock.totalMs) || 0) + elapsed,
+    currentTurnMs: (Number(clock.currentTurnMs) || 0) + elapsed,
+    playerMs,
+  };
+}
+
+function renderClockPanel() {
+  if (!state || !els.clockRailValue) return;
+  const clock = effectiveClock();
+  els.clockRailValue.textContent = formatClockDuration(clock.currentTurnMs);
+  els.totalGameClock.textContent = formatClockDuration(clock.totalMs);
+  els.currentTurnClock.textContent = formatClockDuration(clock.currentTurnMs);
+  els.playerClockList.innerHTML = "";
+  state.players.forEach((player) => {
+    const row = document.createElement("div");
+    row.className = `player-clock-row${player.seat === state.activePlayer ? " active" : ""}`;
+    row.innerHTML = `
+      ${presenceDotMarkup(player)}
+      <strong>${escapeHtml(player.name)}</strong>
+      <span>${formatClockDuration(clock.playerMs[player.seat])}</span>
+    `;
+    els.playerClockList.append(row);
+  });
+  const activeName = state.players[state.activePlayer]?.name || "Active player";
+  els.clockStatus.textContent = !clock.running
+    ? "Waiting for all players to keep an opening hand."
+    : clock.activePresent
+      ? `${activeName}'s turn clock is running.`
+      : `${activeName}'s turn clock is paused while they are away.`;
+}
+
+function renderPresenceIndicators() {
+  if (!state) return;
+  const bySeat = new Map(state.players.map((player) => [Number(player.seat), Boolean(player.isPresent)]));
+  document.querySelectorAll("[data-presence-seat]").forEach((dot) => {
+    const online = bySeat.get(Number(dot.dataset.presenceSeat)) === true;
+    dot.classList.toggle("online", online);
+    dot.title = online ? "Present" : "Away";
+    dot.setAttribute("aria-label", dot.title);
+  });
+}
+
+function renderStatisticsPanel() {
+  if (!state || !els.statisticsSummary) return;
+  const commits = Array.isArray(state.statistics?.commits) ? state.statistics.commits : [];
+  const currentCommits = commits.filter((commit) => (
+    Number(commit.turn) === (Number(state.turnNumber) || 1)
+    && Number(commit.activeSeat) === Number(state.activePlayer)
+  ));
+  const events = currentCommits.flatMap((commit) => commit.events || []);
+  const byType = {};
+  let manaUsed = 0;
+  events.forEach((event) => {
+    byType[event.type || "Other"] = (Number(byType[event.type || "Other"]) || 0) + 1;
+    manaUsed += Number(event.manaUsed) || 0;
+  });
+  const tiles = [
+    { label: "Spells this turn", value: events.length },
+    { label: "Mana used", value: manaUsed },
+    ...Object.entries(byType).sort(([a], [b]) => a.localeCompare(b)).map(([type, count]) => ({ label: type, value: count })),
+  ];
+  els.statisticsSummary.innerHTML = tiles
+    .map((tile) => `<div class="statistic-tile"><strong>${tile.value}</strong><span>${escapeHtml(tile.label)}</span></div>`)
+    .join("");
+  els.statisticsTurnLog.innerHTML = "";
+  if (!commits.length) {
+    els.statisticsTurnLog.innerHTML = '<p class="utility-note">Statistics finalize when priority or the turn is passed.</p>';
+    return;
+  }
+  [...commits].reverse().slice(0, 40).forEach((commit) => {
+    const entry = document.createElement("div");
+    entry.className = "statistics-log-entry";
+    const spells = (commit.events || []).map((event) => `${event.cardName} (${event.type}, ${event.manaUsed})`).join(", ");
+    const activity = (commit.logEvents || []).map((event) => event.message).join(" ");
+    entry.innerHTML = `
+      <strong>Turn ${Number(commit.turn) || 1} - ${escapeHtml(commit.activeName || "Player")}</strong>
+      <span>${escapeHtml(activity || spells || "No recorded actions")}</span>
+      <small>${escapeHtml(commit.reason || "checkpoint")} at ${escapeHtml(commit.at || "")}</small>
+    `;
+    els.statisticsTurnLog.append(entry);
   });
 }
 
@@ -3333,6 +3542,17 @@ function showRoomPasswordDialog(message = "Enter the password to join this room.
   requestAnimationFrame(() => els.joinRoomPasswordInput.focus());
 }
 
+els.createGameButton.addEventListener("click", () => {
+  landingView = "create";
+  renderLanding();
+  requestAnimationFrame(() => els.roomNameInput.focus());
+});
+
+els.backToLandingButton.addEventListener("click", () => {
+  landingView = "menu";
+  renderLanding();
+});
+
 els.roomForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const submitButton = els.roomForm.querySelector('button[type="submit"]');
@@ -3360,7 +3580,8 @@ els.roomForm.addEventListener("submit", async (event) => {
 els.newRoomButton.addEventListener("click", () => {
   state = null;
   closeRoomEvents();
-  els.dicePopover.classList.add("hidden");
+  closeActionPopovers();
+  landingView = "menu";
   history.replaceState(null, "", "/");
   render();
 });
@@ -3410,7 +3631,23 @@ els.combatPassButton.addEventListener("click", () => sendCombatPass());
 els.passPriorityButton.addEventListener("click", () => sendAction("passPriority"));
 
 els.diceButton.addEventListener("click", () => {
-  els.dicePopover.classList.toggle("hidden");
+  const opening = els.dicePopover.classList.contains("hidden");
+  closeActionPopovers(opening ? els.dicePopover : null);
+  els.dicePopover.classList.toggle("hidden", !opening);
+});
+
+els.clockButton.addEventListener("click", () => {
+  const opening = els.clockPopover.classList.contains("hidden");
+  closeActionPopovers(opening ? els.clockPopover : null);
+  els.clockPopover.classList.toggle("hidden", !opening);
+  if (opening) renderClockPanel();
+});
+
+els.statisticsButton.addEventListener("click", () => {
+  const opening = els.statisticsPopover.classList.contains("hidden");
+  closeActionPopovers(opening ? els.statisticsPopover : null);
+  els.statisticsPopover.classList.toggle("hidden", !opening);
+  if (opening) renderStatisticsPanel();
 });
 
 els.randomFirstPlayerButton.addEventListener("click", async () => {
@@ -3426,6 +3663,14 @@ els.randomFirstPlayerButton.addEventListener("click", async () => {
 
 els.closeDiceButton.addEventListener("click", () => {
   els.dicePopover.classList.add("hidden");
+});
+
+els.closeClockButton.addEventListener("click", () => {
+  els.clockPopover.classList.add("hidden");
+});
+
+els.closeStatisticsButton.addEventListener("click", () => {
+  els.statisticsPopover.classList.add("hidden");
 });
 
 document.querySelectorAll("[data-die]").forEach((button) => {
@@ -3808,9 +4053,16 @@ document.addEventListener("mousemove", (event) => {
 });
 
 document.addEventListener("pointerdown", (event) => {
-  if (!els.dicePopover.classList.contains("hidden") && !event.target.closest("#dicePopover") && !event.target.closest("#diceButton")) {
-    els.dicePopover.classList.add("hidden");
-  }
+  const popoverTargets = [
+    [els.dicePopover, "#dicePopover", "#diceButton"],
+    [els.clockPopover, "#clockPopover", "#clockButton"],
+    [els.statisticsPopover, "#statisticsPopover", "#statisticsButton"],
+  ];
+  popoverTargets.forEach(([popover, popoverSelector, buttonSelector]) => {
+    if (!popover.classList.contains("hidden") && !event.target.closest(popoverSelector) && !event.target.closest(buttonSelector)) {
+      popover.classList.add("hidden");
+    }
+  });
   if (openLifeMenuKey && !event.target.closest(".life-menu")) {
     openLifeMenuKey = "";
     document.querySelectorAll(".life-menu[open]").forEach((menu) => {
@@ -3849,6 +4101,7 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden" && state && !els.recapDialog.open) {
     localStorage.setItem(recapStorageKey(), String(latestEventSeq()));
   }
+  if (document.visibilityState === "visible" && state) sendPresenceHeartbeat();
 });
 
 loadCardScale();

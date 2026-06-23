@@ -14,16 +14,28 @@
           <button id="chatButton" class="top-icon-button" type="button" title="Chat" aria-label="Chat">&#9993;<span id="chatBadge" class="chat-badge hidden">0</span></button>
           <button id="diceButton" class="top-icon-button hidden" type="button" title="Dice" aria-label="Open dice roller"><span aria-hidden="true">&#9856;</span></button>
           <button id="randomFirstPlayerButton" class="top-icon-button hidden" type="button" title="Choose random first player" aria-label="Choose random first player"><span aria-hidden="true">&#8644;</span></button>
+          <button id="clockButton" class="top-icon-button rail-clock-button hidden" type="button" title="Game clock" aria-label="Open game clock"><span aria-hidden="true">&#9201;</span><small id="clockRailValue">0:00</small></button>
+          <button id="statisticsButton" class="top-icon-button hidden" type="button" title="Game statistics" aria-label="Open game statistics"><span class="rail-bars" aria-hidden="true"><i></i><i></i><i></i></span></button>
+          <button id="sidebarToggle" class="top-icon-button hidden" type="button" title="Show controls" aria-label="Show controls" aria-expanded="false">&#9776;</button>
           <button id="showInvitesButton" class="top-icon-button hidden" type="button" title="Settings and links" aria-label="Settings and links">&#9881;</button>
           <button id="newRoomButton" class="top-icon-button" type="button" title="New room" aria-label="New room">+</button>
         </div>
       </header>
 
-      <section id="setupPanel" class="setup-panel">
-        <div class="setup-copy">
-          <h2>Create a Room</h2>
+      <section id="setupPanel" class="setup-panel landing-panel">
+        <div id="landingMenu" class="landing-menu">
+          <h1>Mage Table</h1>
+          <div class="landing-actions">
+            <button id="createGameButton" type="button">Create Game</button>
+            <button id="joinGameButton" class="secondary" type="button" disabled title="Coming soon">Join Game</button>
+            <button id="loginButton" class="secondary" type="button" disabled title="Coming soon">Log In</button>
+          </div>
         </div>
-        <form id="roomForm" class="room-form">
+        <form id="roomForm" class="room-form create-room-form hidden">
+          <header class="create-room-header">
+            <button id="backToLandingButton" class="secondary compact-icon-button" type="button" title="Back" aria-label="Back to landing screen">&#8592;</button>
+            <h2>Create Game</h2>
+          </header>
           <label>
             Room name
             <input id="roomNameInput" type="text" maxlength="40" value="Friday Commander">
@@ -50,7 +62,6 @@
 
       <section id="tablePanel" class="table-panel hidden">
         <aside class="sidebar">
-          <button id="sidebarToggle" class="sidebar-toggle" type="button" title="Collapse controls" aria-label="Collapse controls">Hide</button>
           <div class="panel">
             <h2 id="roomTitle">Room</h2>
             <div id="currentSeatBadge" class="current-seat-badge">Seat</div>
@@ -132,6 +143,31 @@
         <button id="randomRollButton" type="button">Roll</button>
       </div>
       <div id="diceResult" class="dice-result">No rolls yet</div>
+    </section>
+
+    <section id="clockPopover" class="action-popover utility-popover hidden" role="dialog" aria-labelledby="clockPopoverTitle">
+      <header class="popover-header">
+        <h2 id="clockPopoverTitle">Game Clock</h2>
+        <button id="closeClockButton" class="popover-close" type="button" title="Close" aria-label="Close game clock">x</button>
+      </header>
+      <div class="clock-summary">
+        <span><small>Total game</small><strong id="totalGameClock">0:00</strong></span>
+        <span><small>Current turn</small><strong id="currentTurnClock">0:00</strong></span>
+      </div>
+      <div id="playerClockList" class="player-clock-list"></div>
+      <p id="clockStatus" class="utility-note">Waiting for all players to keep an opening hand.</p>
+    </section>
+
+    <section id="statisticsPopover" class="action-popover utility-popover hidden" role="dialog" aria-labelledby="statisticsPopoverTitle">
+      <header class="popover-header">
+        <h2 id="statisticsPopoverTitle">Game Statistics</h2>
+        <button id="closeStatisticsButton" class="popover-close" type="button" title="Close" aria-label="Close game statistics">x</button>
+      </header>
+      <div id="statisticsSummary" class="statistics-summary"></div>
+      <div>
+        <h3>Turn Log</h3>
+        <div id="statisticsTurnLog" class="statistics-turn-log"></div>
+      </div>
     </section>
 
     <section id="diceNotice" class="table-notice dice-notice hidden" role="status">
