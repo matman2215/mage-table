@@ -740,16 +740,35 @@ body.landing-mode .account-workspace-shell label {
 .deck-builder-main {
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .deck-builder-form {
   display: grid;
   grid-template-rows: auto auto auto minmax(0, 1fr) auto;
   gap: 12px;
-  height: 100%;
-  min-height: 0;
+  height: auto;
+  min-height: 100%;
   padding: 14px;
+}
+
+.bulk-import-summary {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  border: 1px dashed #4d625b;
+  color: #a6b4ae;
+  padding: 12px;
+  font-size: 0.72rem;
+}
+
+.bulk-import-summary button {
+  justify-self: start;
+  min-height: 30px;
+  padding: 0 9px;
+  font-size: 0.68rem;
 }
 
 .deck-builder-header {
@@ -864,7 +883,7 @@ body.landing-mode .account-workspace-shell label {
   display: grid;
   grid-template-columns: minmax(240px, 0.8fr) minmax(300px, 1.2fr);
   gap: 12px;
-  min-height: 0;
+  min-height: min(420px, 58vh);
   overflow: hidden;
 }
 
@@ -1374,7 +1393,7 @@ body.dark-mode .action-popover {
   left: 44px;
   display: grid;
   gap: 12px;
-  width: min(380px, calc(100vw - 56px));
+  width: min(460px, calc(100vw - 56px));
   max-height: calc(100vh - 8px);
   overflow: auto;
   padding: 12px;
@@ -1427,6 +1446,10 @@ body.dark-mode .action-popover {
 .combat-popover-card-wrap.commander-attacker {
   border-color: rgba(212, 135, 69, 0.72);
   background: rgba(159, 79, 22, 0.1);
+}
+
+.combat-popover-card-wrap.damage-applied {
+  opacity: 0.58;
 }
 
 .combat-popover-card-detail {
@@ -1549,8 +1572,94 @@ body.dark-mode .action-popover {
 
 .statistics-summary {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 6px;
+}
+
+.statistics-player-overview,
+.statistics-turn-report {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 9px;
+}
+
+.statistics-player-overview > header,
+.statistics-turn-report > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: start;
+}
+
+.statistics-player-overview > header span,
+.statistics-turn-report > header span {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.statistics-player-overview > div:not(.statistics-chip-row),
+.statistics-report-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.statistics-turn-detail {
+  display: grid;
+  gap: 8px;
+}
+
+.statistics-turn-report h3 {
+  margin: 0;
+}
+
+.statistics-turn-report > header > div {
+  display: grid;
+  gap: 2px;
+}
+
+.statistics-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.statistics-chip-row > span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  padding: 3px 6px;
+  font-size: 0.64rem;
+}
+
+.statistics-report-section {
+  display: grid;
+  gap: 5px;
+  font-size: 0.72rem;
+}
+
+.statistics-action-list {
+  display: grid;
+  gap: 4px;
+  max-height: 210px;
+  overflow: auto;
+  border-top: 1px solid var(--line);
+  padding-top: 7px;
+}
+
+.statistics-action-list > div {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 6px;
+  font-size: 0.68rem;
+}
+
+.statistics-action-list time {
+  color: var(--muted);
 }
 
 .statistic-tile,
@@ -1578,7 +1687,18 @@ body.dark-mode .action-popover {
 .statistics-log-entry {
   display: grid;
   gap: 3px;
+  width: 100%;
+  min-height: 0;
+  background: transparent;
+  color: var(--ink);
   font-size: 0.76rem;
+  text-align: left;
+  box-shadow: none;
+}
+
+.statistics-log-entry.selected {
+  border-color: var(--accent);
+  background: rgba(42, 157, 143, 0.1);
 }
 
 .popover-header {
@@ -2768,6 +2888,7 @@ body.dark-mode .private-zone .zone-header {
 
 .token-badge,
 .quantity-badge,
+.face-down-badge,
 .counter-badge {
   border-radius: 999px;
   color: #fff;
@@ -2784,6 +2905,10 @@ body.dark-mode .private-zone .zone-header {
 
 .quantity-badge {
   background: #7c3f12;
+}
+
+.face-down-badge {
+  background: #343d3a;
 }
 
 .counter-badge {
@@ -3036,6 +3161,15 @@ dialog {
   max-height: min(86vh, 820px);
 }
 
+#bulkImportDialog {
+  width: min(720px, calc(100vw - 28px));
+}
+
+#revealNoticeDialog {
+  width: min(980px, calc(100vw - 28px));
+  max-height: min(86vh, 820px);
+}
+
 dialog::backdrop {
   background: rgba(13, 21, 20, 0.38);
 }
@@ -3166,6 +3300,45 @@ body.dark-mode kbd {
   display: grid;
   gap: 14px;
   padding: 18px;
+}
+
+.bulk-import-dialog-card {
+  width: 100%;
+}
+
+.bulk-import-dialog-card textarea {
+  min-height: min(52vh, 480px);
+  resize: vertical;
+  font-family: "Cascadia Mono", Consolas, monospace;
+}
+
+.bulk-import-actions {
+  justify-self: end;
+  width: min(360px, 100%);
+}
+
+.reveal-notice-dialog-card {
+  width: 100%;
+  max-height: min(86vh, 820px);
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.reveal-notice-group {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 7px;
+}
+
+.reveal-notice-group h3 {
+  margin: 0;
+  font-size: 0.8rem;
+}
+
+.reveal-notice-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 150px));
+  gap: 8px;
 }
 
 .dialog-actions {
@@ -3523,7 +3696,7 @@ body.dark-mode .recap-card {
 .library-dialog-card {
   width: 100%;
   max-height: min(72vh, 720px);
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
 }
 
@@ -3693,6 +3866,9 @@ body.dark-mode .recap-card {
   display: flex;
   gap: 6px;
   align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  width: min(900px, calc(100vw - 20px));
 }
 
 .draw-reminder {
@@ -3723,6 +3899,10 @@ body.dark-mode .recap-card {
 .turn-reminder .notice-dismiss {
   background: rgba(255, 255, 255, 0.2);
   color: #fff;
+}
+
+.reveal-reminder {
+  background: var(--warn);
 }
 
 .table-notice {

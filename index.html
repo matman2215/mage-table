@@ -182,6 +182,7 @@
                       <span id="deckBuilderCount">0 cards</span>
                     </div>
                     <div class="deck-builder-header-actions">
+                      <button id="bulkImportDeckButton" class="secondary" type="button">Bulk Import</button>
                       <button id="duplicateBuilderDeckButton" class="secondary" type="button">Duplicate</button>
                       <button id="deleteBuilderDeckButton" class="danger" type="button">Delete</button>
                     </div>
@@ -300,6 +301,10 @@
         <button id="untapAllButton" type="button">Untap battlefield</button>
         <button id="dismissUntapButton" class="notice-dismiss" type="button" title="Dismiss" aria-label="Dismiss untap reminder">x</button>
       </section>
+      <section id="revealReminder" class="turn-reminder reveal-reminder hidden" role="status">
+        <button id="revealReminderAction" type="button">View revealed cards</button>
+        <button id="dismissRevealReminderButton" class="notice-dismiss" type="button" title="Dismiss" aria-label="Dismiss reveal reminder">x</button>
+      </section>
     </div>
 
     <section id="dicePopover" class="action-popover dice-popover hidden" role="dialog" aria-labelledby="dicePopoverTitle">
@@ -348,7 +353,9 @@
         <h2 id="statisticsPopoverTitle">Game Statistics</h2>
         <button id="closeStatisticsButton" class="popover-close" type="button" title="Close" aria-label="Close game statistics">x</button>
       </header>
+      <h3>Game Overview</h3>
       <div id="statisticsSummary" class="statistics-summary"></div>
+      <div id="statisticsTurnDetail" class="statistics-turn-detail"></div>
       <div>
         <h3>Turn Log</h3>
         <div id="statisticsTurnLog" class="statistics-turn-log"></div>
@@ -590,6 +597,36 @@
       </form>
     </dialog>
 
+    <dialog id="bulkImportDialog">
+      <form id="bulkImportForm" class="dialog-card bulk-import-dialog-card">
+        <header class="popover-header">
+          <div>
+            <h2>Bulk Import</h2>
+            <p class="dialog-note">Paste one card per line. The deck updates once when you import.</p>
+          </div>
+          <button id="closeBulkImportButton" class="popover-close" type="button" title="Close" aria-label="Close bulk import">x</button>
+        </header>
+        <textarea id="bulkImportInput" rows="18" maxlength="100000" placeholder="1 Sol Ring&#10;1 Command Tower&#10;7 Island"></textarea>
+        <div class="dialog-actions bulk-import-actions">
+          <button id="appendBulkImportButton" class="secondary" type="button">Add to Deck</button>
+          <button id="replaceBulkImportButton" type="button">Replace Deck</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="revealNoticeDialog">
+      <form method="dialog" class="dialog-card reveal-notice-dialog-card">
+        <header class="popover-header">
+          <div>
+            <h2 id="revealNoticeTitle">Revealed Cards</h2>
+            <p id="revealNoticeSummary" class="dialog-note"></p>
+          </div>
+          <button class="popover-close" value="cancel" type="submit" title="Close" aria-label="Close revealed cards">x</button>
+        </header>
+        <div id="revealNoticeCards" class="library-search-cards"></div>
+      </form>
+    </dialog>
+
     <dialog id="mulliganDialog">
       <form method="dialog" class="dialog-card mulligan-dialog-card">
         <div>
@@ -617,13 +654,15 @@
 
     <dialog id="libraryDialog">
       <form method="dialog" class="dialog-card library-dialog-card">
-        <div>
-          <h2>Library</h2>
-          <p id="librarySummary">0 cards</p>
-        </div>
+        <header class="popover-header">
+          <div>
+            <h2>Library</h2>
+            <p id="librarySummary">0 cards</p>
+          </div>
+          <button class="popover-close" value="cancel" type="submit" title="Close" aria-label="Close library">x</button>
+        </header>
         <div id="libraryPreview" class="library-preview hidden"></div>
         <div id="libraryActions" class="dialog-actions"></div>
-        <button value="cancel" type="submit">Close</button>
       </form>
     </dialog>
 

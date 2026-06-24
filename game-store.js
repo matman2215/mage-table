@@ -31,6 +31,9 @@ function hydrateRoom(state) {
   room.chat = Array.isArray(room.chat) ? room.chat : [];
   room.stack = Array.isArray(room.stack) ? room.stack : [];
   room.reveals = Array.isArray(room.reveals) ? room.reveals : [];
+  room.turnsPassed = Number.isFinite(Number(room.turnsPassed))
+    ? Math.max(0, Number(room.turnsPassed))
+    : room.events.filter((event) => /^Turn moved to /i.test(String(event?.message || ""))).length;
   room.players = Array.isArray(room.players) ? room.players : [];
   room.players.forEach((player) => {
     player.presenceLastSeenAt = 0;

@@ -260,6 +260,7 @@ function roomStateSnapshot(room) {
     diceNotice: room.diceNotice || null,
     reveals: room.reveals || [],
     turnNumber: room.turnNumber,
+    turnsPassed: Number(room.turnsPassed) || 0,
     eventSeq: room.eventSeq,
     events: room.events || [],
     playtestOpponent: room.playtestOpponent,
@@ -283,6 +284,7 @@ function restoreRoomState(room, snapshot) {
   room.diceNotice = snapshot.diceNotice || null;
   room.reveals = snapshot.reveals || [];
   room.turnNumber = snapshot.turnNumber;
+  room.turnsPassed = Number(snapshot.turnsPassed) || 0;
   room.eventSeq = snapshot.eventSeq;
   room.events = snapshot.events || [];
   room.playtestOpponent = snapshot.playtestOpponent;
@@ -394,6 +396,7 @@ function createRoom(name, playerCount, origin, password = "", inviteMode = "link
     prioritySeat: 0,
     priorityMode: "turn",
     turnNumber: 1,
+    turnsPassed: 0,
     eventSeq: 0,
     events: [],
     combatSnapshot: null,
@@ -473,6 +476,7 @@ function viewRoom(room, token, origin) {
     prioritySeat: Number(room.prioritySeat ?? room.activePlayer) || 0,
     priorityMode: room.priorityMode || "turn",
     turnNumber: Number(room.turnNumber) || 1,
+    canRandomizeFirstPlayer: Number(room.turnsPassed) === 0,
     eventSeq: Number(room.eventSeq) || 0,
     settings: room.settings || { friendlyMulligans: true, darkMode: true },
     passwordProtected: Boolean(room.passwordHash),
@@ -496,7 +500,7 @@ function viewRoom(room, token, origin) {
       mulliganCount: Number(currentPlayer.mulliganCount) || 0,
     },
     hand: currentPlayer.hand,
-    stack: room.stack,
+    stack: room.stack.map((card) => cardForViewer(card, currentPlayer.seat)),
     chat: room.chat,
     playtestOpponent: room.players.length === 1 ? room.playtestOpponent : null,
     combatSnapshot: room.priorityMode === "combat" ? room.combatSnapshot || null : null,
@@ -534,13 +538,31 @@ function viewRoom(room, token, origin) {
         ? player.libraryPreview
         : null,
       handCount: player.hand.length,
-      commanderZone: player.commanderZone,
-      battlefield: player.battlefield,
-      graveyard: player.graveyard,
-      exile: player.exile,
+      commanderZone: player.commanderZone.map((card) => cardForViewer(card, currentPlayer.seat)),
+      battlefield: player.battlefield.map((card) => cardForViewer(card, currentPlayer.seat)),
+      graveyard: player.graveyard.map((card) => cardForViewer(card, currentPlayer.seat)),
+      exile: player.exile.map((card) => cardForViewer(card, currentPlayer.seat)),
       isPresent: playerIsPresent(room, player, now),
       lastSeenAt: Number(player.presenceLastSeenAt) || 0,
     })),
+  };
+}
+
+function cardForViewer(card, viewerSeat) {
+  if (!card?.faceDown || Number(card.owner) === Number(viewerSeat)) return card;
+  return {
+    id: card.id,
+    owner: card.owner,
+    name: "Face-down card",
+    displayName: "Face-down card",
+    typeLine: "Face-down",
+    imageUrl: "",
+    artUrl: "",
+    faces: [],
+    faceIndex: 0,
+    tapped: false,
+    faceDown: true,
+    counters: emptyCounters(),
   };
 }
 
@@ -623,6 +645,7 @@ function summarizeScryfallCard(card) {
         name: face.name || card.name,
         typeLine: face.type_line || "",
         manaCost: face.mana_cost || "",
+        producedMana: face.produced_mana || card.produced_mana || [],
         oracleText: face.oracle_text || "",
         imageUrl: images.normal || images.small || "",
         artUrl: images.artCrop || "",
@@ -640,6 +663,7 @@ function summarizeScryfallCard(card) {
     typeLine: frontFace?.typeLine || card.type_line || "",
     manaCost: frontFace?.manaCost || card.mana_cost || "",
     manaValue: Number(card.cmc) || 0,
+    producedMana: frontFace?.producedMana || card.produced_mana || [],
     oracleText: frontFace?.oracleText || card.oracle_text || card.card_faces?.map((face) => face.oracle_text).filter(Boolean).join("\n---\n") || "",
     images: cardImages(card),
     faces: faces.length > 1 ? faces : [],
@@ -873,6 +897,7 @@ async function buildDeck(text, ownerSeat) {
         typeLine: cardData.typeLine,
         manaCost: cardData.manaCost,
         manaValue: Number(cardData.manaValue) || manaValueFromCost(cardData.manaCost),
+        producedMana: cardData.producedMana || [],
         oracleText: cardData.oracleText,
         imageUrl: frontFace?.imageUrl || cardData.images.normal || cardData.images.small || "",
         artUrl: frontFace?.artUrl || cardData.images.artCrop || "",
@@ -922,6 +947,7 @@ function prepareForNonBattlefield(card) {
   delete card.attachedTo;
   delete card.attachmentIndex;
   delete card.position;
+  delete card.faceDown;
   return card;
 }
 
@@ -934,6 +960,7 @@ function applyCardFace(card, requestedIndex) {
   card.displayName = face.name || card.name;
   card.typeLine = face.typeLine || "";
   card.manaCost = face.manaCost || "";
+  card.producedMana = face.producedMana || card.producedMana || [];
   card.oracleText = face.oracleText || "";
   card.imageUrl = face.imageUrl || card.imageUrl || "";
   card.artUrl = face.artUrl || "";
@@ -983,6 +1010,7 @@ function moveCard(actor, target, fromZone, toZone, cardId, destinationPlayer = t
     throw new Error("Only the specified commander can be moved to the command zone.");
   }
   if (toZone === "battlefield") {
+    delete card.faceDown;
     if (fromZone !== "battlefield") {
       card.tapped = false;
       card.counters = emptyCounters();
@@ -1021,11 +1049,12 @@ function tapBattlefieldCards(actor, target, cardIds, mode = "toggle") {
     return card;
   });
   const shouldTap = mode === "tap" ? true : mode === "untap" ? false : cards.some((card) => !card.tapped);
+  const newlyTapped = shouldTap ? cards.filter((card) => !card.tapped) : [];
   cards.forEach((card) => {
     card.tapped = shouldTap;
     card.position = clampPosition(card.position, card.tapped);
   });
-  return { cards, tapped: shouldTap };
+  return { cards, tapped: shouldTap, newlyTapped };
 }
 
 function arrangeBattlefieldCards(actor, cards) {
@@ -1264,6 +1293,7 @@ function stackFromZone(room, actor, target, fromZone, cardId) {
   const index = source.findIndex((card) => card.id === cardId);
   if (index === -1) throw new Error("Card not found");
   const [card] = source.splice(index, 1);
+  prepareForNonBattlefield(card);
   room.stack.push(card);
   return card;
 }
@@ -1320,6 +1350,8 @@ async function pullCommanderCard(cards, commanderName, ownerSeat) {
       displayName: frontFace?.name || cardData.displayName || cardData.name,
       typeLine: cardData.typeLine,
       manaCost: cardData.manaCost,
+      manaValue: Number(cardData.manaValue) || manaValueFromCost(cardData.manaCost),
+      producedMana: cardData.producedMana || [],
       oracleText: cardData.oracleText,
       imageUrl: frontFace?.imageUrl || cardData.images.normal || cardData.images.small || "",
       artUrl: frontFace?.artUrl || cardData.images.artCrop || "",
@@ -1340,6 +1372,8 @@ async function pullCommanderCard(cards, commanderName, ownerSeat) {
       displayName: name,
       typeLine: "Commander",
       manaCost: "",
+      manaValue: 0,
+      producedMana: [],
       oracleText: "",
       imageUrl: "",
       artUrl: "",
@@ -1382,6 +1416,12 @@ function applyLibraryAction(room, actor, body) {
       const revealed = actor.library.slice(0, Math.min(count, actor.library.length));
       actor.libraryPreview = { mode: "reveal", cards: revealed };
       addLog(room, `${actor.name} revealed the top ${revealed.length} card${revealed.length === 1 ? "" : "s"} of their library.`, actor);
+      break;
+    }
+    case "peek": {
+      const cards = actor.library.slice(0, Math.min(1, actor.library.length));
+      actor.libraryPreview = cards.length ? { mode: "peek", cards } : null;
+      addLog(room, `${actor.name} looked at the top card of their library.`, actor);
       break;
     }
     case "scry":
@@ -1594,6 +1634,7 @@ function stageSpellStatistic(room, actor, card, destination) {
   room.statistics = room.statistics || { pending: [], commits: [] };
   room.statistics.pending.push({
     id: id("cast"),
+    kind: "spell",
     cardId: card.id,
     cardName: card.displayName || card.name,
     type,
@@ -1607,19 +1648,82 @@ function stageSpellStatistic(room, actor, card, destination) {
   room.statistics.pending = room.statistics.pending.slice(-80);
 }
 
+function producedManaColors(card) {
+  const explicit = (Array.isArray(card?.producedMana) ? card.producedMana : [])
+    .map((color) => String(color || "").toUpperCase())
+    .filter((color) => ["W", "U", "B", "R", "G", "C"].includes(color));
+  if (explicit.length) return [...new Set(explicit)];
+  const typeLine = String(card?.typeLine || "");
+  if (/\bPlains\b/i.test(typeLine)) return ["W"];
+  if (/\bIsland\b/i.test(typeLine)) return ["U"];
+  if (/\bSwamp\b/i.test(typeLine)) return ["B"];
+  if (/\bMountain\b/i.test(typeLine)) return ["R"];
+  if (/\bForest\b/i.test(typeLine)) return ["G"];
+  const oracleSymbols = [...String(card?.oracleText || "").matchAll(/\{([WUBRGC])\}/gi)]
+    .map((match) => match[1].toUpperCase());
+  return [...new Set(oracleSymbols)];
+}
+
+function producedManaAmount(card) {
+  const oracle = String(card?.oracleText || "");
+  const addClause = oracle.match(/\bAdd\s+((?:\{[WUBRGC]\})+)/i);
+  if (addClause) return Math.max(1, [...addClause[1].matchAll(/\{[WUBRGC]\}/gi)].length);
+  const wordAmount = oracle.match(/\bAdd\s+(one|two|three|four|five)\s+mana\b/i);
+  if (wordAmount) return { one: 1, two: 2, three: 3, four: 4, five: 5 }[wordAmount[1].toLowerCase()] || 1;
+  return 1;
+}
+
+function stageManaStatistic(room, actor, card) {
+  if (!card || spellType(card) !== "Land") return;
+  const colors = producedManaColors(card);
+  const color = colors.length === 1 ? colors[0] : colors.length > 1 ? `Flexible (${colors.join("/")})` : "Unknown";
+  room.statistics = room.statistics || { pending: [], commits: [] };
+  room.statistics.pending.push({
+    id: id("mana"),
+    kind: "mana",
+    cardId: card.id,
+    cardName: card.displayName || card.name,
+    amount: producedManaAmount(card),
+    colors,
+    color,
+    actorSeat: actor.seat,
+    actorName: actor.name,
+    activeSeat: Number(room.activePlayer) || 0,
+    turn: Number(room.turnNumber) || 1,
+  });
+  room.statistics.pending = room.statistics.pending.slice(-120);
+}
+
 function commitStatistics(room, reason) {
   room.statistics = room.statistics || { pending: [], commits: [] };
   const events = room.statistics.pending.splice(0);
   const lastEventSeq = Number(room.statistics.lastEventSeq) || 0;
   const logEvents = (room.events || [])
     .filter((event) => Number(event.seq) > lastEventSeq)
-    .map((event) => ({ seq: event.seq, actorName: event.actorName, message: event.message, at: event.at }));
+    .map((event) => ({
+      seq: event.seq,
+      actorSeat: event.actorSeat,
+      actorName: event.actorName,
+      message: event.message,
+      detail: event.detail || null,
+      timestamp: Number(event.timestamp) || 0,
+      at: event.at,
+    }));
   room.statistics.lastEventSeq = Number(room.eventSeq) || lastEventSeq;
   const spellsByType = {};
   let manaUsed = 0;
-  events.forEach((event) => {
+  const spellEvents = events.filter((event) => event.kind !== "mana");
+  const manaEvents = events.filter((event) => event.kind === "mana");
+  spellEvents.forEach((event) => {
     spellsByType[event.type] = (Number(spellsByType[event.type]) || 0) + 1;
     manaUsed += Number(event.manaUsed) || 0;
+  });
+  const manaByColor = {};
+  let manaProduced = 0;
+  manaEvents.forEach((event) => {
+    const amount = Math.max(0, Number(event.amount) || 0);
+    manaProduced += amount;
+    manaByColor[event.color || "Unknown"] = (Number(manaByColor[event.color || "Unknown"]) || 0) + amount;
   });
   room.statistics.commits.push({
     id: id("stats"),
@@ -1631,6 +1735,10 @@ function commitStatistics(room, reason) {
     logEvents,
     spellsByType,
     manaUsed,
+    manaProduced,
+    manaByColor,
+    turnElapsedMs: Math.max(0, Number(room.clock?.currentTurnMs) || 0),
+    committedAt: Date.now(),
     at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
   });
   room.statistics.commits = room.statistics.commits.slice(-240);
@@ -1715,6 +1823,54 @@ function combatCardSnapshot(cards) {
     .slice(0, 16);
 }
 
+function applyCombatDamage(room, actor, snapshot, requestedCards, label = "the attacking party") {
+  if (room.priorityMode !== "combat" || !snapshot) throw new Error("There is no active combat damage to take.");
+  if (actor.seat !== Number(snapshot.defenderSeat)) throw new Error("Only the defending player can take this combat damage.");
+  const cards = (requestedCards || []).filter((card) => card.isCreature && !card.damageApplied);
+  if (!cards.length) throw new Error("That combat damage has already been applied.");
+
+  const damage = cards.reduce((total, card) => total + Math.max(0, Math.round(Number(card.totalPower) || 0)), 0);
+  const commanderDamage = [];
+  cards.forEach((card) => {
+    card.damageApplied = true;
+    card.damageTaken = Math.max(0, Math.round(Number(card.totalPower) || 0));
+    if (!card.isCommander || !card.damageTaken) return;
+    const sourceSeat = card.owner !== null && Number.isInteger(Number(card.owner))
+      ? Number(card.owner)
+      : Number(snapshot.attackerSeat);
+    const sourcePlayer = room.players[sourceSeat] || room.players[Number(snapshot.attackerSeat)];
+    if (!sourcePlayer) return;
+    const name = sourcePlayer.commander || card.displayName || card.name || `${sourcePlayer.name} commander`;
+    const counterName = `Commander Damage: ${name}`;
+    adjustPlayerCounter(actor, counterName, card.damageTaken);
+    commanderDamage.push({ seat: sourcePlayer.seat, name, damage: card.damageTaken, counterName });
+  });
+
+  actor.life = Math.max(-999, Math.min(999, actor.life - damage));
+  snapshot.damageTaken = (Number(snapshot.damageTaken) || 0) + damage;
+  const commanderBySeat = new Map((snapshot.commanderDamage || []).map((entry) => [Number(entry.seat), { ...entry }]));
+  commanderDamage.forEach((entry) => {
+    const existing = commanderBySeat.get(Number(entry.seat));
+    if (existing) existing.damage = (Number(existing.damage) || 0) + entry.damage;
+    else commanderBySeat.set(Number(entry.seat), entry);
+  });
+  snapshot.commanderDamage = [...commanderBySeat.values()];
+  const damageableCards = snapshot.cards.filter((card) => card.isCreature);
+  snapshot.damageApplied = damageableCards.length > 0 && damageableCards.every((card) => card.damageApplied);
+
+  const commanderTotal = commanderDamage.reduce((total, entry) => total + entry.damage, 0);
+  const commanderText = commanderTotal
+    ? `, including ${commanderTotal} commander damage from ${commanderDamage.map((entry) => entry.name).join(", ")}`
+    : "";
+  addLog(room, `${actor.name} took ${damage} combat damage from ${label}${commanderText} and moved to ${actor.life} life.`, actor, {
+    kind: "life",
+    seat: actor.seat,
+    value: actor.life,
+    combatDamage: damage,
+    commanderDamage,
+  });
+}
+
 async function applyAction(room, actor, body) {
   const historySnapshot = shouldTrackHistory(body.type) ? roomStateSnapshot(room) : null;
   switch (body.type) {
@@ -1736,6 +1892,7 @@ async function applyAction(room, actor, body) {
     case "randomFirstPlayer": {
       if (!actor.isHost) throw new Error("Only the host can choose a random first player.");
       if (room.players.length < 2) throw new Error("Random first player requires at least two players.");
+      if (Number(room.turnsPassed) > 0) throw new Error("The first player cannot be randomized after the first turn has ended.");
       const selectedSeat = crypto.randomInt(room.players.length);
       const selectedPlayer = room.players[selectedSeat];
       room.activePlayer = selectedSeat;
@@ -1761,6 +1918,7 @@ async function applyAction(room, actor, body) {
     case "turn": {
       assertActivePlayer(room, actor);
       commitStatistics(room, "turn passed");
+      room.turnsPassed = (Number(room.turnsPassed) || 0) + 1;
       const nextActive = (room.activePlayer + 1) % room.players.length;
       room.activePlayer = nextActive;
       if (room.players.length <= 1 || nextActive === 0) room.turnNumber = (Number(room.turnNumber) || 1) + 1;
@@ -1801,49 +1959,15 @@ async function applyAction(room, actor, body) {
     }
     case "takeCombatDamage": {
       const snapshot = room.combatSnapshot;
-      if (room.priorityMode !== "combat" || !snapshot) throw new Error("There is no active combat damage to take.");
-      if (actor.seat !== Number(snapshot.defenderSeat)) throw new Error("Only the defending player can take this combat damage.");
-      if (snapshot.damageApplied) throw new Error("Combat damage has already been applied.");
-      const damage = Math.max(0, Math.round(Number(snapshot.totals?.power) || 0));
-      const commanderDamageBySeat = new Map();
-      snapshot.cards
-        .filter((card) => card.isCommander && card.isCreature)
-        .forEach((card) => {
-          const sourceSeat = card.owner !== null && Number.isInteger(Number(card.owner))
-            ? Number(card.owner)
-            : Number(snapshot.attackerSeat);
-          const sourcePlayer = room.players[sourceSeat] || room.players[Number(snapshot.attackerSeat)];
-          if (!sourcePlayer) return;
-          const amount = Math.max(0, Math.round(Number(card.totalPower) || 0));
-          if (!amount) return;
-          const existing = commanderDamageBySeat.get(sourcePlayer.seat) || {
-            seat: sourcePlayer.seat,
-            name: sourcePlayer.commander || card.displayName || card.name || `${sourcePlayer.name} commander`,
-            damage: 0,
-          };
-          existing.damage += amount;
-          commanderDamageBySeat.set(sourcePlayer.seat, existing);
-        });
-      const commanderDamage = [...commanderDamageBySeat.values()].map((entry) => {
-        const counterName = `Commander Damage: ${entry.name}`;
-        adjustPlayerCounter(actor, counterName, entry.damage);
-        return { ...entry, counterName };
-      });
-      actor.life = Math.max(-999, Math.min(999, actor.life - damage));
-      snapshot.damageApplied = true;
-      snapshot.damageTaken = damage;
-      snapshot.commanderDamage = commanderDamage;
-      const commanderTotal = commanderDamage.reduce((total, entry) => total + entry.damage, 0);
-      const commanderText = commanderTotal
-        ? `, including ${commanderTotal} commander damage from ${commanderDamage.map((entry) => entry.name).join(", ")}`
-        : "";
-      addLog(room, `${actor.name} took ${damage} combat damage${commanderText} and moved to ${actor.life} life.`, actor, {
-        kind: "life",
-        seat: actor.seat,
-        value: actor.life,
-        combatDamage: damage,
-        commanderDamage,
-      });
+      applyCombatDamage(room, actor, snapshot, snapshot?.cards || [], "the attacking party");
+      break;
+    }
+    case "takeCombatCardDamage": {
+      const snapshot = room.combatSnapshot;
+      if (!snapshot) throw new Error("There is no active combat damage to take.");
+      const card = snapshot.cards.find((candidate) => candidate.id === body.cardId);
+      if (!card || !card.isCreature) throw new Error("That attacking creature was not found.");
+      applyCombatDamage(room, actor, snapshot, [card], card.displayName || card.name || "that creature");
       break;
     }
     case "takePriority": {
@@ -2041,6 +2165,28 @@ async function applyAction(room, actor, body) {
       addLog(room, `${actor.name} put a card from hand ${body.position === "top" ? "on top of" : "on bottom of"} their library.`, actor);
       break;
     }
+    case "exileFaceDown": {
+      assertCanAct(room, actor);
+      const fromZone = String(body.fromZone || "hand");
+      if (!["hand", "commanderZone", "battlefield", "graveyard", "exile"].includes(fromZone)) {
+        throw new Error("That card cannot be exiled face down from this zone.");
+      }
+      const source = getOwnedZone(actor, actor, fromZone);
+      const index = source.findIndex((card) => card.id === body.cardId);
+      if (index === -1) throw new Error("Card not found");
+      const [card] = source.splice(index, 1);
+      prepareForNonBattlefield(card);
+      card.faceDown = true;
+      actor.exile.push(card);
+      addLog(room, `${actor.name} exiled a card face down.`, actor, {
+        kind: "move",
+        cardName: "Face-down card",
+        fromZone,
+        toZone: "exile",
+        faceDown: true,
+      });
+      break;
+    }
     case "moveCard": {
       assertCanAct(room, actor);
       const target = room.players[Number(body.seat)];
@@ -2132,7 +2278,9 @@ async function applyAction(room, actor, body) {
       const index = zone.findIndex((item) => item.id === body.cardId);
       const card = zone[index];
       if (!card) throw new Error("Card not found");
+      const wasTapped = Boolean(card.tapped);
       card.tapped = !card.tapped;
+      if (!wasTapped && card.tapped) stageManaStatistic(room, actor, card);
       if (body.zone === "battlefield") {
         card.position = clampPosition(card.position, card.tapped);
         zone.splice(index, 1);
@@ -2166,6 +2314,7 @@ async function applyAction(room, actor, body) {
       if (!target) throw new Error("Invalid player");
       if (target.seat !== actor.seat) throw new Error("You can only edit your own board state.");
       const result = tapBattlefieldCards(actor, target, body.cardIds, body.mode);
+      if (result.tapped) result.newlyTapped.forEach((card) => stageManaStatistic(room, actor, card));
       addLog(room, `${actor.name} ${result.tapped ? "tapped" : "untapped"} ${result.cards.length} selected card${result.cards.length === 1 ? "" : "s"}.`, actor, {
         kind: "tap",
         cardName: `${result.cards.length} selected card${result.cards.length === 1 ? "" : "s"}`,
@@ -2531,4 +2680,5 @@ module.exports = {
   server,
   syncRoomClock,
   touchPresence,
+  viewRoom,
 };

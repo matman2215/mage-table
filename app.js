@@ -44,6 +44,7 @@ const els = {
   deckBuilderListInput: document.querySelector("#deckBuilderListInput"),
   deckBuilderPreview: document.querySelector("#deckBuilderPreview"),
   deckBuilderStatus: document.querySelector("#deckBuilderStatus"),
+  bulkImportDeckButton: document.querySelector("#bulkImportDeckButton"),
   saveBuilderDeckButton: document.querySelector("#saveBuilderDeckButton"),
   duplicateBuilderDeckButton: document.querySelector("#duplicateBuilderDeckButton"),
   deleteBuilderDeckButton: document.querySelector("#deleteBuilderDeckButton"),
@@ -87,6 +88,7 @@ const els = {
   statisticsPopover: document.querySelector("#statisticsPopover"),
   closeStatisticsButton: document.querySelector("#closeStatisticsButton"),
   statisticsSummary: document.querySelector("#statisticsSummary"),
+  statisticsTurnDetail: document.querySelector("#statisticsTurnDetail"),
   statisticsTurnLog: document.querySelector("#statisticsTurnLog"),
   combatButton: document.querySelector("#combatButton"),
   combatPopover: document.querySelector("#combatPopover"),
@@ -146,6 +148,9 @@ const els = {
   untapReminder: document.querySelector("#untapReminder"),
   untapAllButton: document.querySelector("#untapAllButton"),
   dismissUntapButton: document.querySelector("#dismissUntapButton"),
+  revealReminder: document.querySelector("#revealReminder"),
+  revealReminderAction: document.querySelector("#revealReminderAction"),
+  dismissRevealReminderButton: document.querySelector("#dismissRevealReminderButton"),
   actionLog: document.querySelector("#actionLog"),
   playersGrid: document.querySelector("#playersGrid"),
   handTitle: document.querySelector("#handTitle"),
@@ -154,6 +159,16 @@ const els = {
   cardDialog: document.querySelector("#cardDialog"),
   dialogTitle: document.querySelector("#dialogTitle"),
   dialogActions: document.querySelector("#dialogActions"),
+  bulkImportDialog: document.querySelector("#bulkImportDialog"),
+  bulkImportForm: document.querySelector("#bulkImportForm"),
+  bulkImportInput: document.querySelector("#bulkImportInput"),
+  closeBulkImportButton: document.querySelector("#closeBulkImportButton"),
+  appendBulkImportButton: document.querySelector("#appendBulkImportButton"),
+  replaceBulkImportButton: document.querySelector("#replaceBulkImportButton"),
+  revealNoticeDialog: document.querySelector("#revealNoticeDialog"),
+  revealNoticeTitle: document.querySelector("#revealNoticeTitle"),
+  revealNoticeSummary: document.querySelector("#revealNoticeSummary"),
+  revealNoticeCards: document.querySelector("#revealNoticeCards"),
   mulliganDialog: document.querySelector("#mulliganDialog"),
   mulliganSummary: document.querySelector("#mulliganSummary"),
   mulliganCards: document.querySelector("#mulliganCards"),
@@ -268,6 +283,8 @@ let stateSnapshot = "";
 let observedTurnKey = "";
 let pendingTurnDrawPrompt = "";
 let pendingTurnUntapPrompt = "";
+let dismissedRevealReminderKey = "";
+let selectedStatisticsTurnKey = "";
 let openLifeMenuKey = "";
 let boardReferenceSeat = null;
 let dismissedCombatSnapshotId = "";
@@ -284,6 +301,7 @@ let accountWorkspaceTab = "decks";
 let selectedBuilderDeckId = "";
 let deckBuilderInitialized = false;
 let deckCardSearchResults = [];
+let deckBuilderPreviewCollapsed = false;
 let pendingGameDeck = null;
 let pendingEndGameId = "";
 let pendingDeleteDeckId = "";
@@ -649,6 +667,7 @@ function serializeDeckBuilderEntries(entries) {
 }
 
 function selectBuilderDeck(deck) {
+  deckBuilderPreviewCollapsed = false;
   selectedBuilderDeckId = deck.id;
   els.deckBuilderNameInput.value = deck.name;
   els.deckBuilderCommanderInput.value = deck.commander || "";
@@ -659,6 +678,7 @@ function selectBuilderDeck(deck) {
 }
 
 function newBuilderDeck() {
+  deckBuilderPreviewCollapsed = false;
   selectedBuilderDeckId = "";
   els.deckBuilderNameInput.value = "";
   els.deckBuilderCommanderInput.value = "";
@@ -696,6 +716,23 @@ function renderDeckBuilderPreview() {
     els.deckBuilderPreview.append(empty);
     return;
   }
+  if (deckBuilderPreviewCollapsed) {
+    const summary = document.createElement("div");
+    summary.className = "bulk-import-summary";
+    const text = document.createElement("span");
+    text.textContent = `${entries.length} unique cards imported in bulk.`;
+    const show = document.createElement("button");
+    show.type = "button";
+    show.className = "secondary";
+    show.textContent = "Show Card List";
+    show.addEventListener("click", () => {
+      deckBuilderPreviewCollapsed = false;
+      renderDeckBuilderPreview();
+    });
+    summary.append(text, show);
+    els.deckBuilderPreview.append(summary);
+    return;
+  }
   entries.forEach((entry) => {
     const row = document.createElement("div");
     row.className = "deck-card-row";
@@ -721,6 +758,7 @@ function renderDeckBuilderPreview() {
 }
 
 function adjustBuilderCard(cardName, delta) {
+  deckBuilderPreviewCollapsed = false;
   const entries = parseDeckBuilderEntries(els.deckBuilderListInput.value);
   const entry = entries.find((candidate) => candidate.name.toLowerCase() === cardName.toLowerCase());
   if (entry) entry.quantity = Math.max(0, entry.quantity + delta);
@@ -728,6 +766,46 @@ function adjustBuilderCard(cardName, delta) {
   els.deckBuilderListInput.value = serializeDeckBuilderEntries(entries);
   els.deckBuilderStatus.textContent = "Unsaved changes";
   renderDeckBuilderPreview();
+}
+
+function mergeDeckBuilderEntries(currentEntries, importedEntries) {
+  const merged = [];
+  const byName = new Map();
+  [...currentEntries, ...importedEntries].forEach((entry) => {
+    const key = entry.name.toLowerCase();
+    const existing = byName.get(key);
+    if (existing) existing.quantity += entry.quantity;
+    else {
+      const next = { quantity: entry.quantity, name: entry.name };
+      byName.set(key, next);
+      merged.push(next);
+    }
+  });
+  return merged;
+}
+
+function openBulkImportDialog() {
+  els.bulkImportInput.value = "";
+  if (!els.bulkImportDialog.open) els.bulkImportDialog.showModal();
+  requestAnimationFrame(() => els.bulkImportInput.focus());
+}
+
+function applyBulkDeckImport(mode) {
+  const imported = parseDeckBuilderEntries(els.bulkImportInput.value);
+  if (!imported.length) {
+    els.bulkImportInput.focus();
+    return;
+  }
+  const entries = mode === "append"
+    ? mergeDeckBuilderEntries(parseDeckBuilderEntries(els.deckBuilderListInput.value), imported)
+    : mergeDeckBuilderEntries([], imported);
+  els.deckBuilderListInput.value = serializeDeckBuilderEntries(entries);
+  deckBuilderPreviewCollapsed = true;
+  deckCardSearchResults = [];
+  renderDeckCardSearchResults();
+  els.deckBuilderStatus.textContent = `${entries.reduce((total, entry) => total + entry.quantity, 0)} cards imported - unsaved changes`;
+  renderDeckBuilderPreview();
+  els.bulkImportDialog.close();
 }
 
 function renderDeckCardSearchResults() {
@@ -1186,6 +1264,8 @@ function render() {
     observedTurnKey = "";
     pendingTurnDrawPrompt = "";
     pendingTurnUntapPrompt = "";
+    dismissedRevealReminderKey = "";
+    selectedStatisticsTurnKey = "";
     selectedBattlefieldCards.clear();
     boardReferenceSeat = null;
     lastDiceResult = "No rolls yet";
@@ -1198,6 +1278,7 @@ function render() {
     els.turnDock.classList.add("hidden");
     els.drawReminder.classList.add("hidden");
     els.untapReminder.classList.add("hidden");
+    els.revealReminder.classList.add("hidden");
     els.diceButton.classList.add("hidden");
     els.randomFirstPlayerButton.classList.add("hidden");
     els.clockButton.classList.add("hidden");
@@ -1229,7 +1310,7 @@ function render() {
   els.combatButton.classList.toggle("hidden", !state.combatSnapshot?.cards?.length);
   els.sidebarToggle.classList.remove("hidden");
   els.exitGameButton.classList.remove("hidden");
-  els.randomFirstPlayerButton.classList.toggle("hidden", !state.currentPlayer.isHost || state.players.length < 2);
+  els.randomFirstPlayerButton.classList.toggle("hidden", !state.currentPlayer.isHost || state.players.length < 2 || state.canRandomizeFirstPlayer === false);
   renderInvites();
   renderRoomSettings();
   renderDeckSetup();
@@ -1241,6 +1322,7 @@ function render() {
   renderLog();
   renderChat();
   renderDiceNotice();
+  renderRevealReminder();
   renderClockPanel();
   renderStatisticsPanel();
   renderCombatPanel();
@@ -1737,15 +1819,16 @@ function combatDamageButton(snapshot, compact = false) {
   button.type = "button";
   button.className = `combat-damage-button${compact ? " compact" : ""}`;
   const isDefender = Number(snapshot?.defenderSeat) === Number(state?.currentSeat);
-  const includesCommander = (snapshot?.cards || []).some((card) => card.isCommander && card.isCreature);
+  const remainingCards = (snapshot?.cards || []).filter((card) => card.isCreature && !card.damageApplied);
+  const includesCommander = remainingCards.some((card) => card.isCommander);
   button.textContent = snapshot?.damageApplied
     ? includesCommander ? "Combat + Commander Applied" : "Damage Applied"
     : compact ? includesCommander ? "Combat + CMD" : "All Damage"
       : includesCommander ? "Take Combat + Commander Damage" : "Take All Damage";
-  button.disabled = Boolean(snapshot?.damageApplied) || !isDefender;
+  button.disabled = Boolean(snapshot?.damageApplied) || !remainingCards.length || !isDefender;
   button.title = snapshot?.damageApplied
     ? "Combat damage has already been applied"
-    : isDefender ? "Take the attacking party's total power as damage" : "Only the defending player can take this damage";
+    : isDefender ? "Take all remaining attacking power as damage" : "Only the defending player can take this damage";
   button.addEventListener("click", async (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -1786,7 +1869,7 @@ function renderCombatPanel() {
   els.combatPopoverCards.innerHTML = "";
   snapshot.cards.forEach((card) => {
     const wrap = document.createElement("article");
-    wrap.className = `combat-popover-card-wrap${card.isCommander ? " commander-attacker" : ""}`;
+    wrap.className = `combat-popover-card-wrap${card.isCommander ? " commander-attacker" : ""}${card.damageApplied ? " damage-applied" : ""}`;
     const item = displayCardElement(card, card.typeLine || "Attacker", "combatPanel");
     item.classList.add("combat-popover-card");
     if (card.isCreature) {
@@ -1798,7 +1881,20 @@ function renderCombatPanel() {
     const detail = document.createElement("div");
     detail.className = "combat-popover-card-detail";
     const quantityText = Number(card.quantity) > 1 ? ` across ${card.quantity} creatures` : "";
-    detail.innerHTML = `<strong>${escapeHtml(cardDisplayName(card))}${card.isCommander ? " - Commander" : ""}</strong><span>Calculated total: ${Number(card.totalPower) || 0}/${Number(card.totalToughness) || 0}${quantityText}</span>`;
+    const damageText = card.damageApplied ? ` - ${Number(card.damageTaken) || 0} damage taken` : " - right-click to take damage";
+    detail.innerHTML = `<strong>${escapeHtml(cardDisplayName(card))}${card.isCommander ? " - Commander" : ""}</strong><span>Calculated total: ${Number(card.totalPower) || 0}/${Number(card.totalToughness) || 0}${quantityText}${card.isCreature ? damageText : ""}</span>`;
+    if (card.isCreature) {
+      item.addEventListener("contextmenu", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (card.damageApplied || Number(snapshot.defenderSeat) !== Number(state.currentSeat)) return;
+        try {
+          await sendAction("takeCombatCardDamage", { cardId: card.id });
+        } catch (error) {
+          alert(error.message);
+        }
+      });
+    }
     wrap.append(item, detail);
     els.combatPopoverCards.append(wrap);
   });
@@ -1897,6 +1993,71 @@ function publicRevealStrip() {
   return strip;
 }
 
+function revealNoticeGroups() {
+  if (!state) return [];
+  const groups = (state.reveals || [])
+    .filter((reveal) => Number(reveal.seat) !== Number(state.currentSeat) && !isRevealHidden(reveal))
+    .map((reveal) => ({
+      key: `hand:${reveal.id || revealKey(reveal)}`,
+      name: reveal.name || `Player ${Number(reveal.seat) + 1}`,
+      source: "hand",
+      cards: reveal.cards || [],
+    }));
+  state.players
+    .filter((player) => Number(player.seat) !== Number(state.currentSeat) && player.libraryPreview?.mode === "reveal")
+    .forEach((player) => {
+      const cards = player.libraryPreview?.cards || [];
+      if (!cards.length) return;
+      groups.push({
+        key: `library:${player.seat}:${cards.map((card) => card.id).join(",")}`,
+        name: player.name,
+        source: "library",
+        cards,
+      });
+    });
+  return groups;
+}
+
+function revealReminderData() {
+  const groups = revealNoticeGroups();
+  if (!groups.length) return null;
+  return {
+    groups,
+    key: `${state.id}:${state.currentSeat}:${groups.map((group) => group.key).join("|")}`,
+    count: groups.reduce((total, group) => total + group.cards.length, 0),
+  };
+}
+
+function renderRevealReminder() {
+  const notice = revealReminderData();
+  const hidden = !notice || notice.key === dismissedRevealReminderKey;
+  els.revealReminder.classList.toggle("hidden", hidden);
+  if (hidden) return;
+  const names = [...new Set(notice.groups.map((group) => group.name))];
+  const subject = names.length === 1 ? names[0] : `${names.length} players`;
+  els.revealReminderAction.textContent = `${subject} revealed ${notice.count} card${notice.count === 1 ? "" : "s"}`;
+}
+
+function openRevealNoticeDialog() {
+  const notice = revealReminderData();
+  if (!notice) return;
+  els.revealNoticeTitle.textContent = "Revealed Cards";
+  els.revealNoticeSummary.textContent = `${notice.count} public card${notice.count === 1 ? "" : "s"}`;
+  els.revealNoticeCards.innerHTML = "";
+  notice.groups.forEach((group) => {
+    const section = document.createElement("section");
+    section.className = "reveal-notice-group";
+    const title = document.createElement("h3");
+    title.textContent = `${group.name} - ${group.source}`;
+    const cards = document.createElement("div");
+    cards.className = "reveal-notice-card-grid";
+    group.cards.forEach((card) => cards.append(displayCardElement(card, "Revealed", "revealNotice")));
+    section.append(title, cards);
+    els.revealNoticeCards.append(section);
+  });
+  if (!els.revealNoticeDialog.open) els.revealNoticeDialog.showModal();
+}
+
 function revealKey(reveal) {
   const revealId = reveal.id || `${reveal.seat}:${(reveal.cards || []).map((card) => card.id).join(",")}`;
   return `${state.id}:${state.currentSeat}:${revealId}`;
@@ -1915,7 +2076,10 @@ function noteRevealSeen(reveal) {
   if (revealTimeouts.has(key)) return;
   const timeout = setTimeout(() => {
     revealTimeouts.delete(key);
-    if (state) renderPlayers();
+    if (state) {
+      renderPlayers();
+      renderRevealReminder();
+    }
   }, 30_000);
   revealTimeouts.set(key, timeout);
 }
@@ -2278,43 +2442,146 @@ function renderPresenceIndicators() {
   });
 }
 
+function statisticsTurnGroups(commits) {
+  const groups = new Map();
+  commits.forEach((commit) => {
+    const key = `${Number(commit.turn) || 1}:${Number(commit.activeSeat) || 0}`;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        turn: Number(commit.turn) || 1,
+        activeSeat: Number(commit.activeSeat) || 0,
+        activeName: commit.activeName || state.players[Number(commit.activeSeat)]?.name || "Player",
+        events: [],
+        logEvents: [],
+        reasons: [],
+        durationMs: 0,
+        committedAt: 0,
+      });
+    }
+    const group = groups.get(key);
+    group.events.push(...(commit.events || []));
+    group.logEvents.push(...(commit.logEvents || []));
+    if (commit.reason) group.reasons.push(commit.reason);
+    group.durationMs = Math.max(group.durationMs, Number(commit.turnElapsedMs) || 0);
+    group.committedAt = Math.max(group.committedAt, Number(commit.committedAt) || 0);
+  });
+  groups.forEach((group) => {
+    const logBySequence = new Map();
+    group.logEvents.forEach((event) => logBySequence.set(Number(event.seq) || `${event.message}:${event.at}`, event));
+    group.logEvents = [...logBySequence.values()].sort((a, b) => (Number(a.seq) || 0) - (Number(b.seq) || 0));
+  });
+  return [...groups.values()].sort((a, b) => a.turn - b.turn || a.activeSeat - b.activeSeat);
+}
+
+function statisticBreakdown(events) {
+  const spellEvents = events.filter((event) => event.kind !== "mana");
+  const manaEvents = events.filter((event) => event.kind === "mana");
+  const spellsByType = {};
+  const manaByColor = {};
+  let manaUsed = 0;
+  let manaProduced = 0;
+  spellEvents.forEach((event) => {
+    const type = event.type || "Other";
+    spellsByType[type] = (Number(spellsByType[type]) || 0) + 1;
+    manaUsed += Number(event.manaUsed) || 0;
+  });
+  manaEvents.forEach((event) => {
+    const amount = Math.max(0, Number(event.amount) || 0);
+    const color = event.color || "Unknown";
+    manaProduced += amount;
+    manaByColor[color] = (Number(manaByColor[color]) || 0) + amount;
+  });
+  return { spellEvents, manaEvents, spellsByType, manaByColor, manaUsed, manaProduced };
+}
+
+function statisticChips(values, emptyLabel) {
+  const entries = Object.entries(values || {}).sort(([a], [b]) => a.localeCompare(b));
+  if (!entries.length) return `<span class="statistics-empty-chip">${escapeHtml(emptyLabel)}</span>`;
+  return entries.map(([label, value]) => `<span>${escapeHtml(label)} <strong>${Number(value) || 0}</strong></span>`).join("");
+}
+
+function renderStatisticsOverview(groups) {
+  els.statisticsSummary.innerHTML = "";
+  state.players.forEach((player) => {
+    const events = groups.flatMap((group) => group.events).filter((event) => Number(event.actorSeat) === Number(player.seat));
+    const breakdown = statisticBreakdown(events);
+    const activeTime = groups
+      .filter((group) => Number(group.activeSeat) === Number(player.seat))
+      .reduce((total, group) => total + group.durationMs, 0);
+    const card = document.createElement("article");
+    card.className = "statistics-player-overview";
+    card.innerHTML = `
+      <header><strong>${escapeHtml(player.name)}</strong><span>${formatClockDuration(activeTime)}</span></header>
+      <div><span>${breakdown.spellEvents.length} spells</span><span>${breakdown.manaUsed} mana used</span><span>${breakdown.manaProduced} mana produced</span></div>
+      <div class="statistics-chip-row">${statisticChips(breakdown.spellsByType, "No spells recorded")}</div>
+    `;
+    els.statisticsSummary.append(card);
+  });
+}
+
+function renderStatisticsTurnDetail(group) {
+  els.statisticsTurnDetail.innerHTML = "";
+  if (!group) {
+    els.statisticsTurnDetail.innerHTML = '<p class="utility-note">Select a finalized turn below. Statistics finalize when priority or the turn is passed.</p>';
+    return;
+  }
+  const breakdown = statisticBreakdown(group.events);
+  const detail = document.createElement("section");
+  detail.className = "statistics-turn-report";
+  detail.innerHTML = `
+    <header><div><h3>Turn ${group.turn} - ${escapeHtml(group.activeName)}</h3><span>${escapeHtml([...new Set(group.reasons)].join(", ") || "checkpoint")}</span></div><strong>${formatClockDuration(group.durationMs)}</strong></header>
+    <div class="statistics-report-tiles">
+      <div class="statistic-tile"><strong>${breakdown.spellEvents.length}</strong><span>Spells played</span></div>
+      <div class="statistic-tile"><strong>${breakdown.manaUsed}</strong><span>Mana used</span></div>
+      <div class="statistic-tile"><strong>${breakdown.manaProduced}</strong><span>Mana produced</span></div>
+    </div>
+    <div class="statistics-report-section"><strong>Card types</strong><div class="statistics-chip-row">${statisticChips(breakdown.spellsByType, "No spells recorded")}</div></div>
+    <div class="statistics-report-section"><strong>Mana colors</strong><div class="statistics-chip-row">${statisticChips(breakdown.manaByColor, "No mana recorded")}</div></div>
+    <div class="statistics-action-list"></div>
+  `;
+  const actionList = detail.querySelector(".statistics-action-list");
+  if (!group.logEvents.length) {
+    actionList.innerHTML = '<p class="utility-note">No logged actions in this checkpoint.</p>';
+  } else {
+    group.logEvents.forEach((event) => {
+      const row = document.createElement("div");
+      row.innerHTML = `<time>${escapeHtml(event.at || "")}</time><span><strong>${escapeHtml(event.actorName || "Player")}</strong> ${escapeHtml(event.message || "Action recorded")}</span>`;
+      actionList.append(row);
+    });
+  }
+  els.statisticsTurnDetail.append(detail);
+}
+
 function renderStatisticsPanel() {
   if (!state || !els.statisticsSummary) return;
   const commits = Array.isArray(state.statistics?.commits) ? state.statistics.commits : [];
-  const currentCommits = commits.filter((commit) => (
-    Number(commit.turn) === (Number(state.turnNumber) || 1)
-    && Number(commit.activeSeat) === Number(state.activePlayer)
-  ));
-  const events = currentCommits.flatMap((commit) => commit.events || []);
-  const byType = {};
-  let manaUsed = 0;
-  events.forEach((event) => {
-    byType[event.type || "Other"] = (Number(byType[event.type || "Other"]) || 0) + 1;
-    manaUsed += Number(event.manaUsed) || 0;
-  });
-  const tiles = [
-    { label: "Spells this turn", value: events.length },
-    { label: "Mana used", value: manaUsed },
-    ...Object.entries(byType).sort(([a], [b]) => a.localeCompare(b)).map(([type, count]) => ({ label: type, value: count })),
-  ];
-  els.statisticsSummary.innerHTML = tiles
-    .map((tile) => `<div class="statistic-tile"><strong>${tile.value}</strong><span>${escapeHtml(tile.label)}</span></div>`)
-    .join("");
+  const groups = statisticsTurnGroups(commits);
+  renderStatisticsOverview(groups);
+  if (!groups.some((group) => group.key === selectedStatisticsTurnKey)) {
+    const currentKey = `${Number(state.turnNumber) || 1}:${Number(state.activePlayer) || 0}`;
+    selectedStatisticsTurnKey = groups.some((group) => group.key === currentKey) ? currentKey : groups.at(-1)?.key || "";
+  }
+  renderStatisticsTurnDetail(groups.find((group) => group.key === selectedStatisticsTurnKey));
   els.statisticsTurnLog.innerHTML = "";
-  if (!commits.length) {
+  if (!groups.length) {
     els.statisticsTurnLog.innerHTML = '<p class="utility-note">Statistics finalize when priority or the turn is passed.</p>';
     return;
   }
-  [...commits].reverse().slice(0, 40).forEach((commit) => {
-    const entry = document.createElement("div");
-    entry.className = "statistics-log-entry";
-    const spells = (commit.events || []).map((event) => `${event.cardName} (${event.type}, ${event.manaUsed})`).join(", ");
-    const activity = (commit.logEvents || []).map((event) => event.message).join(" ");
+  [...groups].reverse().slice(0, 40).forEach((group) => {
+    const breakdown = statisticBreakdown(group.events);
+    const entry = document.createElement("button");
+    entry.type = "button";
+    entry.className = `statistics-log-entry${group.key === selectedStatisticsTurnKey ? " selected" : ""}`;
     entry.innerHTML = `
-      <strong>Turn ${Number(commit.turn) || 1} - ${escapeHtml(commit.activeName || "Player")}</strong>
-      <span>${escapeHtml(activity || spells || "No recorded actions")}</span>
-      <small>${escapeHtml(commit.reason || "checkpoint")} at ${escapeHtml(commit.at || "")}</small>
+      <strong>Turn ${group.turn} - ${escapeHtml(group.activeName)}</strong>
+      <span>${breakdown.spellEvents.length} spells, ${breakdown.manaProduced} mana produced, ${formatClockDuration(group.durationMs)}</span>
+      <small>${group.logEvents.length} recorded action${group.logEvents.length === 1 ? "" : "s"}</small>
     `;
+    entry.addEventListener("click", () => {
+      selectedStatisticsTurnKey = group.key;
+      renderStatisticsPanel();
+    });
     els.statisticsTurnLog.append(entry);
   });
 }
@@ -2628,6 +2895,10 @@ function cardElement(card, seat, zone, index = 0) {
       }
       return;
     }
+    if (zone === "hand" && canActNow() && seat === state.currentSeat) {
+      moveCard(state.currentSeat, "hand", "battlefield", card.id);
+      return;
+    }
     openCardDialog(card, seat, zone);
   });
   attachCardZoomHandlers(button, zone, index);
@@ -2642,13 +2913,19 @@ function cardElement(card, seat, zone, index = 0) {
 function appendCardBadges(button, card, seat, zone) {
   const counterText = counterBadgeText(card.counters);
   const quantity = creatureQuantity(card);
-  if (!card.isToken && !counterText && quantity <= 1) return;
+  if (!card.isToken && !card.faceDown && !counterText && quantity <= 1) return;
   const wrap = document.createElement("div");
   wrap.className = "card-badges";
   if (card.isToken) {
     const span = document.createElement("span");
     span.className = "token-badge";
     span.textContent = "Token";
+    wrap.append(span);
+  }
+  if (card.faceDown) {
+    const span = document.createElement("span");
+    span.className = "face-down-badge";
+    span.textContent = "Face Down";
     wrap.append(span);
   }
   if (quantity > 1) {
@@ -3846,6 +4123,7 @@ function renderLibraryDialog() {
   renderLibraryPreview();
   els.libraryActions.innerHTML = "";
   [
+    ["Peek Top Card", () => sendAction("libraryAction", { mode: "peek" })],
     ["Draw X", () => promptLibraryCount("Draw how many cards?", "draw")],
     ["Scry X", () => promptLibraryCount("Scry how many cards?", "scry")],
     ["Surveil X", () => promptLibraryCount("Surveil how many cards?", "surveil")],
@@ -4254,6 +4532,10 @@ function openCardDialog(card, seat, zone) {
     if (isCommanderForSeat(card, seat)) actions.push(["To Commander", () => moveCard(seat, zone, "commanderZone", card.id)]);
   }
 
+  if (["hand", "commanderZone", "battlefield", "graveyard", "exile"].includes(zone)) {
+    actions.push(["Exile Face Down", () => sendAction("exileFaceDown", { fromZone: zone, cardId: card.id })]);
+  }
+
   if (Array.isArray(card.faces) && card.faces.length > 1) {
     const nextFace = card.faces[(Number(card.faceIndex) + 1) % card.faces.length];
     actions.unshift([
@@ -4451,6 +4733,11 @@ els.accountDecksTab.addEventListener("click", () => setAccountWorkspaceTab("deck
 els.accountGamesTab.addEventListener("click", () => setAccountWorkspaceTab("games"));
 els.accountStartGameButton.addEventListener("click", startGameWithoutDeck);
 els.newSavedDeckButton.addEventListener("click", newBuilderDeck);
+els.bulkImportDeckButton.addEventListener("click", openBulkImportDialog);
+els.closeBulkImportButton.addEventListener("click", () => els.bulkImportDialog.close());
+els.appendBulkImportButton.addEventListener("click", () => applyBulkDeckImport("append"));
+els.replaceBulkImportButton.addEventListener("click", () => applyBulkDeckImport("replace"));
+els.bulkImportForm.addEventListener("submit", (event) => event.preventDefault());
 els.savedDeckSearchInput.addEventListener("input", renderSavedDecks);
 els.deckBuilderListInput.addEventListener("input", () => {
   els.deckBuilderStatus.textContent = "Unsaved changes";
@@ -4837,6 +5124,12 @@ els.untapAllButton.addEventListener("click", async () => {
 });
 
 els.dismissUntapButton.addEventListener("click", dismissUntapReminder);
+
+els.revealReminderAction.addEventListener("click", openRevealNoticeDialog);
+els.dismissRevealReminderButton.addEventListener("click", () => {
+  dismissedRevealReminderKey = revealReminderData()?.key || "";
+  renderRevealReminder();
+});
 
 els.uiScaleInput.addEventListener("input", () => {
   applyCardScale(els.uiScaleInput.value);
