@@ -543,6 +543,7 @@ function createRoomState(name, playerCount, password = "", inviteMode = "links",
       friendlyMulligans: true,
       darkMode: true,
       terminalTheme: false,
+      theme: "dark",
     },
     stack: [],
     chat: [],
@@ -601,7 +602,7 @@ function viewRoom(room, token, origin) {
     turnNumber: Number(room.turnNumber) || 1,
     canRandomizeFirstPlayer: Number(room.turnsPassed) === 0,
     eventSeq: Number(room.eventSeq) || 0,
-    settings: room.settings || { friendlyMulligans: true, darkMode: true, terminalTheme: false },
+    settings: room.settings || { friendlyMulligans: true, darkMode: true, terminalTheme: false, theme: "dark" },
     passwordProtected: Boolean(room.passwordHash),
     endedAt: Number(room.endedAt) || 0,
     inviteMode: room.inviteMode || "links",
@@ -2296,9 +2297,11 @@ async function applyAction(room, actor, body) {
     }
     case "updateSettings": {
       room.settings = room.settings || {};
+      const theme = ["light", "dark", "console"].includes(body.theme) ? body.theme : body.terminalTheme ? "console" : body.darkMode === false ? "light" : "dark";
       room.settings.friendlyMulligans = body.friendlyMulligans !== false;
-      room.settings.darkMode = Boolean(body.darkMode);
-      room.settings.terminalTheme = Boolean(body.terminalTheme);
+      room.settings.theme = theme;
+      room.settings.darkMode = theme !== "light";
+      room.settings.terminalTheme = theme === "console";
       addLog(room, `${actor.name} updated room settings.`, actor);
       break;
     }
@@ -2631,6 +2634,11 @@ function requestOrigin(req) {
   return `${protocol}://${host}`;
 }
 
+function accountDisplayName(account, fallback = "Player") {
+  const fullName = `${account?.firstName || ""} ${account?.lastName || ""}`.trim();
+  return (fullName || account?.username || fallback).slice(0, 32);
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     const origin = requestOrigin(req);
@@ -2638,7 +2646,14 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && requestUrl.pathname === "/api/accounts/register") {
       const body = await readBody(req);
-      const result = accountStore.createAccount(body.username, body.password, body.firstName, body.lastName, body.email, body.confirmPassword);
+      const result = accountStore.createAccount(
+        body.username,
+        body.password,
+        body.firstName || body.first_name || body.givenName,
+        body.lastName || body.last_name || body.familyName,
+        body.email,
+        body.confirmPassword,
+      );
       return sendJson(res, 201, { account: result.account }, { "Set-Cookie": sessionCookie(req, result.sessionToken) });
     }
 
@@ -2726,7 +2741,7 @@ const server = http.createServer(async (req, res) => {
         await loadDeckIntoPlayer(room, room.players[0], {
           text: deck.decklist || deck.text,
           commander: deck.commander || "",
-          name: deck.playerName || account?.firstName || account?.username || room.players[0].name,
+          name: deck.playerName || accountDisplayName(account, room.players[0].name),
         });
       }
       rooms.set(room.id, room);
@@ -2741,11 +2756,15 @@ const server = http.createServer(async (req, res) => {
       if (!joinCode) return sendJson(res, 400, { error: "Enter a room code.", code: "JOIN_CODE_REQUIRED" });
       const room = getRoomByJoinCode(joinCode);
       if (!room) return sendJson(res, 404, { error: "That room code was not found.", code: "JOIN_CODE_NOT_FOUND" });
+      const account = optionalAccount(req);
+      const alreadySeated = Boolean(account && room.players.some((player) => player.accountId === account.id));
+      const roomFull = room.players.every((player) => player.claimed);
       return sendJson(res, 200, {
         code: joinCode,
         name: room.name,
         passwordProtected: Boolean(room.passwordHash),
-        roomFull: room.players.every((player) => player.claimed),
+        roomFull: roomFull && !alreadySeated,
+        alreadySeated,
         claimedSeatCount: room.players.filter((player) => player.claimed).length,
         playerCount: room.players.length,
       });
@@ -2767,7 +2786,7 @@ const server = http.createServer(async (req, res) => {
           await loadDeckIntoPlayer(room, existingPlayer, {
             text: deck.decklist || deck.text,
             commander: deck.commander || "",
-            name: deck.playerName || account?.firstName || account?.username || existingPlayer.name,
+            name: deck.playerName || accountDisplayName(account, existingPlayer.name),
           });
           room.updatedAt = Date.now();
           room.updateSeq = (Number(room.updateSeq) || 0) + 1;
@@ -2785,10 +2804,10 @@ const server = http.createServer(async (req, res) => {
         await loadDeckIntoPlayer(room, player, {
           text: deck.decklist || deck.text,
           commander: deck.commander || "",
-          name: deck.playerName || account?.firstName || account?.username || player.name,
+          name: deck.playerName || accountDisplayName(account, player.name),
         });
-      } else if (account?.firstName) {
-        player.name = account.firstName.slice(0, 32);
+      } else if (account) {
+        player.name = accountDisplayName(account, player.name);
       }
       room.updatedAt = Date.now();
       room.updateSeq = (Number(room.updateSeq) || 0) + 1;

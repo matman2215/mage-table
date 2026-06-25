@@ -39,8 +39,8 @@ function validateFirstName(value, fallback = "") {
 
 function validateLastName(value) {
   const lastName = String(value || "").trim();
-  if (lastName.length < 1 || lastName.length > 60) {
-    throw new Error("Last name must be between 1 and 60 characters.");
+  if (lastName.length > 60) {
+    throw new Error("Last name must be 60 characters or fewer.");
   }
   return lastName;
 }

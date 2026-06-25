@@ -152,7 +152,7 @@
               </label>
               <label>
                 Last name
-                <input id="registerLastNameInput" type="text" minlength="1" maxlength="60" autocomplete="family-name" required>
+                <input id="registerLastNameInput" type="text" maxlength="60" autocomplete="family-name">
               </label>
               <label>
                 Email
@@ -215,6 +215,7 @@
                       <button id="exportBuilderDeckButton" class="secondary" type="button">Export</button>
                       <button id="duplicateBuilderDeckButton" class="secondary" type="button">Duplicate</button>
                       <button id="deleteBuilderDeckButton" class="danger" type="button">Delete</button>
+                      <button id="saveBuilderDeckButton" type="submit">Save Deck</button>
                     </div>
                   </header>
                   <div class="deck-builder-metadata">
@@ -275,9 +276,6 @@
                   </div>
                   <footer class="deck-builder-footer">
                     <span id="deckBuilderStatus" class="workspace-note" role="status"></span>
-                    <button id="joinBuilderDeckGameButton" class="secondary" type="button">Join Code with Deck</button>
-                    <button id="startBuilderDeckGameButton" class="secondary" type="button">Start Game with Deck</button>
-                    <button id="saveBuilderDeckButton" type="submit">Save Deck</button>
                   </footer>
                 </form>
               </main>
@@ -506,13 +504,13 @@
             Friendly mulligans
           </label>
           <p class="settings-note">When off, only the first mulligan is free.</p>
-          <label class="toggle-row">
-            <input id="darkModeInput" type="checkbox" checked>
-            Dark mode
-          </label>
-          <label class="toggle-row">
-            <input id="terminalThemeInput" type="checkbox">
-            MTG terminal theme
+          <label>
+            Theme
+            <select id="themeSelect">
+              <option value="dark" selected>Dark</option>
+              <option value="light">Light</option>
+              <option value="console">Console</option>
+            </select>
           </label>
         </details>
         <details class="settings-details">
@@ -570,16 +568,32 @@
       </form>
     </dialog>
 
+    <dialog id="deckPlayChoiceDialog">
+      <form id="deckPlayChoiceForm" method="dialog" class="dialog-card confirmation-dialog-card">
+        <header class="popover-header">
+          <div>
+            <h2 id="deckPlayChoiceTitle">Play Deck</h2>
+            <p id="deckPlayChoiceSummary" class="dialog-note">Create a new game or join an existing one with this deck.</p>
+          </div>
+          <button id="closeDeckPlayChoiceButton" class="popover-close" type="button" title="Dismiss" aria-label="Dismiss play deck">x</button>
+        </header>
+        <div class="dialog-actions">
+          <button id="deckPlayJoinButton" class="secondary" value="join" type="submit">Join Game Code</button>
+          <button id="deckPlayCreateButton" value="create" type="submit">Create New Game</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="joinWithDeckDialog">
       <form id="joinWithDeckForm" method="dialog" class="dialog-card confirmation-dialog-card">
         <header class="popover-header">
           <div>
-            <h2>Join with Saved Deck</h2>
+            <h2 id="joinWithDeckTitle">Join with Saved Deck</h2>
             <p id="joinWithDeckSummary" class="dialog-note">Enter the room code for this deck.</p>
           </div>
           <button id="closeJoinWithDeckButton" class="popover-close" type="button" title="Dismiss" aria-label="Dismiss join with deck">x</button>
         </header>
-        <label>
+        <label id="joinWithDeckCodeLabel">
           Join code
           <input id="joinWithDeckCodeInput" class="join-code-input" type="text" minlength="6" maxlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABC123" required>
         </label>
