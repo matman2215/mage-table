@@ -572,6 +572,7 @@ function selectedInviteMode() {
 }
 
 function updateRoomCreationControls() {
+  if (!els.singlePlayerInput || !els.playerCountInput || !els.playerCountLabel || !els.inviteDebugDetails || !els.createRoomSubmitButton) return;
   const solo = els.singlePlayerInput.checked;
   els.playerCountInput.disabled = solo;
   els.playerCountLabel.classList.toggle("disabled-field", solo);
@@ -836,10 +837,12 @@ function renderAccountPanel() {
   els.collapseDeckRailButton.textContent = deckRailCollapsed ? "☰" : "⇤";
   els.collapseDeckRailButton.title = deckRailCollapsed ? "Expand deck library" : "Collapse deck library";
   els.collapseDeckRailButton.setAttribute("aria-label", els.collapseDeckRailButton.title);
-  els.toggleMaybeBoardButton.classList.toggle("active", deckMaybeBoardOpen);
-  els.toggleMaybeBoardButton.title = deckMaybeBoardOpen ? "Hide maybe board" : "Open maybe board";
-  els.toggleMaybeBoardButton.setAttribute("aria-label", els.toggleMaybeBoardButton.title);
-  els.deckMaybeBoardRail.classList.toggle("hidden", !deckMaybeBoardOpen);
+  if (els.toggleMaybeBoardButton && els.deckMaybeBoardRail) {
+    els.toggleMaybeBoardButton.classList.toggle("active", deckMaybeBoardOpen);
+    els.toggleMaybeBoardButton.title = deckMaybeBoardOpen ? "Hide maybe board" : "Open maybe board";
+    els.toggleMaybeBoardButton.setAttribute("aria-label", els.toggleMaybeBoardButton.title);
+    els.deckMaybeBoardRail.classList.toggle("hidden", !deckMaybeBoardOpen);
+  }
   renderSavedDecks();
   renderDeckBuilderPreview();
   renderActiveGames();
@@ -2190,6 +2193,7 @@ function applyTheme() {
 }
 
 function renderRoomSettings() {
+  if (!els.friendlyMulligansInput || !els.themeSelect) return;
   const settings = state.settings || {};
   els.friendlyMulligansInput.checked = settings.friendlyMulligans !== false;
   els.themeSelect.value = settings.theme || (settings.terminalTheme ? "console" : settings.darkMode === false ? "light" : "dark");
@@ -5569,9 +5573,9 @@ els.collapseDeckRailButton.addEventListener("click", () => {
 });
 els.newSavedDeckButton.addEventListener("click", newBuilderDeck);
 els.bulkImportDeckButton.addEventListener("click", openBulkImportDialog);
-els.deckContextButton.addEventListener("click", () => openDeckActionDialog(currentBuilderDeck()));
+if (els.deckContextButton) els.deckContextButton.addEventListener("click", () => openDeckActionDialog(currentBuilderDeck()));
 els.deckStatsButton.addEventListener("click", () => openDeckStatsDialog(currentBuilderDeck()));
-els.toggleMaybeBoardButton.addEventListener("click", () => {
+if (els.toggleMaybeBoardButton) els.toggleMaybeBoardButton.addEventListener("click", () => {
   deckMaybeBoardOpen = !deckMaybeBoardOpen;
   localStorage.setItem("mage-table-maybeboard-open", deckMaybeBoardOpen ? "1" : "0");
   renderAccountPanel();
@@ -5628,8 +5632,8 @@ els.deckGroupSelect.addEventListener("change", renderDeckBuilderPreview);
 els.deckSortSelect.addEventListener("change", renderDeckBuilderPreview);
 els.deckViewModeSelect.addEventListener("change", renderDeckBuilderPreview);
 els.deckVisualSearchInput.addEventListener("input", renderDeckBuilderPreview);
-els.deckViewScaleInput.addEventListener("input", applyDeckViewScale);
-els.applyDeckViewButton.addEventListener("click", renderDeckBuilderPreview);
+if (els.deckViewScaleInput) els.deckViewScaleInput.addEventListener("input", applyDeckViewScale);
+if (els.applyDeckViewButton) els.applyDeckViewButton.addEventListener("click", renderDeckBuilderPreview);
 els.deckMaybeBoardInput.addEventListener("input", saveMaybeBoard);
 els.deckCardSearchButton.addEventListener("click", searchDeckBuilderCards);
 els.deckCardSearchInput.addEventListener("keydown", (event) => {
@@ -6067,8 +6071,8 @@ async function updateRoomSettings() {
   });
 }
 
-els.friendlyMulligansInput.addEventListener("change", updateRoomSettings);
-els.themeSelect.addEventListener("change", updateRoomSettings);
+if (els.friendlyMulligansInput) els.friendlyMulligansInput.addEventListener("change", updateRoomSettings);
+if (els.themeSelect) els.themeSelect.addEventListener("change", updateRoomSettings);
 
 els.resetKeybindsButton.addEventListener("click", () => {
   keybinds = defaultKeybinds();
@@ -6425,7 +6429,9 @@ document.addEventListener("visibilitychange", () => {
 loadCardScale();
 loadOpacitySettings();
 renderKeybindSettings();
-els.playerCountInput.disabled = els.singlePlayerInput.checked;
+if (els.playerCountInput && els.singlePlayerInput) {
+  els.playerCountInput.disabled = els.singlePlayerInput.checked;
+}
 refreshState();
 restoreAccountSession();
 startPolling();
