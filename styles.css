@@ -691,30 +691,6 @@ body.landing-mode .landing-panel button:not(.landing-actions button) {
   gap: 2px;
 }
 
-.deck-title-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 12px;
-  align-items: center;
-  min-width: 0;
-}
-
-.deck-header-scale {
-  display: inline-flex;
-  flex-direction: row;
-  gap: 6px;
-  align-items: center;
-  color: #a6b4ae;
-  font-size: 0.62rem;
-  text-transform: uppercase;
-}
-
-.deck-header-scale input[type="range"] {
-  width: 116px;
-  min-height: 18px;
-  padding: 0;
-}
-
 .deck-library-heading h2,
 .deck-builder-header h2,
 .active-games-heading h2 {
@@ -1043,9 +1019,12 @@ body.landing-mode .account-workspace-shell label {
 .deck-builder-preview {
   --deck-view-scale: 1;
   min-height: 0;
-  overflow: auto;
+  overflow-y: scroll;
+  overflow-x: hidden;
   border-top: 1px solid #34433e;
   scrollbar-gutter: stable;
+  padding-bottom: calc(340px * var(--deck-view-scale, 1));
+  overscroll-behavior: contain;
 }
 
 .deck-maybe-board {
@@ -1080,7 +1059,7 @@ body.landing-mode .account-workspace-shell label {
 
 .deck-view-toolbar {
   display: grid;
-  grid-template-columns: minmax(86px, 112px) minmax(96px, 122px) minmax(108px, 136px) minmax(132px, 180px) auto;
+  grid-template-columns: minmax(82px, 108px) minmax(96px, 122px) minmax(104px, 132px) minmax(122px, 168px) minmax(120px, 160px) auto;
   gap: 6px;
   align-items: end;
   justify-content: start;
@@ -1108,12 +1087,18 @@ body.landing-mode .account-workspace-shell label {
   font-size: 0.68rem;
 }
 
+.deck-view-scale-control input[type="range"] {
+  min-height: 18px;
+  padding: 0;
+}
+
 .deck-visual-columns {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(clamp(190px, calc(230px * var(--deck-view-scale, 1)), 390px), 1fr));
   gap: 12px;
   align-content: start;
-  padding: 10px 2px 18px;
+  align-items: start;
+  padding: 10px 2px calc(520px * var(--deck-view-scale, 1));
   overflow: visible;
 }
 
@@ -1122,6 +1107,7 @@ body.landing-mode .account-workspace-shell label {
   grid-template-rows: auto auto;
   gap: 7px;
   min-width: 0;
+  align-self: start;
   border-right: 1px solid rgba(52, 67, 62, 0.64);
   padding-right: 10px;
 }
@@ -1162,13 +1148,13 @@ body.landing-mode .account-workspace-shell label {
 
 .deck-card-stack {
   position: relative;
-  min-height: max(calc(460px * var(--deck-view-scale, 1)), calc((var(--stack-count, 1) - 1) * 30px * var(--deck-view-scale, 1) + 330px * var(--deck-view-scale, 1)));
+  min-height: max(calc(500px * var(--deck-view-scale, 1)), calc((var(--stack-count, 1) - 1) * 40px * var(--deck-view-scale, 1) + 340px * var(--deck-view-scale, 1)));
 }
 
 .deck-stack-card {
   position: absolute;
   left: 0;
-  top: calc(var(--stack-index, 0) * 30px * var(--deck-view-scale, 1));
+  top: calc(var(--stack-index, 0) * 40px * var(--deck-view-scale, 1));
   width: min(100%, calc(230px * var(--deck-view-scale, 1)));
   aspect-ratio: 488 / 680;
   border: 1px solid rgba(237, 244, 240, 0.28);
@@ -1180,7 +1166,7 @@ body.landing-mode .account-workspace-shell label {
 }
 
 .deck-card-stack:hover .deck-stack-card {
-  top: calc(var(--stack-index, 0) * 86px * var(--deck-view-scale, 1));
+  top: calc(var(--stack-index, 0) * 94px * var(--deck-view-scale, 1));
 }
 
 .deck-stack-card:hover {
@@ -1233,6 +1219,7 @@ body.shift-cascade .deck-stack-card strong {
 
 .deck-view-grid {
   grid-template-columns: repeat(auto-fill, minmax(clamp(230px, calc(290px * var(--deck-view-scale, 1)), 420px), 1fr));
+  align-items: start;
 }
 
 .deck-image-grid {
@@ -1240,6 +1227,7 @@ body.shift-cascade .deck-stack-card strong {
   grid-template-columns: repeat(auto-fill, minmax(clamp(98px, calc(126px * var(--deck-view-scale, 1)), 230px), 1fr));
   gap: 8px;
   align-content: start;
+  align-items: start;
   min-height: 0;
 }
 
@@ -1355,14 +1343,15 @@ body.shift-cascade .deck-stack-card strong {
 }
 
 .deck-stats-dialog-card {
-  width: min(1180px, calc(100vw - 24px));
+  width: min(1380px, calc(100vw - 24px));
   max-height: calc(100vh - 24px);
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .deck-stats-content {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 14px;
 }
 
@@ -1397,7 +1386,7 @@ body.shift-cascade .deck-stack-card strong {
 .deck-stat-bar > div {
   height: 9px;
   border-radius: 999px;
-  background: rgba(127, 145, 137, 0.18);
+  background: transparent;
   overflow: hidden;
 }
 
@@ -1414,6 +1403,157 @@ body.shift-cascade .deck-stack-card strong {
   color: var(--muted);
   text-align: right;
   font-size: 0.68rem;
+}
+
+.deck-production-section {
+  gap: 14px;
+}
+
+.production-strip {
+  display: grid;
+  gap: 6px;
+}
+
+.production-strip > strong {
+  font-size: 0.9rem;
+}
+
+.production-strip-bar {
+  display: flex;
+  gap: 8px;
+  min-height: 44px;
+  align-items: stretch;
+}
+
+.production-strip-bar span {
+  flex-grow: calc(var(--segment-grow, 0.1) * 100);
+  flex-shrink: 1;
+  flex-basis: 0;
+  display: grid;
+  place-items: center;
+  min-width: 54px;
+  border-radius: 6px;
+  background: var(--segment-color);
+  color: #10211d;
+  font-weight: 900;
+  font-size: 1.12rem;
+}
+
+.deck-production-rows {
+  display: grid;
+  gap: 18px;
+}
+
+.production-color-row {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+}
+
+.mana-disc {
+  width: 62px;
+  height: 62px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--mana-color);
+  color: #10211d;
+  font-size: 1.4rem;
+  font-weight: 900;
+}
+
+.production-color-bars,
+.production-metric {
+  display: grid;
+  gap: 5px;
+}
+
+.production-meter {
+  position: relative;
+  height: 42px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.production-meter i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--mana-color);
+}
+
+.production-meter span {
+  position: absolute;
+  inset: 50% auto auto 44%;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  background: rgba(24, 24, 24, 0.72);
+  color: #f4f4f4;
+  padding: 2px 8px;
+  font-weight: 900;
+}
+
+.production-metric small {
+  color: #7f8985;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.deck-probability-section {
+  padding: 0;
+  overflow: hidden;
+}
+
+.deck-probability-section h3,
+.probability-summary {
+  margin: 0;
+  padding: 12px;
+}
+
+.probability-summary {
+  display: grid;
+  grid-template-columns: repeat(6, max-content);
+  gap: 8px;
+  align-items: center;
+  color: #d5ddd9;
+}
+
+.probability-summary strong {
+  border: 1px solid #59635f;
+  border-radius: 6px;
+  background: #202624;
+  padding: 7px 12px;
+}
+
+.probability-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 0.78rem;
+}
+
+.probability-table th,
+.probability-table td {
+  border-top: 1px solid #2d3632;
+  padding: 7px 9px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.probability-table th {
+  background: #101513;
+  color: #f0f4f2;
+}
+
+.probability-table td:last-child {
+  font-weight: 900;
+}
+
+.probability-table td:last-child span {
+  color: #9da8a3;
+  font-weight: 700;
 }
 
 .active-games-workspace {

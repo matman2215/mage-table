@@ -44,7 +44,7 @@
             <button id="joinGameButton" class="secondary" type="button">Join Game</button>
             <button id="loginButton" class="secondary" type="button">Log In</button>
           </div>
-          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.4.3</p>
+          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.4.4</p>
         </div>
         <section id="createModePanel" class="landing-subpanel create-mode-panel hidden">
           <header class="create-room-header">
@@ -219,17 +219,13 @@
                       <h2 id="deckBuilderTitle">New Deck</h2>
                       <div class="deck-title-meta">
                         <span id="deckBuilderCount">0 cards</span>
-                        <label class="deck-header-scale">
-                          Scale
-                          <input id="deckViewScaleInput" type="range" min="70" max="160" step="5" value="100">
-                        </label>
                       </div>
                     </div>
                     <div class="deck-builder-header-actions">
                       <button id="bulkImportDeckButton" class="secondary" type="button">Bulk Import</button>
                       <button id="deckContextButton" class="secondary deck-context-button" type="button" title="Deck actions" aria-label="Deck actions">⋯</button>
                       <button id="deckStatsButton" class="secondary" type="button">Stats</button>
-                      <button id="saveBuilderDeckButton" type="submit">Save Deck</button>
+                      <button id="saveBuilderDeckButton" type="button">Save Deck</button>
                     </div>
                   </header>
                   <input id="deckBuilderNameInput" type="hidden" maxlength="80">
@@ -252,17 +248,21 @@
                         <option value="price">Price</option>
                         <option value="color">Color</option>
                         <option value="manaValue">Mana Value</option>
+                        <option value="keyword">Keyword</option>
                       </select>
                     </label>
                     <label>
                       Sort
                       <select id="deckSortSelect">
-                        <option value="alphabet" selected>Alphabet</option>
+                        <option value="name" selected>Card Name</option>
+                        <option value="category">Category</option>
                         <option value="manaValue">Mana Value</option>
                         <option value="type">Type</option>
+                        <option value="subtype">Subtype</option>
                         <option value="price">Price</option>
                         <option value="color">Color</option>
                         <option value="rarity">Rarity</option>
+                        <option value="keyword">Keyword</option>
                       </select>
                     </label>
                     <label>
@@ -276,6 +276,10 @@
                     <label>
                       Find
                       <input id="deckVisualSearchInput" type="search" maxlength="120" placeholder="Highlight card">
+                    </label>
+                    <label class="deck-view-scale-control">
+                      Scale
+                      <input id="deckViewScaleInput" type="range" min="70" max="160" step="5" value="100">
                     </label>
                     <button id="applyDeckViewButton" type="button">Apply</button>
                   </section>
@@ -642,6 +646,17 @@
             <option value="R">Red</option>
             <option value="G">Green</option>
             <option value="C">Colorless</option>
+          </select>
+        </label>
+        <label>
+          Probability sort
+          <select id="deckStatsOddsSortSelect">
+            <option value="name" selected>Card Name</option>
+            <option value="category">Category</option>
+            <option value="type">Type</option>
+            <option value="subtype">Subtype</option>
+            <option value="manaValue">Mana Value</option>
+            <option value="keyword">Keyword</option>
           </select>
         </label>
         <div id="deckStatsContent" class="deck-stats-content"></div>

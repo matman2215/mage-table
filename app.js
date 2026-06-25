@@ -270,6 +270,7 @@ const els = {
   deckStatsDialogTitle: document.querySelector("#deckStatsDialogTitle"),
   deckStatsDialogSummary: document.querySelector("#deckStatsDialogSummary"),
   deckStatsProductionSelect: document.querySelector("#deckStatsProductionSelect"),
+  deckStatsOddsSortSelect: document.querySelector("#deckStatsOddsSortSelect"),
   deckStatsContent: document.querySelector("#deckStatsContent"),
   deckPlayChoiceDialog: document.querySelector("#deckPlayChoiceDialog"),
   deckPlayChoiceForm: document.querySelector("#deckPlayChoiceForm"),
@@ -441,6 +442,7 @@ async function api(path, options = {}) {
     const { headers = {}, ...fetchOptions } = options;
     const response = await fetch(path, {
       ...fetchOptions,
+      credentials: "same-origin",
       headers: { "Content-Type": "application/json", ...headers },
     });
     const data = await response.json().catch(() => ({}));
@@ -1165,6 +1167,12 @@ function applyDeckViewScale() {
   els.deckBuilderPreview.style.setProperty("--deck-view-scale", String(deckViewScale() / 100));
 }
 
+function applyDeckViewSettings() {
+  deckBuilderPreviewCollapsed = false;
+  applyDeckViewScale();
+  renderDeckBuilderPreview();
+}
+
 function renderDeckVisualStacks(cards) {
   const groupMode = els.deckGroupSelect.value || "type";
   const sortMode = els.deckSortSelect.value || "alphabet";
@@ -1206,6 +1214,10 @@ function deckStackCard(card, index, query) {
   if (query && card.name.toLowerCase().includes(query)) item.classList.add("highlight");
   item.style.setProperty("--stack-index", String(index));
   item.title = `${card.quantity} ${card.name}`;
+  if (card.imageUrl) {
+    item.dataset.zoomImage = card.imageUrl;
+    item.dataset.zoomName = card.name;
+  }
   const image = card.imageUrl
     ? `<img src="${escapeHtml(card.imageUrl)}" alt="${escapeHtml(card.name)}" loading="lazy">`
     : `<div class="deck-stack-placeholder">${escapeHtml(card.name)}</div>`;
@@ -1233,6 +1245,11 @@ function deckTextTable(cards, query) {
   cards.forEach((card) => {
     const row = document.createElement("tr");
     if (query && card.name.toLowerCase().includes(query)) row.classList.add("highlight");
+    if (card.imageUrl) {
+      row.dataset.zoomImage = card.imageUrl;
+      row.dataset.zoomName = card.name;
+      attachCardZoomHandlers(row, "deck-viewer", 0);
+    }
     row.innerHTML = `
       <td>${Number(card.quantity) || 1}</td>
       <td>${escapeHtml(card.name)}</td>
@@ -1270,10 +1287,9 @@ function renderDeckStatsContent() {
   const total = cards.reduce((sum, card) => sum + (Number(card.quantity) || 1), 0);
   els.deckStatsContent.append(
     statSection("Mana Curve", manaCurveData(cards), "mana"),
-    statSection("Production Curve", productionCurveData(cards, els.deckStatsProductionSelect.value), "production"),
+    productionSection(cards, els.deckStatsProductionSelect.value),
     statSection("Deck Composition", compositionData(cards), "composition"),
-    statSection("Draw Odds by Type", drawOddsData(cards, (card) => primaryType(card), total), "odds"),
-    statSection("Draw Odds by Category", drawOddsData(cards, (card) => deckCategory(card), total), "odds"),
+    probabilitySection(cards, total, els.deckStatsOddsSortSelect?.value || "name"),
   );
 }
 
@@ -1303,11 +1319,17 @@ function statColor(label, mode) {
 function manaCurveData(cards) {
   const curve = new Map();
   cards.forEach((card) => {
+    if (!consumesMana(card)) return;
     const mv = Math.max(0, Math.min(8, Math.floor(Number(card.manaValue) || 0)));
     const label = mv >= 8 ? "8+" : String(mv);
     curve.set(label, (curve.get(label) || 0) + (Number(card.quantity) || 1));
   });
   return ["0", "1", "2", "3", "4", "5", "6", "7", "8+"].map((label) => ({ label, value: curve.get(label) || 0, color: "#8ee7d6" }));
+}
+
+function consumesMana(card) {
+  if (card.isLand || /\bLand\b/i.test(card.typeLine || "")) return false;
+  return /\{(?:[WUBRGCX]|\d+)\}/i.test(String(card.manaCost || "")) || Number(card.manaValue) > 0;
 }
 
 function productionCurveData(cards, color = "all") {
@@ -1331,6 +1353,138 @@ function productionCurveData(cards, color = "all") {
   }));
 }
 
+function productionSection(cards, selectedColor = "all") {
+  const section = document.createElement("section");
+  section.className = "deck-stat-section deck-production-section";
+  section.innerHTML = "<h3>Production</h3>";
+  const colors = selectedColor === "all" ? ["W", "U", "B", "R", "G", "C"] : [selectedColor];
+  section.append(
+    productionStrip("Cost", costPipTotals(cards), colors),
+    productionStrip("Production", productionTotals(cards), colors),
+  );
+  const rows = document.createElement("div");
+  rows.className = "deck-production-rows";
+  colors.forEach((color) => {
+    if (color === "C" && selectedColor === "all") return;
+    rows.append(productionColorRow(color, cards));
+  });
+  section.append(rows);
+  return section;
+}
+
+function productionStrip(label, totals, colors) {
+  const total = colors.reduce((sum, color) => sum + (Number(totals[color]) || 0), 0);
+  const wrap = document.createElement("div");
+  wrap.className = "production-strip";
+  const title = document.createElement("strong");
+  title.textContent = label;
+  const bar = document.createElement("div");
+  bar.className = "production-strip-bar";
+  colors.forEach((color) => {
+    const value = Number(totals[color]) || 0;
+    if (!value) return;
+    const span = document.createElement("span");
+    span.style.setProperty("--segment-color", colorSwatch(color));
+    span.style.setProperty("--segment-grow", String(value / Math.max(1, total)));
+    span.textContent = manaSymbol(color);
+    bar.append(span);
+  });
+  wrap.append(title, bar);
+  return wrap;
+}
+
+function productionColorRow(color, cards) {
+  const cost = colorCostStats(cards, color);
+  const production = colorProductionStats(cards, color);
+  const max = Math.max(1, cost.percent, production.percent);
+  const row = document.createElement("div");
+  row.className = "production-color-row";
+  row.style.setProperty("--mana-color", colorSwatch(color));
+  row.innerHTML = `
+    <span class="mana-disc">${escapeHtml(manaSymbol(color))}</span>
+    <div class="production-color-bars">
+      ${productionMetric("Cost", cost.percent, `${cost.pips} pips - ${cost.cards} cards`, max)}
+      ${productionMetric("Production", production.percent, `${production.mana} mana - ${production.cards} cards`, max)}
+    </div>
+  `;
+  return row;
+}
+
+function productionMetric(label, percent, detail, max) {
+  const width = Math.max(2, (Number(percent) || 0) / Math.max(1, max) * 100);
+  return `<div class="production-metric"><strong>${escapeHtml(label)}</strong><div class="production-meter"><i style="width:${width}%"></i><span>${Math.round(percent)}%</span></div><small>${escapeHtml(detail)}</small></div>`;
+}
+
+function costPipTotals(cards) {
+  const totals = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
+  cards.forEach((card) => {
+    const quantity = Number(card.quantity) || 1;
+    manaSymbolsInCost(card).forEach((symbol) => {
+      if (totals[symbol] !== undefined) totals[symbol] += quantity;
+    });
+  });
+  return totals;
+}
+
+function productionTotals(cards) {
+  const totals = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
+  cards.forEach((card) => {
+    const quantity = Number(card.quantity) || 1;
+    producedManaForDeckCard(card).forEach((symbol) => {
+      if (totals[symbol] !== undefined) totals[symbol] += quantity;
+    });
+  });
+  return totals;
+}
+
+function colorCostStats(cards, color) {
+  let pips = 0;
+  const names = new Set();
+  cards.forEach((card) => {
+    const quantity = Number(card.quantity) || 1;
+    const count = manaSymbolsInCost(card).filter((symbol) => symbol === color).length;
+    if (!count) return;
+    pips += count * quantity;
+    names.add(card.name);
+  });
+  return { pips, cards: names.size, percent: percentage(pips, cards.reduce((sum, card) => sum + manaSymbolsInCost(card).length * (Number(card.quantity) || 1), 0)) };
+}
+
+function colorProductionStats(cards, color) {
+  let mana = 0;
+  const names = new Set();
+  cards.forEach((card) => {
+    const quantity = Number(card.quantity) || 1;
+    const count = producedManaForDeckCard(card).filter((symbol) => symbol === color).length;
+    if (!count) return;
+    mana += count * quantity;
+    names.add(card.name);
+  });
+  return { mana, cards: names.size, percent: percentage(mana, cards.reduce((sum, card) => sum + producedManaForDeckCard(card).length * (Number(card.quantity) || 1), 0)) };
+}
+
+function percentage(value, total) {
+  return total ? (Number(value) || 0) / total * 100 : 0;
+}
+
+function manaSymbolsInCost(card) {
+  return [...String(card.manaCost || "").matchAll(/\{([^}]+)\}/g)]
+    .flatMap(([, symbol]) => symbol.split("/"))
+    .map((symbol) => symbol.toUpperCase())
+    .filter((symbol) => ["W", "U", "B", "R", "G", "C"].includes(symbol));
+}
+
+function producedManaForDeckCard(card) {
+  const explicit = Array.isArray(card.producedMana) ? card.producedMana.map((symbol) => String(symbol).toUpperCase()) : [];
+  if (explicit.length) return explicit.filter((symbol) => ["W", "U", "B", "R", "G", "C"].includes(symbol));
+  if (card.isLand) return (card.colorIdentity?.length ? card.colorIdentity : ["C"]).map((symbol) => String(symbol).toUpperCase());
+  return [...String(card.oracleText || "").matchAll(/\{([WUBRGC])\}/gi)].map((match) => match[1].toUpperCase());
+}
+
+function manaSymbol(color) {
+  return ({ W: "☼", U: "◢", B: "●", R: "◉", G: "♣", C: "◇" })[color] || color;
+}
+
 function compositionData(cards) {
   const counts = new Map();
   cards.forEach((card) => counts.set(primaryType(card), (counts.get(primaryType(card)) || 0) + (Number(card.quantity) || 1)));
@@ -1349,8 +1503,75 @@ function drawOddsData(cards, groupFn, total) {
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .map(([label, value]) => {
       const odds = drawAtLeastOneProbability(total, value, 7);
-      return { label, value: odds, display: `${Math.round(odds)}% (${value})`, color: typeColor(label) };
+      return { label, value: odds, display: `${Math.round(odds)}% · ${oddsRatio(odds)} (${value})`, color: typeColor(label) };
     });
+}
+
+function probabilitySection(cards, total, sortMode) {
+  const section = document.createElement("section");
+  section.className = "deck-stat-section deck-probability-section";
+  section.innerHTML = `
+    <h3>Probability of Drawing</h3>
+    <div class="probability-summary">
+      <span>Exactly</span><strong>1</strong><span>card by</span><strong>${escapeHtml(probabilitySortLabel(sortMode))}</strong><span>having drawn</span><strong>7 cards</strong>
+    </div>
+  `;
+  const table = document.createElement("table");
+  table.className = "probability-table";
+  table.innerHTML = "<thead><tr><th>Card Name</th><th>Group</th><th>Qty</th><th>Odds</th></tr></thead>";
+  const body = document.createElement("tbody");
+  probabilityRows(cards, total, sortMode).forEach((row) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${escapeHtml(row.name)}</td><td>${escapeHtml(row.group)}</td><td>${row.quantity}</td><td>${Math.round(row.odds)}% <span>${escapeHtml(oddsRatio(row.odds))}</span></td>`;
+    body.append(tr);
+  });
+  table.append(body);
+  section.append(table);
+  return section;
+}
+
+function probabilityRows(cards, total, sortMode) {
+  const byName = new Map();
+  cards.forEach((card) => {
+    const existing = byName.get(card.name) || { ...card, quantity: 0 };
+    existing.quantity += Number(card.quantity) || 1;
+    byName.set(card.name, existing);
+  });
+  return [...byName.values()]
+    .map((card) => ({
+      name: card.name,
+      quantity: card.quantity,
+      group: probabilityGroup(card, sortMode),
+      sortValue: probabilitySortValue(card, sortMode),
+      odds: drawAtLeastOneProbability(total, card.quantity, 7),
+    }))
+    .sort((a, b) => String(a.sortValue).localeCompare(String(b.sortValue), undefined, { numeric: true }) || a.name.localeCompare(b.name));
+}
+
+function probabilityGroup(card, sortMode) {
+  if (sortMode === "category") return deckCategory(card);
+  if (sortMode === "type") return primaryType(card);
+  if (sortMode === "subtype") return primarySubtype(card);
+  if (sortMode === "manaValue") return `MV ${Number(card.manaValue) || 0}`;
+  if (sortMode === "keyword") return primaryKeyword(card);
+  return card.name;
+}
+
+function probabilitySortValue(card, sortMode) {
+  if (sortMode === "manaValue") return Number(card.manaValue) || 0;
+  return probabilityGroup(card, sortMode);
+}
+
+function probabilitySortLabel(sortMode) {
+  return ({ name: "Card Name", category: "Category", type: "Type", subtype: "Subtype", manaValue: "Mana Value", keyword: "Keyword" })[sortMode] || "Card Name";
+}
+
+function oddsRatio(odds) {
+  const value = Number(odds) || 0;
+  if (value <= 0) return "1 in ∞";
+  if (value >= 99.5) return "1 in 1";
+  const ratio = 100 / value;
+  return `1 in ${ratio < 10 ? ratio.toFixed(1).replace(/\.0$/, "") : Math.round(ratio)}`;
 }
 
 function colorSwatch(value) {
@@ -1411,16 +1632,21 @@ function deckGroupLabel(card, mode) {
   }
   if (mode === "color") return colorLabel(card.colorIdentity || card.colors || []);
   if (mode === "manaValue") return `MV ${Number(card.manaValue) || 0}`;
+  if (mode === "keyword") return primaryKeyword(card);
   if (mode === "category") return deckCategory(card);
   return primaryType(card);
 }
 
 function compareDeckCards(a, b, mode) {
+  if (mode === "name" || mode === "alphabet") return a.name.localeCompare(b.name);
+  if (mode === "category") return deckCategory(a).localeCompare(deckCategory(b)) || a.name.localeCompare(b.name);
   if (mode === "manaValue") return (Number(a.manaValue) || 0) - (Number(b.manaValue) || 0) || a.name.localeCompare(b.name);
   if (mode === "type") return primaryType(a).localeCompare(primaryType(b)) || a.name.localeCompare(b.name);
+  if (mode === "subtype") return primarySubtype(a).localeCompare(primarySubtype(b)) || a.name.localeCompare(b.name);
   if (mode === "price") return (Number(b.priceUsd) || 0) - (Number(a.priceUsd) || 0) || a.name.localeCompare(b.name);
   if (mode === "color") return colorLabel(a.colorIdentity || a.colors || []).localeCompare(colorLabel(b.colorIdentity || b.colors || [])) || a.name.localeCompare(b.name);
   if (mode === "rarity") return rarityRank(a.rarity) - rarityRank(b.rarity) || a.name.localeCompare(b.name);
+  if (mode === "keyword") return primaryKeyword(a).localeCompare(primaryKeyword(b)) || a.name.localeCompare(b.name);
   return a.name.localeCompare(b.name);
 }
 
@@ -1434,6 +1660,24 @@ function deckCategory(card) {
   if (card.name.toLowerCase() === els.deckBuilderCommanderInput.value.trim().toLowerCase()) return "Commander";
   if (card.isLand || /\bLand\b/i.test(card.typeLine || "")) return "Land";
   return primaryType(card);
+}
+
+function primarySubtype(card) {
+  const typeLine = String(card.typeLine || "");
+  const [, subtype = ""] = typeLine.split("—").map((part) => part.trim());
+  return subtype.split(/\s+/).filter(Boolean)[0] || "None";
+}
+
+function cardKeywords(card) {
+  const listed = Array.isArray(card.keywords) ? card.keywords : [];
+  const oracle = String(card.oracleText || "");
+  const known = ["Flying", "Trample", "Vigilance", "Haste", "First strike", "Double strike", "Deathtouch", "Lifelink", "Menace", "Reach", "Ward", "Hexproof", "Flash", "Defender", "Prowess", "Scry", "Surveil", "Explore", "Proliferate", "Equip"];
+  const detected = known.filter((keyword) => new RegExp(`\\b${keyword.replace(/\s+/g, "\\s+")}\\b`, "i").test(oracle));
+  return [...new Set([...listed, ...detected].map((keyword) => titleCase(keyword)).filter(Boolean))];
+}
+
+function primaryKeyword(card) {
+  return cardKeywords(card)[0] || "No Keyword";
 }
 
 function colorLabel(colors) {
@@ -1730,6 +1974,18 @@ async function saveBuilderDeck() {
   selectedBuilderDeckId = result.deck.id;
   await loadSavedDecks();
   els.deckBuilderStatus.textContent = "Deck saved";
+}
+
+async function handleDeckBuilderSave() {
+  setDisabled(els.saveBuilderDeckButton, true);
+  try {
+    await saveBuilderDeck();
+  } catch (error) {
+    els.deckBuilderStatus.textContent = error.message;
+    setAccountStatus(error.message, true);
+  } finally {
+    setDisabled(els.saveBuilderDeckButton, false);
+  }
 }
 
 async function searchDeckBuilderCards() {
@@ -4857,7 +5113,13 @@ function showCardZoom(cardNode) {
   const zoomHost = cardNode.closest("dialog[open]") || document.body;
   if (zoomOverlay.parentElement !== zoomHost) zoomHost.append(zoomOverlay);
   zoomOverlay.innerHTML = "";
-  const clone = cardNode.cloneNode(true);
+  const clone = cardNode.dataset.zoomImage
+    ? document.createElement("article")
+    : cardNode.cloneNode(true);
+  if (cardNode.dataset.zoomImage) {
+    clone.className = "deck-stack-card deck-grid-card zoom-card-clone";
+    clone.innerHTML = `<img src="${escapeHtml(cardNode.dataset.zoomImage)}" alt="${escapeHtml(cardNode.dataset.zoomName || "Card")}"><strong>${escapeHtml(cardNode.dataset.zoomName || "Card")}</strong>`;
+  }
   clone.removeAttribute("id");
   clone.removeAttribute("draggable");
   clone.style.left = "";
@@ -4874,9 +5136,11 @@ function positionCardZoom(cardNode) {
   if (!zoomOverlay || zoomOverlay.classList.contains("hidden") || !cardNode) return;
   const rect = cardNode.getBoundingClientRect();
   const margin = 10;
+  const isDeckCard = cardNode.classList.contains("deck-stack-card") || Boolean(cardNode.dataset.zoomImage);
   const standard = currentBattlefieldCardSize();
-  let width = standard.width * zoomScale;
-  let height = standard.height * zoomScale;
+  const deckWidth = Math.max(180, Math.min(260, isDeckCard ? rect.width || 230 : standard.width));
+  let width = (isDeckCard ? deckWidth : standard.width) * zoomScale;
+  let height = isDeckCard ? width * (680 / 488) : standard.height * zoomScale;
   const fitScale = Math.min(1, (window.innerWidth - margin * 2) / width, (window.innerHeight - margin * 2) / height);
   width *= fitScale;
   height *= fitScale;
@@ -5611,6 +5875,7 @@ els.closeDeckStatsButton.addEventListener("click", (event) => {
   els.deckStatsDialog.close();
 });
 ["change", "input", "click"].forEach((eventName) => els.deckStatsProductionSelect.addEventListener(eventName, renderDeckStatsContent));
+if (els.deckStatsOddsSortSelect) els.deckStatsOddsSortSelect.addEventListener("change", renderDeckStatsContent);
 els.savedDeckSearchInput.addEventListener("input", renderSavedDecks);
 els.deckBuilderListInput.addEventListener("input", () => {
   els.deckBuilderStatus.textContent = "Unsaved changes";
@@ -5626,22 +5891,17 @@ els.deckBuilderCommanderInput.addEventListener("input", () => {
 });
 els.deckBuilderForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const submit = event.submitter || els.saveBuilderDeckButton;
-  setDisabled(submit, true);
-  try {
-    await saveBuilderDeck();
-  } catch (error) {
-    els.deckBuilderStatus.textContent = error.message;
-  } finally {
-    setDisabled(submit, false);
-  }
 });
-els.deckGroupSelect.addEventListener("change", renderDeckBuilderPreview);
-els.deckSortSelect.addEventListener("change", renderDeckBuilderPreview);
-els.deckViewModeSelect.addEventListener("change", renderDeckBuilderPreview);
-els.deckVisualSearchInput.addEventListener("input", renderDeckBuilderPreview);
-if (els.deckViewScaleInput) els.deckViewScaleInput.addEventListener("input", applyDeckViewScale);
-if (els.applyDeckViewButton) els.applyDeckViewButton.addEventListener("click", renderDeckBuilderPreview);
+els.saveBuilderDeckButton.addEventListener("click", handleDeckBuilderSave);
+els.deckGroupSelect.addEventListener("change", applyDeckViewSettings);
+els.deckSortSelect.addEventListener("change", applyDeckViewSettings);
+els.deckViewModeSelect.addEventListener("change", applyDeckViewSettings);
+els.deckVisualSearchInput.addEventListener("input", applyDeckViewSettings);
+if (els.deckViewScaleInput) {
+  els.deckViewScaleInput.addEventListener("input", applyDeckViewScale);
+  els.deckViewScaleInput.addEventListener("change", applyDeckViewSettings);
+}
+if (els.applyDeckViewButton) els.applyDeckViewButton.addEventListener("click", applyDeckViewSettings);
 els.deckMaybeBoardInput.addEventListener("input", saveMaybeBoard);
 els.deckCardSearchButton.addEventListener("click", searchDeckBuilderCards);
 els.deckCardSearchInput.addEventListener("keydown", (event) => {
