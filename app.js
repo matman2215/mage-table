@@ -947,7 +947,7 @@ function openDeckActionDialog(deck) {
     button.type = "button";
     button.className = label === "Delete" ? "danger" : label === "Play" ? "" : "secondary";
     button.textContent = label;
-    button.disabled = Boolean(disabled);
+    setDisabled(button, disabled);
     button.addEventListener("click", async () => {
       els.deckActionDialog.close();
       await handler();
@@ -2635,15 +2635,15 @@ function combatDamageButton(snapshot, compact = false) {
     ? includesCommander ? "Combat + Commander Applied" : "Damage Applied"
     : compact ? includesCommander ? "Combat + CMD" : "All Damage"
       : includesCommander ? "Take Combat + Commander Damage" : "Take All Damage";
-  button.disabled = Boolean(snapshot?.damageApplied) || !remainingCards.length || !isDefender;
+  setDisabled(button, Boolean(snapshot?.damageApplied) || !remainingCards.length || !isDefender);
   button.title = snapshot?.damageApplied
     ? "Combat damage has already been applied"
     : isDefender ? "Take all remaining attacking power as damage" : "Only the defending player can take this damage";
   button.addEventListener("click", async (event) => {
     event.preventDefault();
     event.stopPropagation();
-    if (button.disabled) return;
-    button.disabled = true;
+    if (isDisabled(button)) return;
+    setDisabled(button, true);
     try {
       await sendAction("takeCombatDamage");
     } catch (error) {
@@ -3488,7 +3488,7 @@ function lifeButton(seat, delta) {
   const button = document.createElement("button");
   button.type = "button";
   button.textContent = delta > 0 ? "+" : "-";
-  button.disabled = !canChangeLife(seat);
+  setDisabled(button, !canChangeLife(seat));
   button.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -3506,7 +3506,7 @@ function lifeTotal(value, entry) {
   input.className = "life-total-input";
   input.type = "number";
   input.value = String(value);
-  input.disabled = entry.kind !== "playtest" && !canChangeLife(entry.player.seat);
+  setDisabled(input, entry.kind !== "playtest" && !canChangeLife(entry.player.seat));
   const submit = () => {
     const nextValue = Number(input.value);
     if (!Number.isFinite(nextValue)) {
@@ -4949,7 +4949,7 @@ function renderLibraryDialog() {
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = label;
-    button.disabled = !canActNow();
+    setDisabled(button, !canActNow());
     button.addEventListener("click", handler);
     els.libraryActions.append(button);
   });
@@ -5033,7 +5033,7 @@ function openPreviewActionDialog(card, previewMode) {
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = label;
-    button.disabled = !canActNow();
+    setDisabled(button, !canActNow());
     button.addEventListener("click", async () => {
       await sendAction("previewCardAction", { cardId: card.id, destination });
       els.librarySearchActionDialog.close();
@@ -5148,7 +5148,7 @@ function openLibrarySearchActionDialog(card) {
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = label;
-    button.disabled = !canActNow();
+    setDisabled(button, !canActNow());
     button.addEventListener("click", async () => {
       await handler();
       els.librarySearchActionDialog.close();
@@ -5627,13 +5627,13 @@ els.deckBuilderCommanderInput.addEventListener("input", () => {
 els.deckBuilderForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const submit = event.submitter || els.saveBuilderDeckButton;
-  if (submit) submit.disabled = true;
+  setDisabled(submit, true);
   try {
     await saveBuilderDeck();
   } catch (error) {
     els.deckBuilderStatus.textContent = error.message;
   } finally {
-    if (submit) submit.disabled = false;
+    setDisabled(submit, false);
   }
 });
 els.deckGroupSelect.addEventListener("change", renderDeckBuilderPreview);
@@ -5719,13 +5719,13 @@ els.endGameForm.addEventListener("submit", async (event) => {
 els.roomForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const submitButton = els.roomForm.querySelector('button[type="submit"]');
-  if (submitButton) submitButton.disabled = true;
+  setDisabled(submitButton, true);
   try {
     await createGameFromSetup({ solo: els.singlePlayerInput.checked, deck: pendingCreateDeck });
   } catch (error) {
     alert(`Could not create the room: ${error.message}`);
   } finally {
-    if (submitButton) submitButton.disabled = false;
+    setDisabled(submitButton, false);
   }
 });
 
@@ -6012,7 +6012,7 @@ els.saveDeckForm.addEventListener("submit", async (event) => {
 els.deckSetupForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const submitButton = els.deckSetupForm.querySelector('button[type="submit"]');
-  if (submitButton) submitButton.disabled = true;
+  setDisabled(submitButton, true);
   try {
     await sendAction("loadDeck", {
       text: els.setupDeckInput.value,
@@ -6023,7 +6023,7 @@ els.deckSetupForm.addEventListener("submit", async (event) => {
   } catch (error) {
     alert(error.message);
   } finally {
-    if (submitButton) submitButton.disabled = false;
+    setDisabled(submitButton, false);
   }
 });
 

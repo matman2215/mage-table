@@ -2727,7 +2727,11 @@ function serveStatic(req, res) {
     }
     const ext = path.extname(filePath);
     const type = { ".html": "text/html", ".css": "text/css", ".js": "text/javascript" }[ext] || "text/plain";
-    res.writeHead(200, { "Content-Type": type });
+    const headers = {
+      "Content-Type": type,
+      "Cache-Control": ["text/html", "text/css", "text/javascript"].includes(type) ? "no-store" : "public, max-age=3600",
+    };
+    res.writeHead(200, headers);
     res.end(content);
   });
 }
