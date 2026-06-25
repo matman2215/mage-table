@@ -27,7 +27,7 @@
       <section id="setupPanel" class="setup-panel landing-panel">
         <div id="landingMenu" class="landing-menu">
           <div class="terminal-status" aria-hidden="true">
-            <span>ARCANE TABLE SYSTEM</span>
+            <span>MTG TABLE SYSTEM</span>
             <span>LINK READY</span>
           </div>
           <div class="mana-signal" aria-hidden="true">
@@ -44,8 +44,18 @@
             <button id="joinGameButton" class="secondary" type="button">Join Game</button>
             <button id="loginButton" class="secondary" type="button">Log In</button>
           </div>
-          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // SYSTEM READY</p>
+          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.2.0</p>
         </div>
+        <section id="createModePanel" class="landing-subpanel create-mode-panel hidden">
+          <header class="create-room-header">
+            <button id="backFromCreateModeButton" class="secondary compact-icon-button" type="button" title="Back" aria-label="Back to landing screen">&#8592;</button>
+            <h2>Create Game</h2>
+          </header>
+          <div class="create-mode-actions">
+            <button id="createLiveGameButton" type="button">Live Multiplayer</button>
+            <button id="createSoloGameButton" class="secondary" type="button">Single Player</button>
+          </div>
+        </section>
         <form id="roomForm" class="room-form create-room-form hidden">
           <header class="create-room-header">
             <button id="backToLandingButton" class="secondary compact-icon-button" type="button" title="Back" aria-label="Back to landing screen">&#8592;</button>
@@ -59,7 +69,7 @@
             Room password (optional)
             <input id="roomPasswordInput" type="password" maxlength="128" autocomplete="new-password" placeholder="No password">
           </label>
-          <label class="toggle-row setup-toggle-row">
+          <label class="toggle-row setup-toggle-row hidden">
             <input id="singlePlayerInput" type="checkbox">
             Single player gameplay
           </label>
@@ -71,19 +81,22 @@
               <option selected>4</option>
             </select>
           </label>
-          <fieldset id="inviteMethodFieldset" class="invite-method-fieldset">
-            <legend>Invite method</legend>
-            <div class="segmented-control invite-method-control">
-              <label>
-                <input type="radio" name="inviteMethod" value="links" checked>
-                <span>Private Links</span>
-              </label>
-              <label>
-                <input type="radio" name="inviteMethod" value="code">
-                <span>Join Code</span>
-              </label>
-            </div>
-          </fieldset>
+          <details id="inviteDebugDetails" class="debug-invite-options">
+            <summary>Debug invite options</summary>
+            <fieldset id="inviteMethodFieldset" class="invite-method-fieldset">
+              <legend>Invite method</legend>
+              <div class="segmented-control invite-method-control">
+                <label>
+                  <input type="radio" name="inviteMethod" value="code" checked>
+                  <span>Join Code</span>
+                </label>
+                <label>
+                  <input type="radio" name="inviteMethod" value="links">
+                  <span>Private Links</span>
+                </label>
+              </div>
+            </fieldset>
+          </details>
           <button id="createRoomSubmitButton" type="submit">Create Private Links</button>
         </form>
         <form id="joinRoomForm" class="room-form join-room-form hidden">
@@ -138,12 +151,24 @@
                 <input id="registerFirstNameInput" type="text" minlength="1" maxlength="40" autocomplete="given-name" required>
               </label>
               <label>
+                Last name
+                <input id="registerLastNameInput" type="text" minlength="1" maxlength="60" autocomplete="family-name" required>
+              </label>
+              <label>
+                Email
+                <input id="registerEmailInput" type="email" maxlength="160" autocomplete="email" required>
+              </label>
+              <label>
                 Username
                 <input id="registerUsernameInput" type="text" minlength="3" maxlength="24" pattern="[A-Za-z0-9_-]+" autocomplete="username" required>
               </label>
               <label>
                 Password
                 <input id="registerPasswordInput" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
+              </label>
+              <label>
+                Confirm password
+                <input id="registerConfirmPasswordInput" type="password" minlength="8" maxlength="128" autocomplete="new-password" required>
               </label>
               <button type="submit">Create Account</button>
             </form>
@@ -187,6 +212,7 @@
                     </div>
                     <div class="deck-builder-header-actions">
                       <button id="bulkImportDeckButton" class="secondary" type="button">Bulk Import</button>
+                      <button id="exportBuilderDeckButton" class="secondary" type="button">Export</button>
                       <button id="duplicateBuilderDeckButton" class="secondary" type="button">Duplicate</button>
                       <button id="deleteBuilderDeckButton" class="danger" type="button">Delete</button>
                     </div>
@@ -209,9 +235,37 @@
                     <p id="deckCardSearchSummary" class="workspace-note">Search for cards to add to this deck.</p>
                     <div id="deckCardSearchResults" class="deck-card-search-results"></div>
                   </section>
+                  <section class="deck-view-toolbar">
+                    <label>
+                      Group
+                      <select id="deckGroupSelect">
+                        <option value="type" selected>Type</option>
+                        <option value="category">Category</option>
+                        <option value="rarity">Rarity</option>
+                        <option value="price">Price</option>
+                        <option value="color">Color</option>
+                        <option value="manaValue">Mana Value</option>
+                      </select>
+                    </label>
+                    <label>
+                      Sort
+                      <select id="deckSortSelect">
+                        <option value="alphabet" selected>Alphabet</option>
+                        <option value="manaValue">Mana Value</option>
+                        <option value="type">Type</option>
+                        <option value="price">Price</option>
+                        <option value="color">Color</option>
+                        <option value="rarity">Rarity</option>
+                      </select>
+                    </label>
+                    <label>
+                      Find
+                      <input id="deckVisualSearchInput" type="search" maxlength="120" placeholder="Highlight card">
+                    </label>
+                  </section>
                   <div class="deck-builder-content">
                     <section class="deck-structured-list">
-                      <h3>Card List</h3>
+                      <h3>Deck View</h3>
                       <div id="deckBuilderPreview" class="deck-builder-preview"></div>
                     </section>
                     <label class="deck-raw-list">
@@ -221,6 +275,7 @@
                   </div>
                   <footer class="deck-builder-footer">
                     <span id="deckBuilderStatus" class="workspace-note" role="status"></span>
+                    <button id="joinBuilderDeckGameButton" class="secondary" type="button">Join Code with Deck</button>
                     <button id="startBuilderDeckGameButton" class="secondary" type="button">Start Game with Deck</button>
                     <button id="saveBuilderDeckButton" type="submit">Save Deck</button>
                   </footer>
@@ -455,6 +510,10 @@
             <input id="darkModeInput" type="checkbox" checked>
             Dark mode
           </label>
+          <label class="toggle-row">
+            <input id="terminalThemeInput" type="checkbox">
+            MTG terminal theme
+          </label>
         </details>
         <details class="settings-details">
           <summary>Keybinds</summary>
@@ -509,6 +568,39 @@
           <button id="confirmGuestLeaveButton" class="danger" value="leave" type="submit">Leave Game</button>
         </div>
       </form>
+    </dialog>
+
+    <dialog id="joinWithDeckDialog">
+      <form id="joinWithDeckForm" method="dialog" class="dialog-card confirmation-dialog-card">
+        <header class="popover-header">
+          <div>
+            <h2>Join with Saved Deck</h2>
+            <p id="joinWithDeckSummary" class="dialog-note">Enter the room code for this deck.</p>
+          </div>
+          <button id="closeJoinWithDeckButton" class="popover-close" type="button" title="Dismiss" aria-label="Dismiss join with deck">x</button>
+        </header>
+        <label>
+          Join code
+          <input id="joinWithDeckCodeInput" class="join-code-input" type="text" minlength="6" maxlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABC123" required>
+        </label>
+        <label id="joinWithDeckPasswordLabel" class="hidden">
+          Password
+          <input id="joinWithDeckPasswordInput" type="password" maxlength="128" autocomplete="current-password">
+        </label>
+        <p id="joinWithDeckStatus" class="dialog-note"></p>
+        <div class="dialog-actions">
+          <button value="cancel" class="secondary" type="submit">Cancel</button>
+          <button id="submitJoinWithDeckButton" value="join" type="submit">Join with Deck</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="gameLoadingDialog">
+      <div class="dialog-card game-loading-card">
+        <h2 id="gameLoadingTitle">Loading Game</h2>
+        <p id="gameLoadingSummary" class="dialog-note">Resolving Scryfall cards and shuffling your opening hand.</p>
+        <div class="mana-loading-bar" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+      </div>
     </dialog>
 
     <dialog id="saveDeckDialog">

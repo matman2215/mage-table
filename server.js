@@ -542,6 +542,7 @@ function createRoomState(name, playerCount, password = "", inviteMode = "links",
     settings: {
       friendlyMulligans: true,
       darkMode: true,
+      terminalTheme: false,
     },
     stack: [],
     chat: [],
@@ -600,7 +601,7 @@ function viewRoom(room, token, origin) {
     turnNumber: Number(room.turnNumber) || 1,
     canRandomizeFirstPlayer: Number(room.turnsPassed) === 0,
     eventSeq: Number(room.eventSeq) || 0,
-    settings: room.settings || { friendlyMulligans: true, darkMode: true },
+    settings: room.settings || { friendlyMulligans: true, darkMode: true, terminalTheme: false },
     passwordProtected: Boolean(room.passwordHash),
     endedAt: Number(room.endedAt) || 0,
     inviteMode: room.inviteMode || "links",
@@ -762,6 +763,9 @@ async function fetchScryfallCard(name) {
 }
 
 function summarizeScryfallCard(card) {
+  const colorIdentity = Array.isArray(card.color_identity) ? card.color_identity : [];
+  const colors = Array.isArray(card.colors) ? card.colors : colorIdentity;
+  const priceUsd = Number(card.prices?.usd || card.prices?.usd_foil || 0) || 0;
   const faces = (card.card_faces || [])
     .map((face) => {
       const images = cardImages(face);
@@ -773,6 +777,8 @@ function summarizeScryfallCard(card) {
         oracleText: face.oracle_text || "",
         imageUrl: images.normal || images.small || "",
         artUrl: images.artCrop || "",
+        colors: face.colors || colors,
+        colorIdentity,
         isLand: /\bLand\b/.test(face.type_line || ""),
         power: face.power || "",
         toughness: face.toughness || "",
@@ -791,6 +797,10 @@ function summarizeScryfallCard(card) {
     oracleText: frontFace?.oracleText || card.oracle_text || card.card_faces?.map((face) => face.oracle_text).filter(Boolean).join("\n---\n") || "",
     images: cardImages(card),
     faces: faces.length > 1 ? faces : [],
+    colors: frontFace?.colors || colors,
+    colorIdentity,
+    rarity: card.rarity || "unknown",
+    priceUsd,
     isLand: frontFace ? frontFace.isLand : /\bLand\b/.test(card.type_line || ""),
     power: frontFace?.power || card.power || "",
     toughness: frontFace?.toughness || card.toughness || "",
@@ -946,7 +956,7 @@ function accountGameSummary(room, accountId, origin) {
 
 function activeGamesForAccount(accountId, origin) {
   return gameStore.listActiveRoomsForAccount(accountId)
-    .filter((room) => !room.endedAt && room.players.some((player) => player.accountId === accountId))
+    .filter((room) => !room.endedAt && room.players.some((player) => player.claimed && player.accountId === accountId))
     .map((room) => accountGameSummary(room, accountId, origin))
     .filter(Boolean)
     .sort((left, right) => right.lastPlayedAt - left.lastPlayedAt);
@@ -1050,6 +1060,68 @@ async function buildDeck(text, ownerSeat) {
       unique: unique.length,
       notFound,
       entries: unique.sort((a, b) => a.name.localeCompare(b.name)),
+    },
+  };
+}
+
+async function inspectDeck(text) {
+  const parsed = parseDeckList(text);
+  if (parsed.errors.length > 0) {
+    throw new Error(parsed.errors.slice(0, 5).join(" "));
+  }
+  const requestedNames = [...new Set(parsed.entries.map((entry) => entry.name))];
+  const batchCards = await fetchScryfallCollection(requestedNames);
+  const cards = [];
+  const notFound = [];
+  for (const entry of parsed.entries) {
+    let cardData = batchCards.get(entry.name.toLowerCase());
+    if (!cardData) {
+      try {
+        cardData = await fetchScryfallCard(entry.name);
+      } catch (error) {
+        if (error.code === "SCRYFALL_UNAVAILABLE") throw error;
+        cardData = null;
+      }
+    }
+    if (!cardData) {
+      notFound.push(entry.name);
+      cardData = {
+        name: entry.name,
+        displayName: entry.name,
+        typeLine: "",
+        manaCost: "",
+        manaValue: 0,
+        images: {},
+        faces: [],
+        colors: [],
+        colorIdentity: [],
+        rarity: "unknown",
+        priceUsd: 0,
+        isLand: false,
+      };
+    }
+    cards.push({
+      quantity: entry.count,
+      name: cardData.name,
+      displayName: cardData.displayName || cardData.name,
+      typeLine: cardData.typeLine || "",
+      manaCost: cardData.manaCost || "",
+      manaValue: Number(cardData.manaValue) || manaValueFromCost(cardData.manaCost),
+      imageUrl: cardData.faces?.[0]?.imageUrl || cardData.images?.normal || cardData.images?.small || "",
+      colors: cardData.colors || [],
+      colorIdentity: cardData.colorIdentity || [],
+      rarity: cardData.rarity || "unknown",
+      priceUsd: Number(cardData.priceUsd) || 0,
+      isLand: Boolean(cardData.isLand),
+    });
+  }
+  return {
+    cards,
+    stats: {
+      total: cards.reduce((sum, card) => sum + card.quantity, 0),
+      unique: cards.length,
+      notFound,
+      priceUsd: cards.reduce((sum, card) => sum + (Number(card.priceUsd) || 0) * card.quantity, 0),
     },
   };
 }
@@ -2226,6 +2298,7 @@ async function applyAction(room, actor, body) {
       room.settings = room.settings || {};
       room.settings.friendlyMulligans = body.friendlyMulligans !== false;
       room.settings.darkMode = Boolean(body.darkMode);
+      room.settings.terminalTheme = Boolean(body.terminalTheme);
       addLog(room, `${actor.name} updated room settings.`, actor);
       break;
     }
@@ -2565,7 +2638,7 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && requestUrl.pathname === "/api/accounts/register") {
       const body = await readBody(req);
-      const result = accountStore.createAccount(body.username, body.password, body.firstName);
+      const result = accountStore.createAccount(body.username, body.password, body.firstName, body.lastName, body.email, body.confirmPassword);
       return sendJson(res, 201, { account: result.account }, { "Set-Cookie": sessionCookie(req, result.sessionToken) });
     }
 
@@ -2622,6 +2695,11 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    if (req.method === "POST" && requestUrl.pathname === "/api/decks/inspect") {
+      const body = await readBody(req);
+      return sendJson(res, 200, await inspectDeck(body.decklist || body.text || ""));
+    }
+
     const accountDeckMatch = requestUrl.pathname.match(/^\/api\/account\/decks\/([^/]+)$/);
     if (accountDeckMatch && ["PUT", "DELETE"].includes(req.method)) {
       const account = authenticatedAccount(req, res);
@@ -2657,6 +2735,22 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 201, viewRoom(room, room.players[0].token, origin));
     }
 
+    if (req.method === "POST" && requestUrl.pathname === "/api/rooms/check-code") {
+      const body = await readBody(req);
+      const joinCode = normalizeJoinCode(body.code);
+      if (!joinCode) return sendJson(res, 400, { error: "Enter a room code.", code: "JOIN_CODE_REQUIRED" });
+      const room = getRoomByJoinCode(joinCode);
+      if (!room) return sendJson(res, 404, { error: "That room code was not found.", code: "JOIN_CODE_NOT_FOUND" });
+      return sendJson(res, 200, {
+        code: joinCode,
+        name: room.name,
+        passwordProtected: Boolean(room.passwordHash),
+        roomFull: room.players.every((player) => player.claimed),
+        claimedSeatCount: room.players.filter((player) => player.claimed).length,
+        playerCount: room.players.length,
+      });
+    }
+
     if (req.method === "POST" && requestUrl.pathname === "/api/rooms/join") {
       const body = await readBody(req);
       const joinCode = normalizeJoinCode(body.code);
@@ -2667,12 +2761,35 @@ const server = http.createServer(async (req, res) => {
       if (passwordError) return sendJson(res, passwordError.status, passwordError);
       const account = optionalAccount(req);
       const existingPlayer = account ? room.players.find((candidate) => candidate.accountId === account.id) : null;
-      if (existingPlayer) return sendJson(res, 200, viewRoom(room, existingPlayer.token, origin));
+      const deck = body.deck && typeof body.deck === "object" ? body.deck : null;
+      if (existingPlayer) {
+        if ((deck?.decklist || deck?.text) && !existingPlayer.deckLoaded) {
+          await loadDeckIntoPlayer(room, existingPlayer, {
+            text: deck.decklist || deck.text,
+            commander: deck.commander || "",
+            name: deck.playerName || account?.firstName || account?.username || existingPlayer.name,
+          });
+          room.updatedAt = Date.now();
+          room.updateSeq = (Number(room.updateSeq) || 0) + 1;
+          persistRoom(room);
+          broadcastRoomUpdate(room);
+        }
+        return sendJson(res, 200, viewRoom(room, existingPlayer.token, origin));
+      }
       const player = room.players.find((candidate) => !candidate.claimed);
       if (!player) return sendJson(res, 409, { error: "This room is full.", code: "ROOM_FULL" });
       player.claimed = true;
       player.accountId = account?.id || "";
       player.presenceLastSeenAt = Date.now();
+      if (deck?.decklist || deck?.text) {
+        await loadDeckIntoPlayer(room, player, {
+          text: deck.decklist || deck.text,
+          commander: deck.commander || "",
+          name: deck.playerName || account?.firstName || account?.username || player.name,
+        });
+      } else if (account?.firstName) {
+        player.name = account.firstName.slice(0, 32);
+      }
       room.updatedAt = Date.now();
       room.updateSeq = (Number(room.updateSeq) || 0) + 1;
       addLog(room, `${player.name} joined with the room code.`, player, { kind: "join", seat: player.seat });

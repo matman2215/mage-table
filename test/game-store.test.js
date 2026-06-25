@@ -112,8 +112,10 @@ test("persists and hydrates active room state without runtime connections", () =
   let secondStore;
   try {
     accountStore = new AccountStore(databasePath);
-    const { account } = accountStore.createAccount("persistence_user", "testing123", "Penny");
+    const { account } = accountStore.createAccount("persistence_user", "testing123", "Penny", "Persist", "penny@example.test", "testing123");
     assert.equal(account.firstName, "Penny");
+    assert.equal(account.lastName, "Persist");
+    assert.equal(account.email, "penny@example.test");
     assert.equal(accountStore.login("persistence_user", "testing123").account.firstName, "Penny");
     firstStore = new GameStore(databasePath);
     const room = sampleRoom(account.id);

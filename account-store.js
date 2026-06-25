@@ -37,6 +37,26 @@ function validateFirstName(value, fallback = "") {
   return firstName;
 }
 
+function validateLastName(value) {
+  const lastName = String(value || "").trim();
+  if (lastName.length < 1 || lastName.length > 60) {
+    throw new Error("Last name must be between 1 and 60 characters.");
+  }
+  return lastName;
+}
+
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function validateEmail(value) {
+  const email = normalizeEmail(value);
+  if (email.length < 5 || email.length > 160 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error("Enter a valid email address.");
+  }
+  return email;
+}
+
 function passwordHash(password, salt) {
   return crypto.scryptSync(password, salt, 32).toString("hex");
 }
@@ -64,6 +84,9 @@ class AccountStore {
         username TEXT NOT NULL,
         username_normalized TEXT NOT NULL UNIQUE,
         first_name TEXT NOT NULL DEFAULT '',
+        last_name TEXT NOT NULL DEFAULT '',
+        email TEXT NOT NULL DEFAULT '',
+        email_normalized TEXT NOT NULL DEFAULT '',
         password_hash TEXT NOT NULL,
         password_salt TEXT NOT NULL,
         created_at INTEGER NOT NULL
@@ -87,6 +110,10 @@ class AccountStore {
       CREATE INDEX IF NOT EXISTS sessions_account_idx ON sessions(account_id);
     `);
     this.ensureColumn("accounts", "first_name", "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn("accounts", "last_name", "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn("accounts", "email", "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn("accounts", "email_normalized", "TEXT NOT NULL DEFAULT ''");
+    this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS accounts_email_normalized_unique ON accounts(email_normalized) WHERE email_normalized <> '';");
   }
 
   ensureColumn(table, column, definition) {
@@ -96,19 +123,24 @@ class AccountStore {
     }
   }
 
-  createAccount(usernameValue, passwordValue, firstNameValue = "") {
+  createAccount(usernameValue, passwordValue, firstNameValue = "", lastNameValue = "", emailValue = "", confirmPasswordValue = "") {
     const username = validateUsername(usernameValue);
     const firstName = validateFirstName(firstNameValue, username);
+    const lastName = validateLastName(lastNameValue);
+    const email = validateEmail(emailValue);
     const normalized = normalizeUsername(username);
     const existing = this.db.prepare("SELECT id FROM accounts WHERE username_normalized = ?").get(normalized);
     if (existing) throw new Error("That username is already in use.");
+    const existingEmail = this.db.prepare("SELECT id FROM accounts WHERE email_normalized = ?").get(email);
+    if (existingEmail) throw new Error("That email is already in use.");
     const password = validatePassword(passwordValue);
+    if (String(confirmPasswordValue || passwordValue) !== password) throw new Error("Passwords do not match.");
     const salt = crypto.randomBytes(16).toString("hex");
-    const account = { id: newId("account"), username, firstName, createdAt: Date.now() };
+    const account = { id: newId("account"), username, firstName, lastName, email, createdAt: Date.now() };
     this.db.prepare(`
-      INSERT INTO accounts (id, username, username_normalized, first_name, password_hash, password_salt, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(account.id, account.username, normalized, account.firstName, passwordHash(password, salt), salt, account.createdAt);
+      INSERT INTO accounts (id, username, username_normalized, first_name, last_name, email, email_normalized, password_hash, password_salt, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(account.id, account.username, normalized, account.firstName, account.lastName, account.email, account.email, passwordHash(password, salt), salt, account.createdAt);
     return { account, sessionToken: this.createSession(account.id) };
   }
 
@@ -118,7 +150,14 @@ class AccountStore {
     if (!row) return null;
     const suppliedHash = passwordHash(String(passwordValue || ""), row.password_salt);
     if (!safeEqualHex(suppliedHash, row.password_hash)) return null;
-    const account = { id: row.id, username: row.username, firstName: row.first_name || row.username, createdAt: Number(row.created_at) };
+    const account = {
+      id: row.id,
+      username: row.username,
+      firstName: row.first_name || row.username,
+      lastName: row.last_name || "",
+      email: row.email || "",
+      createdAt: Number(row.created_at),
+    };
     return { account, sessionToken: this.createSession(account.id) };
   }
 
@@ -137,12 +176,19 @@ class AccountStore {
     if (!token) return null;
     const now = Date.now();
     const row = this.db.prepare(`
-      SELECT accounts.id, accounts.username, accounts.first_name, accounts.created_at
+      SELECT accounts.id, accounts.username, accounts.first_name, accounts.last_name, accounts.email, accounts.created_at
       FROM sessions
       JOIN accounts ON accounts.id = sessions.account_id
       WHERE sessions.token_hash = ? AND sessions.expires_at > ?
     `).get(sessionHash(token), now);
-    return row ? { id: row.id, username: row.username, firstName: row.first_name || row.username, createdAt: Number(row.created_at) } : null;
+    return row ? {
+      id: row.id,
+      username: row.username,
+      firstName: row.first_name || row.username,
+      lastName: row.last_name || "",
+      email: row.email || "",
+      createdAt: Number(row.created_at),
+    } : null;
   }
 
   deleteSession(token) {

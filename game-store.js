@@ -258,7 +258,7 @@ class GameStore {
       SELECT DISTINCT games.state_json
       FROM games
       JOIN game_members ON game_members.game_id = games.id
-      WHERE games.status = 'active' AND game_members.account_id = ?
+      WHERE games.status = 'active' AND game_members.account_id = ? AND game_members.claimed = 1
       ORDER BY games.updated_at DESC
     `).all(accountId).map((row) => hydrateRoom(JSON.parse(row.state_json)));
   }

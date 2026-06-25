@@ -4,6 +4,10 @@ const els = {
   setupPanel: document.querySelector("#setupPanel"),
   landingMenu: document.querySelector("#landingMenu"),
   createGameButton: document.querySelector("#createGameButton"),
+  createModePanel: document.querySelector("#createModePanel"),
+  backFromCreateModeButton: document.querySelector("#backFromCreateModeButton"),
+  createLiveGameButton: document.querySelector("#createLiveGameButton"),
+  createSoloGameButton: document.querySelector("#createSoloGameButton"),
   joinGameButton: document.querySelector("#joinGameButton"),
   loginButton: document.querySelector("#loginButton"),
   backToLandingButton: document.querySelector("#backToLandingButton"),
@@ -25,8 +29,11 @@ const els = {
   loginPasswordInput: document.querySelector("#loginPasswordInput"),
   registerForm: document.querySelector("#registerForm"),
   registerFirstNameInput: document.querySelector("#registerFirstNameInput"),
+  registerLastNameInput: document.querySelector("#registerLastNameInput"),
+  registerEmailInput: document.querySelector("#registerEmailInput"),
   registerUsernameInput: document.querySelector("#registerUsernameInput"),
   registerPasswordInput: document.querySelector("#registerPasswordInput"),
+  registerConfirmPasswordInput: document.querySelector("#registerConfirmPasswordInput"),
   logoutButton: document.querySelector("#logoutButton"),
   accountDecksTab: document.querySelector("#accountDecksTab"),
   accountGamesTab: document.querySelector("#accountGamesTab"),
@@ -46,10 +53,15 @@ const els = {
   deckBuilderPreview: document.querySelector("#deckBuilderPreview"),
   deckBuilderStatus: document.querySelector("#deckBuilderStatus"),
   bulkImportDeckButton: document.querySelector("#bulkImportDeckButton"),
+  exportBuilderDeckButton: document.querySelector("#exportBuilderDeckButton"),
   saveBuilderDeckButton: document.querySelector("#saveBuilderDeckButton"),
   duplicateBuilderDeckButton: document.querySelector("#duplicateBuilderDeckButton"),
   deleteBuilderDeckButton: document.querySelector("#deleteBuilderDeckButton"),
   startBuilderDeckGameButton: document.querySelector("#startBuilderDeckGameButton"),
+  joinBuilderDeckGameButton: document.querySelector("#joinBuilderDeckGameButton"),
+  deckGroupSelect: document.querySelector("#deckGroupSelect"),
+  deckSortSelect: document.querySelector("#deckSortSelect"),
+  deckVisualSearchInput: document.querySelector("#deckVisualSearchInput"),
   deckCardSearchInput: document.querySelector("#deckCardSearchInput"),
   deckCardSearchButton: document.querySelector("#deckCardSearchButton"),
   deckCardSearchSummary: document.querySelector("#deckCardSearchSummary"),
@@ -70,6 +82,7 @@ const els = {
   singlePlayerInput: document.querySelector("#singlePlayerInput"),
   playerCountLabel: document.querySelector("#playerCountLabel"),
   playerCountInput: document.querySelector("#playerCountInput"),
+  inviteDebugDetails: document.querySelector("#inviteDebugDetails"),
   inviteMethodFieldset: document.querySelector("#inviteMethodFieldset"),
   inviteMethodInputs: [...document.querySelectorAll('input[name="inviteMethod"]')],
   createRoomSubmitButton: document.querySelector("#createRoomSubmitButton"),
@@ -188,6 +201,7 @@ const els = {
   controlsOpacityValue: document.querySelector("#controlsOpacityValue"),
   friendlyMulligansInput: document.querySelector("#friendlyMulligansInput"),
   darkModeInput: document.querySelector("#darkModeInput"),
+  terminalThemeInput: document.querySelector("#terminalThemeInput"),
   keybindList: document.querySelector("#keybindList"),
   resetKeybindsButton: document.querySelector("#resetKeybindsButton"),
   continueFromInvitesButton: document.querySelector("#continueFromInvitesButton"),
@@ -239,6 +253,18 @@ const els = {
   guestLeaveSummary: document.querySelector("#guestLeaveSummary"),
   closeGuestLeaveButton: document.querySelector("#closeGuestLeaveButton"),
   confirmGuestLeaveButton: document.querySelector("#confirmGuestLeaveButton"),
+  joinWithDeckDialog: document.querySelector("#joinWithDeckDialog"),
+  joinWithDeckForm: document.querySelector("#joinWithDeckForm"),
+  joinWithDeckSummary: document.querySelector("#joinWithDeckSummary"),
+  closeJoinWithDeckButton: document.querySelector("#closeJoinWithDeckButton"),
+  joinWithDeckCodeInput: document.querySelector("#joinWithDeckCodeInput"),
+  joinWithDeckPasswordLabel: document.querySelector("#joinWithDeckPasswordLabel"),
+  joinWithDeckPasswordInput: document.querySelector("#joinWithDeckPasswordInput"),
+  joinWithDeckStatus: document.querySelector("#joinWithDeckStatus"),
+  submitJoinWithDeckButton: document.querySelector("#submitJoinWithDeckButton"),
+  gameLoadingDialog: document.querySelector("#gameLoadingDialog"),
+  gameLoadingTitle: document.querySelector("#gameLoadingTitle"),
+  gameLoadingSummary: document.querySelector("#gameLoadingSummary"),
   saveDeckDialog: document.querySelector("#saveDeckDialog"),
   saveDeckForm: document.querySelector("#saveDeckForm"),
   saveDeckDialogTitle: document.querySelector("#saveDeckDialogTitle"),
@@ -309,7 +335,12 @@ let selectedBuilderDeckId = "";
 let deckBuilderInitialized = false;
 let deckCardSearchResults = [];
 let deckBuilderPreviewCollapsed = false;
+let deckBuilderMetadata = null;
+let deckBuilderMetadataKey = "";
+let deckBuilderMetadataTimer = null;
 let pendingGameDeck = null;
+let pendingCreateDeck = null;
+let pendingJoinDeck = null;
 let pendingEndGameId = "";
 let pendingDeleteDeckId = "";
 const selectedBattlefieldCards = new Set();
@@ -404,6 +435,16 @@ function setLoading(isLoading) {
   els.loadingIndicator.classList.toggle("hidden", pendingRequests === 0);
 }
 
+function showGameLoading(title = "Loading Game", summary = "Resolving Scryfall cards and shuffling your opening hand.") {
+  els.gameLoadingTitle.textContent = title;
+  els.gameLoadingSummary.textContent = summary;
+  if (!els.gameLoadingDialog.open) els.gameLoadingDialog.showModal();
+}
+
+function hideGameLoading() {
+  if (els.gameLoadingDialog.open) els.gameLoadingDialog.close();
+}
+
 function applyCardScale(value, { persist = true } = {}) {
   const scale = Math.max(80, Math.min(300, Number(value) || 100));
   document.documentElement.style.setProperty("--card-scale", String(scale / 100));
@@ -480,6 +521,7 @@ function syncSidebarState() {
 
 function renderLanding() {
   els.landingMenu.classList.toggle("hidden", landingView !== "menu");
+  els.createModePanel.classList.toggle("hidden", landingView !== "createMode");
   els.roomForm.classList.toggle("hidden", landingView !== "create");
   els.joinRoomForm.classList.toggle("hidden", landingView !== "join");
   els.activeLobbiesPanel.classList.toggle("hidden", landingView !== "lobbies");
@@ -501,16 +543,78 @@ function updateRoomCreationControls() {
   const solo = els.singlePlayerInput.checked;
   els.playerCountInput.disabled = solo;
   els.playerCountLabel.classList.toggle("disabled-field", solo);
-  els.inviteMethodFieldset.classList.toggle("hidden", solo);
+  els.inviteDebugDetails.classList.toggle("hidden", solo);
   els.createRoomSubmitButton.textContent = solo
     ? "Create Solo Game"
-    : selectedInviteMode() === "code" ? "Create Join Code" : "Create Private Links";
+    : "Create Join Code";
+}
+
+function setInviteMode(value) {
+  els.inviteMethodInputs.forEach((input) => {
+    input.checked = input.value === value;
+  });
+  updateRoomCreationControls();
+}
+
+function openCreateMode(deck = null) {
+  pendingCreateDeck = deck ? { ...deck } : null;
+  landingView = "createMode";
+  setAccountStatus();
+  renderLanding();
+}
+
+function openLiveGameSetup(deck = null) {
+  pendingCreateDeck = deck ? { ...deck } : pendingCreateDeck;
+  els.singlePlayerInput.checked = false;
+  els.roomNameInput.value = `${pendingCreateDeck?.name || "Friday Commander"} Game`.slice(0, 40);
+  setInviteMode("code");
+  landingView = "create";
+  setAccountStatus();
+  renderLanding();
+  requestAnimationFrame(() => els.roomNameInput.focus());
+}
+
+async function createGameFromSetup({ solo = false, deck = null } = {}) {
+  const selectedDeck = deck || pendingCreateDeck || null;
+  showGameLoading(solo ? "Creating Solo Game" : "Creating Game", selectedDeck ? "Resolving Scryfall cards and shuffling your opening hand." : "Preparing your table.");
+  try {
+    const room = await api("/api/rooms", {
+      method: "POST",
+      body: JSON.stringify({
+        name: solo
+          ? `${selectedDeck?.name || "Solo"} Game`.slice(0, 40)
+          : els.roomNameInput.value.trim() || "Mage Table",
+        password: solo ? "" : els.roomPasswordInput.value,
+        playerCount: solo ? 1 : Number(els.playerCountInput.value),
+        inviteMode: solo ? "links" : selectedInviteMode(),
+        deck: selectedDeck ? {
+          decklist: selectedDeck.decklist,
+          commander: selectedDeck.commander || "",
+          playerName: account?.firstName || account?.username || "Player 1",
+        } : null,
+      }),
+    });
+    pendingCreateDeck = null;
+    storeRoomPassword(room.id, solo ? "" : els.roomPasswordInput.value);
+    history.replaceState(null, "", sameOriginRoomUrl(room.selfUrl));
+    forceInviteDialog = !solo && !room.currentPlayer.deckLoaded;
+    setAccountStatus();
+    await refreshState();
+  } finally {
+    hideGameLoading();
+  }
 }
 
 function setJoinRoomStatus(message = "", isError = false) {
   els.joinRoomStatus.textContent = message;
   els.joinRoomStatus.classList.toggle("hidden", !message);
   els.joinRoomStatus.classList.toggle("error", Boolean(message) && isError);
+}
+
+function setJoinPasswordVisible(visible) {
+  const label = els.joinCodePasswordInput.closest("label");
+  if (label) label.classList.toggle("hidden", !visible);
+  if (!visible) els.joinCodePasswordInput.value = "";
 }
 
 function activeLobbies() {
@@ -739,8 +843,57 @@ function serializeDeckBuilderEntries(entries) {
   return entries.filter((entry) => entry.quantity > 0 && entry.name).map((entry) => `${entry.quantity} ${entry.name}`).join("\n");
 }
 
+function deckMetadataKey(decklist) {
+  return String(decklist || "").trim().toLowerCase();
+}
+
+function scheduleDeckMetadataRefresh() {
+  window.clearTimeout(deckBuilderMetadataTimer);
+  const key = deckMetadataKey(els.deckBuilderListInput.value);
+  if (!key) {
+    deckBuilderMetadata = null;
+    deckBuilderMetadataKey = "";
+    return;
+  }
+  if (deckBuilderMetadataKey === key && deckBuilderMetadata) return;
+  deckBuilderMetadataTimer = window.setTimeout(() => refreshDeckMetadata(), 450);
+}
+
+async function refreshDeckMetadata() {
+  const decklist = els.deckBuilderListInput.value;
+  const key = deckMetadataKey(decklist);
+  if (!key) {
+    deckBuilderMetadata = null;
+    deckBuilderMetadataKey = "";
+    renderDeckBuilderPreview();
+    return;
+  }
+  deckBuilderMetadataKey = key;
+  try {
+    const result = await api("/api/decks/inspect", {
+      method: "POST",
+      body: JSON.stringify({ decklist }),
+    });
+    if (deckBuilderMetadataKey !== key) return;
+    deckBuilderMetadata = result;
+    renderDeckBuilderPreview();
+  } catch (error) {
+    if (deckBuilderMetadataKey !== key) return;
+    deckBuilderMetadata = { cards: [], error: error.message };
+    renderDeckBuilderPreview();
+  }
+}
+
+function invalidateDeckMetadata() {
+  deckBuilderMetadata = null;
+  deckBuilderMetadataKey = "";
+  scheduleDeckMetadataRefresh();
+}
+
 function selectBuilderDeck(deck) {
   deckBuilderPreviewCollapsed = false;
+  deckBuilderMetadata = null;
+  deckBuilderMetadataKey = "";
   selectedBuilderDeckId = deck.id;
   els.deckBuilderNameInput.value = deck.name;
   els.deckBuilderCommanderInput.value = deck.commander || "";
@@ -748,10 +901,13 @@ function selectBuilderDeck(deck) {
   els.deckBuilderStatus.textContent = `Updated ${new Date(deck.updatedAt).toLocaleString()}`;
   renderSavedDecks();
   renderDeckBuilderPreview();
+  scheduleDeckMetadataRefresh();
 }
 
 function newBuilderDeck() {
   deckBuilderPreviewCollapsed = false;
+  deckBuilderMetadata = null;
+  deckBuilderMetadataKey = "";
   selectedBuilderDeckId = "";
   els.deckBuilderNameInput.value = "";
   els.deckBuilderCommanderInput.value = "";
@@ -781,6 +937,7 @@ function renderDeckBuilderPreview() {
   els.duplicateBuilderDeckButton.disabled = !selectedDeck;
   els.deleteBuilderDeckButton.disabled = !selectedDeck;
   els.startBuilderDeckGameButton.disabled = !els.deckBuilderListInput.value.trim();
+  els.joinBuilderDeckGameButton.disabled = !els.deckBuilderListInput.value.trim();
   els.deckBuilderPreview.innerHTML = "";
   if (!entries.length) {
     const empty = document.createElement("p");
@@ -806,6 +963,22 @@ function renderDeckBuilderPreview() {
     els.deckBuilderPreview.append(summary);
     return;
   }
+  if (deckBuilderMetadata?.cards?.length) {
+    renderDeckVisualStacks(deckBuilderMetadata.cards);
+    return;
+  }
+  if (deckBuilderMetadata?.error) {
+    const error = document.createElement("p");
+    error.className = "empty-list-message";
+    error.textContent = deckBuilderMetadata.error;
+    els.deckBuilderPreview.append(error);
+  } else {
+    const loading = document.createElement("p");
+    loading.className = "empty-list-message";
+    loading.textContent = "Resolving deck images from Scryfall...";
+    els.deckBuilderPreview.append(loading);
+    scheduleDeckMetadataRefresh();
+  }
   entries.forEach((entry) => {
     const row = document.createElement("div");
     row.className = "deck-card-row";
@@ -830,6 +1003,98 @@ function renderDeckBuilderPreview() {
   });
 }
 
+function renderDeckVisualStacks(cards) {
+  const groupMode = els.deckGroupSelect.value || "type";
+  const sortMode = els.deckSortSelect.value || "alphabet";
+  const query = els.deckVisualSearchInput.value.trim().toLowerCase();
+  const grouped = new Map();
+  cards.forEach((card) => {
+    const group = deckGroupLabel(card, groupMode);
+    if (!grouped.has(group)) grouped.set(group, []);
+    grouped.get(group).push(card);
+  });
+  const wrap = document.createElement("div");
+  wrap.className = "deck-visual-columns";
+  [...grouped.entries()]
+    .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
+    .forEach(([group, groupCards]) => {
+      const sorted = [...groupCards].sort((a, b) => compareDeckCards(a, b, sortMode));
+      const column = document.createElement("section");
+      column.className = "deck-stack-column";
+      const price = sorted.reduce((sum, card) => sum + (Number(card.priceUsd) || 0) * card.quantity, 0);
+      column.innerHTML = `<header><strong>${escapeHtml(group)}</strong><span>Qty: ${sorted.reduce((sum, card) => sum + card.quantity, 0)} · $${price.toFixed(2)}</span></header>`;
+      const stack = document.createElement("div");
+      stack.className = "deck-card-stack";
+      sorted.forEach((card, index) => stack.append(deckStackCard(card, index, query)));
+      column.append(stack);
+      wrap.append(column);
+    });
+  els.deckBuilderPreview.append(wrap);
+}
+
+function deckStackCard(card, index, query) {
+  const item = document.createElement("article");
+  item.className = "deck-stack-card";
+  if (query && card.name.toLowerCase().includes(query)) item.classList.add("highlight");
+  item.style.setProperty("--stack-index", String(index));
+  item.title = `${card.quantity} ${card.name}`;
+  const image = card.imageUrl
+    ? `<img src="${escapeHtml(card.imageUrl)}" alt="${escapeHtml(card.name)}" loading="lazy">`
+    : `<div class="deck-stack-placeholder">${escapeHtml(card.name)}</div>`;
+  item.innerHTML = `${image}<span class="deck-stack-qty">${card.quantity}</span><strong>${escapeHtml(card.name)}</strong>`;
+  return item;
+}
+
+function deckGroupLabel(card, mode) {
+  if (mode === "rarity") return titleCase(card.rarity || "unknown");
+  if (mode === "price") {
+    const price = Number(card.priceUsd) || 0;
+    if (price >= 20) return "$20+";
+    if (price >= 5) return "$5-$19.99";
+    if (price >= 1) return "$1-$4.99";
+    return "Under $1";
+  }
+  if (mode === "color") return colorLabel(card.colorIdentity || card.colors || []);
+  if (mode === "manaValue") return `MV ${Number(card.manaValue) || 0}`;
+  if (mode === "category") return deckCategory(card);
+  return primaryType(card);
+}
+
+function compareDeckCards(a, b, mode) {
+  if (mode === "manaValue") return (Number(a.manaValue) || 0) - (Number(b.manaValue) || 0) || a.name.localeCompare(b.name);
+  if (mode === "type") return primaryType(a).localeCompare(primaryType(b)) || a.name.localeCompare(b.name);
+  if (mode === "price") return (Number(b.priceUsd) || 0) - (Number(a.priceUsd) || 0) || a.name.localeCompare(b.name);
+  if (mode === "color") return colorLabel(a.colorIdentity || a.colors || []).localeCompare(colorLabel(b.colorIdentity || b.colors || [])) || a.name.localeCompare(b.name);
+  if (mode === "rarity") return rarityRank(a.rarity) - rarityRank(b.rarity) || a.name.localeCompare(b.name);
+  return a.name.localeCompare(b.name);
+}
+
+function primaryType(card) {
+  const typeLine = String(card.typeLine || "");
+  return ["Creature", "Instant", "Sorcery", "Artifact", "Enchantment", "Planeswalker", "Battle", "Land"].find((type) => new RegExp(`\\b${type}\\b`, "i").test(typeLine)) || "Other";
+}
+
+function deckCategory(card) {
+  if (card.name.toLowerCase() === els.deckBuilderCommanderInput.value.trim().toLowerCase()) return "Commander";
+  if (card.isLand || /\bLand\b/i.test(card.typeLine || "")) return "Land";
+  return primaryType(card);
+}
+
+function colorLabel(colors) {
+  const values = Array.isArray(colors) ? colors : [];
+  if (!values.length) return "Colorless";
+  if (values.length > 1) return values.join("");
+  return ({ W: "White", U: "Blue", B: "Black", R: "Red", G: "Green" })[values[0]] || values[0];
+}
+
+function rarityRank(rarity) {
+  return { common: 1, uncommon: 2, rare: 3, mythic: 4 }[String(rarity || "").toLowerCase()] || 99;
+}
+
+function titleCase(value) {
+  return String(value || "").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 function adjustBuilderCard(cardName, delta) {
   deckBuilderPreviewCollapsed = false;
   const entries = parseDeckBuilderEntries(els.deckBuilderListInput.value);
@@ -837,6 +1102,7 @@ function adjustBuilderCard(cardName, delta) {
   if (entry) entry.quantity = Math.max(0, entry.quantity + delta);
   else if (delta > 0) entries.push({ quantity: delta, name: cardName });
   els.deckBuilderListInput.value = serializeDeckBuilderEntries(entries);
+  invalidateDeckMetadata();
   els.deckBuilderStatus.textContent = "Unsaved changes";
   renderDeckBuilderPreview();
 }
@@ -874,11 +1140,79 @@ function applyBulkDeckImport(mode) {
     : mergeDeckBuilderEntries([], imported);
   els.deckBuilderListInput.value = serializeDeckBuilderEntries(entries);
   deckBuilderPreviewCollapsed = true;
+  invalidateDeckMetadata();
   deckCardSearchResults = [];
   renderDeckCardSearchResults();
   els.deckBuilderStatus.textContent = `${entries.reduce((total, entry) => total + entry.quantity, 0)} cards imported - unsaved changes`;
   renderDeckBuilderPreview();
   els.bulkImportDialog.close();
+}
+
+function exportCurrentDeck() {
+  const deck = currentBuilderDeck();
+  const name = deck.name || "Untitled deck";
+  const text = [
+    `Deck: ${name}`,
+    deck.commander ? `Commander: ${deck.commander}` : "",
+    "",
+    deck.decklist,
+  ].filter((line, index) => index < 2 ? Boolean(line) : true).join("\n");
+  copyText(text);
+  els.deckBuilderStatus.textContent = "Deck copied to clipboard.";
+}
+
+function openJoinWithDeckDialog(deck = currentBuilderDeck()) {
+  const decklist = String(deck.decklist || "").trim();
+  if (!decklist) {
+    setAccountStatus("Add cards before joining with this deck.", true);
+    return;
+  }
+  pendingJoinDeck = { ...deck, decklist };
+  els.joinWithDeckCodeInput.value = "";
+  els.joinWithDeckPasswordInput.value = "";
+  els.joinWithDeckPasswordLabel.classList.add("hidden");
+  els.joinWithDeckStatus.textContent = "";
+  els.joinWithDeckSummary.textContent = `Join with ${deck.name || "this deck"}.`;
+  if (!els.joinWithDeckDialog.open) els.joinWithDeckDialog.showModal();
+  requestAnimationFrame(() => els.joinWithDeckCodeInput.focus());
+}
+
+async function joinRoomWithDeck() {
+  if (!pendingJoinDeck) return;
+  const code = els.joinWithDeckCodeInput.value.trim();
+  const password = els.joinWithDeckPasswordInput.value;
+  els.submitJoinWithDeckButton.disabled = true;
+  showGameLoading("Joining Game", "Resolving Scryfall cards and preparing your opening hand.");
+  try {
+    const room = await api("/api/rooms/join", {
+      method: "POST",
+      body: JSON.stringify({
+        code,
+        password,
+        deck: {
+          decklist: pendingJoinDeck.decklist,
+          commander: pendingJoinDeck.commander || "",
+          playerName: account?.firstName || account?.username || "Player",
+        },
+      }),
+    });
+    storeRoomPassword(room.id, password);
+    history.replaceState(null, "", sameOriginRoomUrl(room.selfUrl));
+    pendingJoinDeck = null;
+    els.joinWithDeckDialog.close();
+    await refreshState();
+  } catch (error) {
+    if (error.code === "PASSWORD_REQUIRED") {
+      els.joinWithDeckPasswordLabel.classList.remove("hidden");
+      els.joinWithDeckStatus.textContent = "This room requires a password.";
+      els.joinWithDeckPasswordInput.focus();
+    } else {
+      els.joinWithDeckStatus.textContent = error.message;
+    }
+  } finally {
+    els.submitJoinWithDeckButton.disabled = false;
+    hideGameLoading();
+  }
 }
 
 function renderDeckCardSearchResults() {
@@ -1021,50 +1355,27 @@ function openDeleteDeckDialog(deck) {
 }
 
 function useSavedDeck(deck) {
-  startGameWithDeck(deck);
+  openCreateMode(deck);
 }
 
 async function startGameWithDeck(deck) {
-  const decklist = String(deck.decklist || "").trim();
+  const normalizedDeck = deck || currentBuilderDeck();
+  const decklist = String(normalizedDeck.decklist || "").trim();
   if (!decklist) {
     setAccountStatus("Add cards before starting a game with this deck.", true);
     return;
   }
-  const name = String(deck.name || "Saved Deck").trim() || "Saved Deck";
-  setAccountStatus("Creating game and loading deck...");
-  try {
-    const room = await api("/api/rooms", {
-      method: "POST",
-      body: JSON.stringify({
-        name: `${name} Game`.slice(0, 40),
-        playerCount: 1,
-        inviteMode: "links",
-        deck: {
-          decklist,
-          commander: deck.commander || "",
-          playerName: account?.firstName || account?.username || "Player 1",
-        },
-      }),
-    });
-    pendingGameDeck = null;
-    storeRoomPassword(room.id, "");
-    history.replaceState(null, "", sameOriginRoomUrl(room.selfUrl));
-    forceInviteDialog = false;
-    setAccountStatus();
-    await refreshState();
-  } catch (error) {
-    setAccountStatus(error.message, true);
-  }
+  openCreateMode({ ...normalizedDeck, decklist });
 }
 
 function startGameWithoutDeck() {
   pendingGameDeck = null;
+  pendingCreateDeck = null;
   els.deckInput.value = "";
   els.setupDeckInput.value = "";
   els.commanderInput.value = "";
-  landingView = "create";
+  openCreateMode(null);
   setAccountStatus();
-  renderLanding();
 }
 
 function openSaveDeckDialog(deck = null, values = null) {
@@ -1483,14 +1794,17 @@ function renderInvites() {
 
 function applyTheme() {
   document.body.classList.toggle("dark-mode", state ? state.settings?.darkMode !== false : true);
+  document.body.classList.toggle("terminal-table-theme", Boolean(state?.settings?.terminalTheme));
 }
 
 function renderRoomSettings() {
   const settings = state.settings || {};
   els.friendlyMulligansInput.checked = settings.friendlyMulligans !== false;
   els.darkModeInput.checked = settings.darkMode !== false;
+  els.terminalThemeInput.checked = Boolean(settings.terminalTheme);
   els.friendlyMulligansInput.disabled = false;
   els.darkModeInput.disabled = false;
+  els.terminalThemeInput.disabled = false;
 }
 
 function renderMulliganDialog() {
@@ -4717,14 +5031,28 @@ function showRoomPasswordDialog(message = "Enter the password to join this room.
 }
 
 els.createGameButton.addEventListener("click", () => {
-  landingView = "create";
+  openCreateMode(null);
+});
+
+els.backFromCreateModeButton.addEventListener("click", () => {
+  pendingCreateDeck = null;
+  landingView = account ? "account" : "menu";
   renderLanding();
-  requestAnimationFrame(() => els.roomNameInput.focus());
+});
+
+els.createLiveGameButton.addEventListener("click", () => openLiveGameSetup(pendingCreateDeck));
+els.createSoloGameButton.addEventListener("click", async () => {
+  try {
+    await createGameFromSetup({ solo: true, deck: pendingCreateDeck });
+  } catch (error) {
+    setAccountStatus(error.message, true);
+  }
 });
 
 els.joinGameButton.addEventListener("click", () => {
   landingView = "join";
   setJoinRoomStatus();
+  setJoinPasswordVisible(false);
   renderLanding();
   requestAnimationFrame(() => els.joinCodeInput.focus());
 });
@@ -4801,11 +5129,20 @@ els.loginForm.addEventListener("submit", async (event) => {
 els.registerForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   try {
+    if (els.registerPasswordInput.value !== els.registerConfirmPasswordInput.value) {
+      throw new Error("Passwords do not match.");
+    }
     await completeAccountAuthentication("/api/accounts/register", els.registerUsernameInput.value, els.registerPasswordInput.value, {
       firstName: els.registerFirstNameInput.value,
+      lastName: els.registerLastNameInput.value,
+      email: els.registerEmailInput.value,
+      confirmPassword: els.registerConfirmPasswordInput.value,
     });
     els.registerFirstNameInput.value = "";
+    els.registerLastNameInput.value = "";
+    els.registerEmailInput.value = "";
     els.registerPasswordInput.value = "";
+    els.registerConfirmPasswordInput.value = "";
   } catch (error) {
     setAccountStatus(error.message, true);
   }
@@ -4828,6 +5165,7 @@ els.accountGamesTab.addEventListener("click", () => setAccountWorkspaceTab("game
 els.accountStartGameButton.addEventListener("click", startGameWithoutDeck);
 els.newSavedDeckButton.addEventListener("click", newBuilderDeck);
 els.bulkImportDeckButton.addEventListener("click", openBulkImportDialog);
+els.exportBuilderDeckButton.addEventListener("click", exportCurrentDeck);
 els.closeBulkImportButton.addEventListener("click", () => els.bulkImportDialog.close());
 els.appendBulkImportButton.addEventListener("click", () => applyBulkDeckImport("append"));
 els.replaceBulkImportButton.addEventListener("click", () => applyBulkDeckImport("replace"));
@@ -4835,6 +5173,7 @@ els.bulkImportForm.addEventListener("submit", (event) => event.preventDefault())
 els.savedDeckSearchInput.addEventListener("input", renderSavedDecks);
 els.deckBuilderListInput.addEventListener("input", () => {
   els.deckBuilderStatus.textContent = "Unsaved changes";
+  invalidateDeckMetadata();
   renderDeckBuilderPreview();
 });
 els.deckBuilderNameInput.addEventListener("input", () => {
@@ -4842,6 +5181,7 @@ els.deckBuilderNameInput.addEventListener("input", () => {
 });
 els.deckBuilderCommanderInput.addEventListener("input", () => {
   els.deckBuilderStatus.textContent = "Unsaved changes";
+  renderDeckBuilderPreview();
 });
 els.deckBuilderForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -4863,6 +5203,10 @@ els.startBuilderDeckGameButton.addEventListener("click", async () => {
     if (!state) els.startBuilderDeckGameButton.disabled = false;
   }
 });
+els.joinBuilderDeckGameButton.addEventListener("click", () => openJoinWithDeckDialog(currentBuilderDeck()));
+els.deckGroupSelect.addEventListener("change", renderDeckBuilderPreview);
+els.deckSortSelect.addEventListener("change", renderDeckBuilderPreview);
+els.deckVisualSearchInput.addEventListener("input", renderDeckBuilderPreview);
 els.duplicateBuilderDeckButton.addEventListener("click", async () => {
   const deck = savedDecks.find((candidate) => candidate.id === selectedBuilderDeckId);
   if (deck) await duplicateSavedDeck(deck);
@@ -4949,19 +5293,7 @@ els.roomForm.addEventListener("submit", async (event) => {
   const submitButton = els.roomForm.querySelector('button[type="submit"]');
   if (submitButton) submitButton.disabled = true;
   try {
-    const room = await api("/api/rooms", {
-      method: "POST",
-      body: JSON.stringify({
-        name: els.roomNameInput.value.trim() || "Mage Table",
-        password: els.roomPasswordInput.value,
-        playerCount: els.singlePlayerInput.checked ? 1 : Number(els.playerCountInput.value),
-        inviteMode: els.singlePlayerInput.checked ? "links" : selectedInviteMode(),
-      }),
-    });
-    storeRoomPassword(room.id, els.roomPasswordInput.value);
-    history.replaceState(null, "", sameOriginRoomUrl(room.selfUrl));
-    forceInviteDialog = true;
-    await refreshState();
+    await createGameFromSetup({ solo: els.singlePlayerInput.checked, deck: pendingCreateDeck });
   } catch (error) {
     alert(`Could not create the room: ${error.message}`);
   } finally {
@@ -4975,6 +5307,18 @@ els.joinRoomForm.addEventListener("submit", async (event) => {
   setJoinRoomStatus();
   try {
     const password = els.joinCodePasswordInput.value;
+    if (els.joinCodePasswordInput.closest("label")?.classList.contains("hidden")) {
+      const check = await api("/api/rooms/check-code", {
+        method: "POST",
+        body: JSON.stringify({ code: els.joinCodeInput.value }),
+      });
+      if (check.passwordProtected) {
+        setJoinPasswordVisible(true);
+        setJoinRoomStatus(`Password required for ${check.name}.`);
+        els.joinCodePasswordInput.focus();
+        return;
+      }
+    }
     const room = await api("/api/rooms/join", {
       method: "POST",
       body: JSON.stringify({ code: els.joinCodeInput.value, password }),
@@ -4992,10 +5336,26 @@ els.joinRoomForm.addEventListener("submit", async (event) => {
 
 els.joinCodeInput.addEventListener("input", () => {
   els.joinCodeInput.value = els.joinCodeInput.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+  setJoinPasswordVisible(false);
+  els.joinCodePasswordInput.value = "";
   setJoinRoomStatus();
 });
 
 els.joinCodePasswordInput.addEventListener("input", () => setJoinRoomStatus());
+
+els.closeJoinWithDeckButton.addEventListener("click", () => els.joinWithDeckDialog.close());
+els.joinWithDeckCodeInput.addEventListener("input", () => {
+  els.joinWithDeckCodeInput.value = els.joinWithDeckCodeInput.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+  els.joinWithDeckStatus.textContent = "";
+});
+els.joinWithDeckForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (event.submitter?.value !== "join") {
+    els.joinWithDeckDialog.close();
+    return;
+  }
+  await joinRoomWithDeck();
+});
 
 els.inviteMethodInputs.forEach((input) => input.addEventListener("change", updateRoomCreationControls));
 
@@ -5264,11 +5624,13 @@ async function updateRoomSettings() {
   await sendAction("updateSettings", {
     friendlyMulligans: els.friendlyMulligansInput.checked,
     darkMode: els.darkModeInput.checked,
+    terminalTheme: els.terminalThemeInput.checked,
   });
 }
 
 els.friendlyMulligansInput.addEventListener("change", updateRoomSettings);
 els.darkModeInput.addEventListener("change", updateRoomSettings);
+els.terminalThemeInput.addEventListener("change", updateRoomSettings);
 
 els.resetKeybindsButton.addEventListener("click", () => {
   keybinds = defaultKeybinds();

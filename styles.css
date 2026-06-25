@@ -43,6 +43,22 @@ body.dark-mode {
   --shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
 }
 
+body.terminal-table-theme {
+  --bg: #030704;
+  --ink: #d8ffd8;
+  --muted: #88c98f;
+  --line: #2d7d3f;
+  --panel: #07100a;
+  --accent: #48b463;
+  --accent-strong: #f1ca70;
+  --warn: #f18f3f;
+  background:
+    linear-gradient(rgba(72, 180, 99, 0.05) 50%, transparent 50%) 0 0 / 100% 4px,
+    radial-gradient(circle at 50% 0%, rgba(241, 202, 112, 0.1), transparent 44%),
+    var(--bg);
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+}
+
 button,
 input,
 select,
@@ -490,6 +506,16 @@ body.landing-mode .landing-panel button:not(.landing-actions button) {
   gap: 14px;
 }
 
+.create-mode-panel {
+  align-content: start;
+}
+
+.create-mode-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .landing-note,
 .account-status {
   color: var(--muted);
@@ -909,6 +935,130 @@ body.landing-mode .account-workspace-shell label {
   border-top: 1px solid #34433e;
 }
 
+.deck-view-toolbar {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(130px, 1fr));
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #34433e;
+}
+
+.deck-view-toolbar label {
+  gap: 4px;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.deck-view-toolbar input,
+.deck-view-toolbar select {
+  min-height: 32px;
+  padding: 6px 8px;
+  font-size: 0.78rem;
+}
+
+.deck-visual-columns {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(180px, 230px);
+  gap: 12px;
+  min-height: 100%;
+  padding: 10px 2px 18px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.deck-stack-column {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 7px;
+  min-width: 0;
+  border-right: 1px solid rgba(52, 67, 62, 0.64);
+  padding-right: 10px;
+}
+
+.deck-stack-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: end;
+  color: var(--ink);
+  font-weight: 800;
+  font-size: 0.86rem;
+}
+
+.deck-stack-heading small {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.deck-card-stack {
+  position: relative;
+  min-height: 620px;
+}
+
+.deck-stack-card {
+  position: absolute;
+  left: 0;
+  width: min(100%, 210px);
+  aspect-ratio: 488 / 680;
+  border: 1px solid rgba(237, 244, 240, 0.28);
+  border-radius: 10px;
+  background: #0a0f0d;
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.34);
+  overflow: hidden;
+  transition: top 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease, outline-color 0.16s ease;
+}
+
+.deck-card-stack:hover .deck-stack-card {
+  top: calc(var(--i) * 74px);
+}
+
+.deck-stack-card:hover {
+  z-index: 50;
+  transform: translateY(-4px);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.48);
+}
+
+.deck-stack-card.highlight {
+  outline: 3px solid #f1ca70;
+  outline-offset: 2px;
+  z-index: 60;
+}
+
+.deck-stack-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.deck-stack-placeholder {
+  height: 100%;
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  padding: 14px;
+  background: linear-gradient(135deg, #17231d, #0b1210);
+  color: #d8ffd8;
+  font-size: 0.78rem;
+}
+
+.deck-stack-qty {
+  position: absolute;
+  left: 5px;
+  top: 5px;
+  min-width: 22px;
+  min-height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.68);
+  color: #fff;
+  font-weight: 900;
+  font-size: 0.78rem;
+}
+
 .deck-card-row {
   display: grid;
   grid-template-columns: 26px 28px minmax(0, 1fr) 26px;
@@ -1162,6 +1312,36 @@ body.landing-mode .account-workspace-shell label {
   width: min(430px, calc(100vw - 28px));
 }
 
+.game-loading-card {
+  width: min(520px, calc(100vw - 28px));
+  text-align: center;
+}
+
+.mana-loading-bar {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 5px;
+  height: 10px;
+  margin-top: 12px;
+  overflow: hidden;
+}
+
+.mana-loading-bar span {
+  border-radius: 999px;
+  animation: manaPulse 1s ease-in-out infinite;
+}
+
+.mana-loading-bar span:nth-child(1) { background: #f4e7bd; animation-delay: 0s; }
+.mana-loading-bar span:nth-child(2) { background: #5b9edc; animation-delay: 0.08s; }
+.mana-loading-bar span:nth-child(3) { background: #3a3236; animation-delay: 0.16s; }
+.mana-loading-bar span:nth-child(4) { background: #c65a3b; animation-delay: 0.24s; }
+.mana-loading-bar span:nth-child(5) { background: #4e9b57; animation-delay: 0.32s; }
+
+@keyframes manaPulse {
+  0%, 100% { transform: scaleY(0.55); opacity: 0.42; }
+  50% { transform: scaleY(1); opacity: 1; }
+}
+
 .create-room-form {
   width: 100%;
 }
@@ -1200,6 +1380,24 @@ body.landing-mode .account-workspace-shell label {
   margin-bottom: 6px;
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+.debug-invite-options {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 9px 10px;
+  color: var(--muted);
+}
+
+.debug-invite-options summary {
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.debug-invite-options .invite-method-fieldset {
+  margin-top: 10px;
 }
 
 .segmented-control {
