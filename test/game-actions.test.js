@@ -119,6 +119,21 @@ test("face-down exile hides the card from opponents", async () => {
   assert.equal(opponentCard.oracleText, undefined);
 });
 
+test("face-down tag persists when moving cards between zones", async () => {
+  const state = room();
+  state.players[0].hand.push(card("secret", "Secret Card"));
+  await applyAction(state, state.players[0], { type: "toggleFaceDown", zone: "hand", cardId: "secret" });
+  assert.equal(state.players[0].hand[0].faceDown, true);
+  await applyAction(state, state.players[0], { type: "moveCard", seat: 0, fromZone: "hand", toZone: "battlefield", cardId: "secret" });
+  assert.equal(state.players[0].battlefield[0].faceDown, true);
+  const opponentBattlefieldCard = viewRoom(state, "seat-1", "http://test").players[0].battlefield[0];
+  assert.equal(opponentBattlefieldCard.name, "Face-down card");
+  await applyAction(state, state.players[0], { type: "moveCard", seat: 0, fromZone: "battlefield", toZone: "graveyard", cardId: "secret" });
+  assert.equal(state.players[0].graveyard[0].faceDown, true);
+  const opponentGraveyardCard = viewRoom(state, "seat-1", "http://test").players[0].graveyard[0];
+  assert.equal(opponentGraveyardCard.name, "Face-down card");
+});
+
 test("loading a deck shuffles, moves commander, and prompts mulligan", async () => {
   const originalFetch = global.fetch;
   global.fetch = async () => ({

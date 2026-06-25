@@ -197,6 +197,7 @@
                     <h2>Deck Library</h2>
                     <span id="savedDeckSummary">0 decks</span>
                   </div>
+                  <button id="collapseDeckRailButton" class="secondary compact-icon-button" type="button" title="Collapse deck library" aria-label="Collapse deck library">&#8249;</button>
                   <button id="newSavedDeckButton" type="button">New Deck</button>
                 </header>
                 <input id="savedDeckSearchInput" type="search" placeholder="Filter decks" aria-label="Filter saved decks">
@@ -213,21 +214,15 @@
                     <div class="deck-builder-header-actions">
                       <button id="bulkImportDeckButton" class="secondary" type="button">Bulk Import</button>
                       <button id="exportBuilderDeckButton" class="secondary" type="button">Export</button>
+                      <button id="editDeckDetailsButton" class="secondary" type="button">Edit Details</button>
+                      <button id="deckStatsButton" class="secondary" type="button">Stats</button>
                       <button id="duplicateBuilderDeckButton" class="secondary" type="button">Duplicate</button>
                       <button id="deleteBuilderDeckButton" class="danger" type="button">Delete</button>
                       <button id="saveBuilderDeckButton" type="submit">Save Deck</button>
                     </div>
                   </header>
-                  <div class="deck-builder-metadata">
-                    <label>
-                      Deck name
-                      <input id="deckBuilderNameInput" type="text" maxlength="80" placeholder="Untitled deck" required>
-                    </label>
-                    <label>
-                      Commander
-                      <input id="deckBuilderCommanderInput" type="text" maxlength="120" placeholder="Commander name">
-                    </label>
-                  </div>
+                  <input id="deckBuilderNameInput" type="hidden" maxlength="80" required>
+                  <input id="deckBuilderCommanderInput" type="hidden" maxlength="120">
                   <section class="deck-card-search">
                     <div class="deck-card-search-row">
                       <input id="deckCardSearchInput" type="search" maxlength="120" placeholder="Search Scryfall for a card" aria-label="Search Scryfall for a card">
@@ -260,20 +255,38 @@
                       </select>
                     </label>
                     <label>
+                      View
+                      <select id="deckViewModeSelect">
+                        <option value="cascade" selected>Cascade</option>
+                        <option value="grid">Image Grid</option>
+                        <option value="table">Text Table</option>
+                      </select>
+                    </label>
+                    <label>
                       Find
                       <input id="deckVisualSearchInput" type="search" maxlength="120" placeholder="Highlight card">
                     </label>
                   </section>
                   <div class="deck-builder-content">
-                    <section class="deck-structured-list">
+                    <section class="deck-structured-list deck-viewer-panel">
                       <h3>Deck View</h3>
                       <div id="deckBuilderPreview" class="deck-builder-preview"></div>
                     </section>
+                    <aside class="deck-maybe-board">
+                      <header>
+                        <h3>Maybe Board</h3>
+                        <span>Planning space</span>
+                      </header>
+                      <textarea id="deckMaybeBoardInput" rows="8" maxlength="20000" placeholder="Cards to consider"></textarea>
+                    </aside>
+                  </div>
+                  <details class="deck-debug-panel">
+                    <summary>Raw decklist / debug</summary>
                     <label class="deck-raw-list">
                       Raw decklist
-                      <textarea id="deckBuilderListInput" rows="18" maxlength="100000" placeholder="1 Sol Ring&#10;1 Command Tower"></textarea>
+                      <textarea id="deckBuilderListInput" rows="10" maxlength="100000" placeholder="1 Sol Ring&#10;1 Command Tower"></textarea>
                     </label>
-                  </div>
+                  </details>
                   <footer class="deck-builder-footer">
                     <span id="deckBuilderStatus" class="workspace-note" role="status"></span>
                   </footer>
@@ -565,6 +578,68 @@
           <button value="cancel" class="secondary" type="submit">Stay Here</button>
           <button id="confirmGuestLeaveButton" class="danger" value="leave" type="submit">Leave Game</button>
         </div>
+      </form>
+    </dialog>
+
+    <dialog id="deckDetailsDialog">
+      <form id="deckDetailsForm" method="dialog" class="dialog-card confirmation-dialog-card">
+        <header class="popover-header">
+          <div>
+            <h2>Deck Details</h2>
+            <p class="dialog-note">Edit the saved name and commander.</p>
+          </div>
+          <button id="closeDeckDetailsButton" class="popover-close" type="button" title="Dismiss" aria-label="Dismiss deck details">x</button>
+        </header>
+        <label>
+          Deck name
+          <input id="deckDetailsNameInput" type="text" maxlength="80" required>
+        </label>
+        <label>
+          Commander
+          <input id="deckDetailsCommanderInput" type="text" maxlength="120">
+        </label>
+        <div class="dialog-actions">
+          <button value="cancel" class="secondary" type="submit">Cancel</button>
+          <button value="save" type="submit">Apply Details</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="deckActionDialog">
+      <form method="dialog" class="dialog-card confirmation-dialog-card">
+        <header class="popover-header">
+          <div>
+            <h2 id="deckActionTitle">Deck Actions</h2>
+            <p id="deckActionSummary" class="dialog-note">Choose an action for this deck.</p>
+          </div>
+          <button id="closeDeckActionButton" class="popover-close" type="button" title="Dismiss" aria-label="Dismiss deck actions">x</button>
+        </header>
+        <div id="deckActionList" class="dialog-actions deck-action-list"></div>
+      </form>
+    </dialog>
+
+    <dialog id="deckStatsDialog">
+      <form method="dialog" class="dialog-card deck-stats-dialog-card">
+        <header class="popover-header">
+          <div>
+            <h2 id="deckStatsDialogTitle">Deck Stats</h2>
+            <p id="deckStatsDialogSummary" class="dialog-note">Mana, production, composition, and draw odds.</p>
+          </div>
+          <button id="closeDeckStatsButton" class="popover-close" type="button" title="Dismiss" aria-label="Dismiss deck stats">x</button>
+        </header>
+        <label>
+          Production curve
+          <select id="deckStatsProductionSelect">
+            <option value="all" selected>All colors</option>
+            <option value="W">White</option>
+            <option value="U">Blue</option>
+            <option value="B">Black</option>
+            <option value="R">Red</option>
+            <option value="G">Green</option>
+            <option value="C">Colorless</option>
+          </select>
+        </label>
+        <div id="deckStatsContent" class="deck-stats-content"></div>
       </form>
     </dialog>
 

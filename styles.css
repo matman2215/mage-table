@@ -645,6 +645,11 @@ body.landing-mode .landing-panel button:not(.landing-actions button) {
 .deck-workspace {
   display: grid;
   grid-template-columns: minmax(260px, 310px) minmax(0, 1fr);
+  transition: grid-template-columns 0.18s ease;
+}
+
+.deck-workspace.deck-rail-collapsed {
+  grid-template-columns: 38px minmax(0, 1fr);
 }
 
 .deck-library-rail {
@@ -655,6 +660,18 @@ body.landing-mode .landing-panel button:not(.landing-actions button) {
   border-right: 1px solid #34433e;
   background: #131a17;
   padding: 14px 10px;
+  overflow: hidden;
+}
+
+.deck-rail-collapsed .deck-library-rail {
+  padding: 10px 4px;
+}
+
+.deck-rail-collapsed .deck-library-heading > div,
+.deck-rail-collapsed .deck-library-heading #newSavedDeckButton,
+.deck-rail-collapsed #savedDeckSearchInput,
+.deck-rail-collapsed #savedDeckList {
+  display: none;
 }
 
 .deck-library-heading,
@@ -724,7 +741,7 @@ body.landing-mode .account-workspace-shell label {
 
 .account-workspace-shell .saved-deck-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 6px;
   align-items: center;
   border: 1px solid transparent;
@@ -765,6 +782,13 @@ body.landing-mode .account-workspace-shell label {
   font-size: 0.68rem;
 }
 
+.deck-row-menu {
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0;
+  font-size: 1rem;
+}
+
 .deck-builder-main {
   min-width: 0;
   min-height: 0;
@@ -774,8 +798,8 @@ body.landing-mode .account-workspace-shell label {
 
 .deck-builder-form {
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
-  gap: 12px;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
+  gap: 8px;
   height: 100%;
   min-height: 0;
   padding: 14px;
@@ -800,7 +824,7 @@ body.landing-mode .account-workspace-shell label {
 
 .deck-builder-header {
   border-bottom: 1px solid #34433e;
-  padding-bottom: 10px;
+  padding-bottom: 8px;
 }
 
 .deck-builder-header-actions,
@@ -819,6 +843,19 @@ body.landing-mode .account-workspace-shell label {
   display: grid;
   grid-template-columns: minmax(180px, 0.8fr) minmax(220px, 1.2fr);
   gap: 10px;
+}
+
+.deck-debug-panel {
+  border-top: 1px solid #34433e;
+  color: #a6b4ae;
+  font-size: 0.72rem;
+  padding-top: 6px;
+}
+
+.deck-debug-panel summary {
+  cursor: pointer;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 
 .account-workspace-shell label {
@@ -914,8 +951,8 @@ body.landing-mode .account-workspace-shell label {
 
 .deck-builder-content {
   display: grid;
-  grid-template-columns: minmax(240px, 0.8fr) minmax(300px, 1.2fr);
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(170px, 210px);
+  gap: 8px;
   min-height: 0;
   overflow: hidden;
 }
@@ -931,6 +968,10 @@ body.landing-mode .account-workspace-shell label {
   gap: 7px;
 }
 
+.deck-viewer-panel {
+  min-width: 0;
+}
+
 .deck-structured-list h3 {
   margin: 0;
   font-size: 0.78rem;
@@ -942,11 +983,41 @@ body.landing-mode .account-workspace-shell label {
   border-top: 1px solid #34433e;
 }
 
+.deck-maybe-board {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 7px;
+  min-height: 0;
+  border-left: 1px solid #34433e;
+  padding-left: 8px;
+}
+
+.deck-maybe-board header {
+  display: grid;
+  gap: 2px;
+}
+
+.deck-maybe-board h3 {
+  margin: 0;
+  font-size: 0.78rem;
+}
+
+.deck-maybe-board span {
+  color: #a6b4ae;
+  font-size: 0.66rem;
+}
+
+.deck-maybe-board textarea {
+  min-height: 0;
+  resize: none;
+  font-size: 0.72rem;
+}
+
 .deck-view-toolbar {
   display: grid;
-  grid-template-columns: repeat(3, minmax(130px, 1fr));
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
   gap: 8px;
-  padding-bottom: 8px;
+  padding-bottom: 6px;
   border-bottom: 1px solid #34433e;
 }
 
@@ -967,7 +1038,7 @@ body.landing-mode .account-workspace-shell label {
 .deck-visual-columns {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(180px, 230px);
+  grid-auto-columns: minmax(200px, 250px);
   gap: 12px;
   min-height: 100%;
   padding: 10px 2px 18px;
@@ -982,6 +1053,25 @@ body.landing-mode .account-workspace-shell label {
   min-width: 0;
   border-right: 1px solid rgba(52, 67, 62, 0.64);
   padding-right: 10px;
+}
+
+.deck-stack-column > header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: end;
+}
+
+.deck-stack-column > header strong,
+.deck-stack-column > header span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deck-stack-column > header span {
+  color: #a6b4ae;
+  font-size: 0.68rem;
 }
 
 .deck-stack-heading {
@@ -1001,13 +1091,14 @@ body.landing-mode .account-workspace-shell label {
 
 .deck-card-stack {
   position: relative;
-  min-height: 620px;
+  min-height: max(620px, calc((var(--stack-count, 1) - 1) * 30px + 300px));
 }
 
 .deck-stack-card {
   position: absolute;
   left: 0;
-  width: min(100%, 210px);
+  top: calc(var(--stack-index, 0) * 30px);
+  width: min(100%, 230px);
   aspect-ratio: 488 / 680;
   border: 1px solid rgba(237, 244, 240, 0.28);
   border-radius: 10px;
@@ -1018,7 +1109,7 @@ body.landing-mode .account-workspace-shell label {
 }
 
 .deck-card-stack:hover .deck-stack-card {
-  top: calc(var(--i) * 74px);
+  top: calc(var(--stack-index, 0) * 86px);
 }
 
 .deck-stack-card:hover {
@@ -1038,6 +1129,59 @@ body.landing-mode .account-workspace-shell label {
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+.deck-stack-card strong {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  min-height: 25px;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  padding: 5px 7px;
+  font-size: 0.72rem;
+}
+
+.deck-view-grid {
+  grid-auto-columns: minmax(260px, 1fr);
+}
+
+.deck-image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(116px, 1fr));
+  gap: 8px;
+  align-content: start;
+  min-height: 0;
+}
+
+.deck-grid-card {
+  position: relative;
+  top: auto !important;
+  width: 100%;
+  transform: none !important;
+}
+
+.deck-text-table {
+  width: 100%;
+  border-collapse: collapse;
+  color: #edf4f0;
+  font-size: 0.72rem;
+}
+
+.deck-text-table th,
+.deck-text-table td {
+  border-bottom: 1px solid #34433e;
+  padding: 5px;
+  text-align: left;
+}
+
+.deck-text-table .highlight {
+  background: rgba(241, 202, 112, 0.18);
 }
 
 .deck-stack-placeholder {
@@ -1114,6 +1258,71 @@ body.landing-mode .account-workspace-shell label {
 
 .deck-builder-footer .workspace-note {
   margin-right: 0;
+}
+
+.deck-action-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.deck-stats-dialog-card {
+  width: min(980px, calc(100vw - 28px));
+  max-height: min(88vh, 860px);
+  overflow: auto;
+}
+
+.deck-stats-content {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.deck-stat-section {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+}
+
+.deck-stat-section h3 {
+  margin: 0 0 3px;
+  font-size: 0.84rem;
+}
+
+.deck-stat-bar {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) 70px;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.72rem;
+}
+
+.deck-stat-bar > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deck-stat-bar > div {
+  height: 9px;
+  border-radius: 999px;
+  background: rgba(127, 145, 137, 0.18);
+  overflow: hidden;
+}
+
+.deck-stat-bar i {
+  display: block;
+  width: var(--bar-width);
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+.deck-stat-bar strong {
+  color: var(--muted);
+  text-align: right;
+  font-size: 0.68rem;
 }
 
 .active-games-workspace {
@@ -4206,6 +4415,44 @@ body.dark-mode .drop-active {
 
 .card.drag-origin {
   opacity: 0.28;
+}
+
+.face-down-card {
+  display: grid;
+  place-items: stretch;
+  gap: 5px;
+  border-color: #3f6556;
+  background:
+    linear-gradient(rgba(72, 180, 99, 0.08) 50%, transparent 50%) 0 0 / 100% 4px,
+    #07100a;
+  color: #d8ffd8;
+}
+
+.face-down-art {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  min-height: 70%;
+  border: 1px solid rgba(72, 180, 99, 0.38);
+  background: radial-gradient(circle at 50% 34%, rgba(241, 202, 112, 0.18), transparent 48%);
+}
+
+.face-down-art span {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  aspect-ratio: 1;
+  border: 1px solid #48b463;
+  border-radius: 999px;
+  color: #f1ca70;
+  font-weight: 900;
+}
+
+.face-down-art small {
+  color: #8cff9f;
+  font-size: 0.66rem;
+  text-transform: uppercase;
 }
 
 .battlefield-drag-ghost {

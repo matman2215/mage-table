@@ -41,6 +41,7 @@ const els = {
   accountDecksView: document.querySelector("#accountDecksView"),
   accountGamesView: document.querySelector("#accountGamesView"),
   newSavedDeckButton: document.querySelector("#newSavedDeckButton"),
+  collapseDeckRailButton: document.querySelector("#collapseDeckRailButton"),
   savedDeckSearchInput: document.querySelector("#savedDeckSearchInput"),
   savedDeckSummary: document.querySelector("#savedDeckSummary"),
   savedDeckList: document.querySelector("#savedDeckList"),
@@ -54,12 +55,16 @@ const els = {
   deckBuilderStatus: document.querySelector("#deckBuilderStatus"),
   bulkImportDeckButton: document.querySelector("#bulkImportDeckButton"),
   exportBuilderDeckButton: document.querySelector("#exportBuilderDeckButton"),
+  editDeckDetailsButton: document.querySelector("#editDeckDetailsButton"),
+  deckStatsButton: document.querySelector("#deckStatsButton"),
   saveBuilderDeckButton: document.querySelector("#saveBuilderDeckButton"),
   duplicateBuilderDeckButton: document.querySelector("#duplicateBuilderDeckButton"),
   deleteBuilderDeckButton: document.querySelector("#deleteBuilderDeckButton"),
   deckGroupSelect: document.querySelector("#deckGroupSelect"),
   deckSortSelect: document.querySelector("#deckSortSelect"),
+  deckViewModeSelect: document.querySelector("#deckViewModeSelect"),
   deckVisualSearchInput: document.querySelector("#deckVisualSearchInput"),
+  deckMaybeBoardInput: document.querySelector("#deckMaybeBoardInput"),
   deckCardSearchInput: document.querySelector("#deckCardSearchInput"),
   deckCardSearchButton: document.querySelector("#deckCardSearchButton"),
   deckCardSearchSummary: document.querySelector("#deckCardSearchSummary"),
@@ -250,6 +255,21 @@ const els = {
   guestLeaveSummary: document.querySelector("#guestLeaveSummary"),
   closeGuestLeaveButton: document.querySelector("#closeGuestLeaveButton"),
   confirmGuestLeaveButton: document.querySelector("#confirmGuestLeaveButton"),
+  deckDetailsDialog: document.querySelector("#deckDetailsDialog"),
+  deckDetailsForm: document.querySelector("#deckDetailsForm"),
+  closeDeckDetailsButton: document.querySelector("#closeDeckDetailsButton"),
+  deckDetailsNameInput: document.querySelector("#deckDetailsNameInput"),
+  deckDetailsCommanderInput: document.querySelector("#deckDetailsCommanderInput"),
+  deckActionDialog: document.querySelector("#deckActionDialog"),
+  deckActionTitle: document.querySelector("#deckActionTitle"),
+  deckActionSummary: document.querySelector("#deckActionSummary"),
+  deckActionList: document.querySelector("#deckActionList"),
+  closeDeckActionButton: document.querySelector("#closeDeckActionButton"),
+  deckStatsDialog: document.querySelector("#deckStatsDialog"),
+  deckStatsDialogTitle: document.querySelector("#deckStatsDialogTitle"),
+  deckStatsDialogSummary: document.querySelector("#deckStatsDialogSummary"),
+  deckStatsProductionSelect: document.querySelector("#deckStatsProductionSelect"),
+  deckStatsContent: document.querySelector("#deckStatsContent"),
   deckPlayChoiceDialog: document.querySelector("#deckPlayChoiceDialog"),
   deckPlayChoiceForm: document.querySelector("#deckPlayChoiceForm"),
   deckPlayChoiceTitle: document.querySelector("#deckPlayChoiceTitle"),
@@ -344,6 +364,8 @@ let deckBuilderPreviewCollapsed = false;
 let deckBuilderMetadata = null;
 let deckBuilderMetadataKey = "";
 let deckBuilderMetadataTimer = null;
+let deckRailCollapsed = localStorage.getItem("mage-table-deck-rail-collapsed") === "1";
+let pendingDeckActionDeck = null;
 let pendingGameDeck = null;
 let pendingCreateDeck = null;
 let pendingPlayDeck = null;
@@ -808,6 +830,10 @@ function renderAccountPanel() {
   els.accountGamesTab.classList.toggle("secondary", accountWorkspaceTab !== "games");
   els.accountDecksView.classList.toggle("hidden", accountWorkspaceTab !== "decks");
   els.accountGamesView.classList.toggle("hidden", accountWorkspaceTab !== "games");
+  els.accountDecksView.classList.toggle("deck-rail-collapsed", deckRailCollapsed);
+  els.collapseDeckRailButton.textContent = deckRailCollapsed ? "›" : "‹";
+  els.collapseDeckRailButton.title = deckRailCollapsed ? "Expand deck library" : "Collapse deck library";
+  els.collapseDeckRailButton.setAttribute("aria-label", els.collapseDeckRailButton.title);
   renderSavedDecks();
   renderDeckBuilderPreview();
   renderActiveGames();
@@ -840,7 +866,8 @@ function renderSavedDecks() {
     details.type = "button";
     details.className = "saved-deck-details deck-library-select";
     const cardCount = deckListCardCount(deck.decklist);
-    details.innerHTML = `<strong>${escapeHtml(deck.name)}</strong><span>${cardCount} cards - ${escapeHtml(deck.commander || "No commander")} - Updated ${escapeHtml(new Date(deck.updatedAt).toLocaleDateString())}</span>`;
+    const colorIdentity = commanderColorIdentityForDeck(deck);
+    details.innerHTML = `<strong>${escapeHtml(deck.name)}</strong><span>${cardCount} cards - ${escapeHtml(deck.commander || "No commander")} - CI: ${escapeHtml(colorIdentity)} - Updated ${escapeHtml(new Date(deck.updatedAt).toLocaleDateString())}</span>`;
     details.addEventListener("click", () => selectBuilderDeck(deck));
     const play = document.createElement("button");
     play.type = "button";
@@ -848,9 +875,69 @@ function renderSavedDecks() {
     play.textContent = "Play";
     play.title = `Play ${deck.name}`;
     play.addEventListener("click", () => openDeckPlayChoice(deck));
-    row.append(details, play);
+    const menu = document.createElement("button");
+    menu.type = "button";
+    menu.className = "deck-row-menu";
+    menu.textContent = "⋯";
+    menu.title = `Deck actions for ${deck.name}`;
+    menu.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openDeckActionDialog(deck);
+    });
+    row.append(details, play, menu);
     els.savedDeckList.append(row);
   });
+}
+
+function commanderColorIdentityForDeck(deck) {
+  if (deck.id !== selectedBuilderDeckId || !deckBuilderMetadata?.cards?.length) return "Open";
+  const commanderName = String(deck.commander || "").trim().toLowerCase();
+  const commander = deckBuilderMetadata.cards.find((card) => card.name.toLowerCase() === commanderName || card.displayName?.toLowerCase() === commanderName);
+  return colorLabel(commander?.colorIdentity || commander?.colors || []);
+}
+
+function maybeBoardKey(deckId = selectedBuilderDeckId || "new") {
+  return `mage-table-maybeboard:${account?.id || "guest"}:${deckId || "new"}`;
+}
+
+function loadMaybeBoard(deckId = selectedBuilderDeckId || "new") {
+  els.deckMaybeBoardInput.value = localStorage.getItem(maybeBoardKey(deckId)) || "";
+}
+
+function saveMaybeBoard() {
+  localStorage.setItem(maybeBoardKey(), els.deckMaybeBoardInput.value);
+}
+
+function openDeckActionDialog(deck) {
+  pendingDeckActionDeck = deck;
+  els.deckActionTitle.textContent = deck.name || "Deck Actions";
+  els.deckActionSummary.textContent = `${deckListCardCount(deck.decklist)} cards - ${deck.commander || "No commander"}`;
+  els.deckActionList.innerHTML = "";
+  [
+    ["Play", () => openDeckPlayChoice(deck)],
+    ["Export", () => exportDeck(deck)],
+    ["Duplicate", () => duplicateSavedDeck(deck)],
+    ["Stats", () => openDeckStatsDialog(deck)],
+    ["Delete", () => openDeleteDeckDialog(deck)],
+  ].forEach(([label, handler]) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = label === "Delete" ? "danger" : label === "Play" ? "" : "secondary";
+    button.textContent = label;
+    button.addEventListener("click", async () => {
+      els.deckActionDialog.close();
+      await handler();
+    });
+    els.deckActionList.append(button);
+  });
+  if (!els.deckActionDialog.open) els.deckActionDialog.showModal();
+}
+
+function openDeckDetailsDialog() {
+  els.deckDetailsNameInput.value = els.deckBuilderNameInput.value || "";
+  els.deckDetailsCommanderInput.value = els.deckBuilderCommanderInput.value || "";
+  if (!els.deckDetailsDialog.open) els.deckDetailsDialog.showModal();
+  requestAnimationFrame(() => els.deckDetailsNameInput.focus());
 }
 
 function parseDeckBuilderEntries(decklist = "") {
@@ -860,12 +947,25 @@ function parseDeckBuilderEntries(decklist = "") {
     .filter(Boolean)
     .map((line) => {
       const match = line.match(/^(?:SB:\s*)?(\d+)\s*[xX]?\s+(.+)$/i);
-      return match ? { quantity: Math.max(1, Number(match[1]) || 1), name: match[2].trim() } : { quantity: 1, name: line };
+      if (!match) return { quantity: 1, name: cleanDeckBuilderCardName(line), rawName: line };
+      const rawName = match[2].trim();
+      return { quantity: Math.max(1, Number(match[1]) || 1), name: cleanDeckBuilderCardName(rawName), rawName };
     });
 }
 
 function serializeDeckBuilderEntries(entries) {
-  return entries.filter((entry) => entry.quantity > 0 && entry.name).map((entry) => `${entry.quantity} ${entry.name}`).join("\n");
+  return entries.filter((entry) => entry.quantity > 0 && entry.name).map((entry) => `${entry.quantity} ${entry.rawName || entry.name}`).join("\n");
+}
+
+function cleanDeckBuilderCardName(rawName) {
+  let rest = String(rawName || "").trim();
+  rest = rest.replace(/\s+\^([^]+)\^\s*$/, "");
+  rest = rest.replace(/\s+\[([^\]]+)\]\s*$/, "");
+  rest = rest.replace(/\s+\*([^*]+)\*\s*$/, "");
+  rest = rest.replace(/\s+\(([A-Za-z0-9]{2,8})\)\s+([A-Za-z0-9\-★☆]+)\s*$/, "");
+  return rest
+    .replace(/\s+\{[^}]+\}\s*$/g, "")
+    .trim();
 }
 
 function deckMetadataKey(decklist) {
@@ -901,10 +1001,12 @@ async function refreshDeckMetadata() {
     });
     if (deckBuilderMetadataKey !== key) return;
     deckBuilderMetadata = result;
+    renderSavedDecks();
     renderDeckBuilderPreview();
   } catch (error) {
     if (deckBuilderMetadataKey !== key) return;
     deckBuilderMetadata = { cards: [], error: error.message };
+    renderSavedDecks();
     renderDeckBuilderPreview();
   }
 }
@@ -924,6 +1026,7 @@ function selectBuilderDeck(deck) {
   els.deckBuilderCommanderInput.value = deck.commander || "";
   els.deckBuilderListInput.value = deck.decklist;
   els.deckBuilderStatus.textContent = `Updated ${new Date(deck.updatedAt).toLocaleString()}`;
+  loadMaybeBoard(deck.id);
   renderSavedDecks();
   renderDeckBuilderPreview();
   scheduleDeckMetadataRefresh();
@@ -937,10 +1040,12 @@ function newBuilderDeck() {
   els.deckBuilderNameInput.value = "";
   els.deckBuilderCommanderInput.value = "";
   els.deckBuilderListInput.value = "";
+  els.deckMaybeBoardInput.value = "";
+  loadMaybeBoard("new");
   els.deckBuilderStatus.textContent = "New unsaved deck";
   renderSavedDecks();
   renderDeckBuilderPreview();
-  requestAnimationFrame(() => els.deckBuilderNameInput.focus());
+  openDeckDetailsDialog();
 }
 
 function currentBuilderDeck() {
@@ -957,8 +1062,10 @@ function renderDeckBuilderPreview() {
   const entries = parseDeckBuilderEntries(els.deckBuilderListInput.value);
   const total = entries.reduce((sum, entry) => sum + entry.quantity, 0);
   const selectedDeck = savedDecks.find((deck) => deck.id === selectedBuilderDeckId);
-  els.deckBuilderTitle.textContent = selectedDeck ? selectedDeck.name : "New Deck";
-  els.deckBuilderCount.textContent = `${total} card${total === 1 ? "" : "s"}`;
+  const deckName = els.deckBuilderNameInput.value.trim() || selectedDeck?.name || "New Deck";
+  const commander = els.deckBuilderCommanderInput.value.trim();
+  els.deckBuilderTitle.textContent = deckName;
+  els.deckBuilderCount.textContent = `${total} card${total === 1 ? "" : "s"}${commander ? ` - Commander: ${commander}` : ""}`;
   els.duplicateBuilderDeckButton.disabled = !selectedDeck;
   els.deleteBuilderDeckButton.disabled = !selectedDeck;
   els.deckBuilderPreview.innerHTML = "";
@@ -1029,6 +1136,7 @@ function renderDeckBuilderPreview() {
 function renderDeckVisualStacks(cards) {
   const groupMode = els.deckGroupSelect.value || "type";
   const sortMode = els.deckSortSelect.value || "alphabet";
+  const viewMode = els.deckViewModeSelect.value || "cascade";
   const query = els.deckVisualSearchInput.value.trim().toLowerCase();
   const grouped = new Map();
   cards.forEach((card) => {
@@ -1037,7 +1145,7 @@ function renderDeckVisualStacks(cards) {
     grouped.get(group).push(card);
   });
   const wrap = document.createElement("div");
-  wrap.className = "deck-visual-columns";
+  wrap.className = `deck-visual-columns deck-view-${viewMode}`;
   [...grouped.entries()]
     .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
     .forEach(([group, groupCards]) => {
@@ -1046,10 +1154,15 @@ function renderDeckVisualStacks(cards) {
       column.className = "deck-stack-column";
       const price = sorted.reduce((sum, card) => sum + (Number(card.priceUsd) || 0) * card.quantity, 0);
       column.innerHTML = `<header><strong>${escapeHtml(group)}</strong><span>Qty: ${sorted.reduce((sum, card) => sum + card.quantity, 0)} · $${price.toFixed(2)}</span></header>`;
-      const stack = document.createElement("div");
-      stack.className = "deck-card-stack";
-      sorted.forEach((card, index) => stack.append(deckStackCard(card, index, query)));
-      column.append(stack);
+      if (viewMode === "table") column.append(deckTextTable(sorted, query));
+      else if (viewMode === "grid") column.append(deckImageGrid(sorted, query));
+      else {
+        const stack = document.createElement("div");
+        stack.className = "deck-card-stack";
+        stack.style.setProperty("--stack-count", String(sorted.length));
+        sorted.forEach((card, index) => stack.append(deckStackCard(card, index, query)));
+        column.append(stack);
+      }
       wrap.append(column);
     });
   els.deckBuilderPreview.append(wrap);
@@ -1066,6 +1179,141 @@ function deckStackCard(card, index, query) {
     : `<div class="deck-stack-placeholder">${escapeHtml(card.name)}</div>`;
   item.innerHTML = `${image}<span class="deck-stack-qty">${card.quantity}</span><strong>${escapeHtml(card.name)}</strong>`;
   return item;
+}
+
+function deckImageGrid(cards, query) {
+  const grid = document.createElement("div");
+  grid.className = "deck-image-grid";
+  cards.forEach((card, index) => {
+    const item = deckStackCard(card, index, query);
+    item.classList.add("deck-grid-card");
+    grid.append(item);
+  });
+  return grid;
+}
+
+function deckTextTable(cards, query) {
+  const table = document.createElement("table");
+  table.className = "deck-text-table";
+  table.innerHTML = "<thead><tr><th>Qty</th><th>Name</th><th>MV</th><th>Type</th><th>Color</th><th>Price</th></tr></thead>";
+  const body = document.createElement("tbody");
+  cards.forEach((card) => {
+    const row = document.createElement("tr");
+    if (query && card.name.toLowerCase().includes(query)) row.classList.add("highlight");
+    row.innerHTML = `
+      <td>${Number(card.quantity) || 1}</td>
+      <td>${escapeHtml(card.name)}</td>
+      <td>${Number(card.manaValue) || 0}</td>
+      <td>${escapeHtml(primaryType(card))}</td>
+      <td>${escapeHtml(colorLabel(card.colorIdentity || card.colors || []))}</td>
+      <td>$${((Number(card.priceUsd) || 0) * (Number(card.quantity) || 1)).toFixed(2)}</td>
+    `;
+    body.append(row);
+  });
+  table.append(body);
+  return table;
+}
+
+function openDeckStatsDialog(deck = currentBuilderDeck()) {
+  const name = deck.name || els.deckBuilderNameInput.value || "Deck";
+  els.deckStatsDialogTitle.textContent = `${name} Stats`;
+  els.deckStatsDialogSummary.textContent = deckBuilderMetadata?.cards?.length
+    ? `${deckBuilderMetadata.stats?.total || deckListCardCount(deck.decklist)} cards analyzed`
+    : "Stats are available after Scryfall card data resolves.";
+  renderDeckStatsContent();
+  if (!els.deckStatsDialog.open) els.deckStatsDialog.showModal();
+}
+
+function renderDeckStatsContent() {
+  els.deckStatsContent.innerHTML = "";
+  const cards = deckBuilderMetadata?.cards || [];
+  if (!cards.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-list-message";
+    empty.textContent = "Resolve this deck through Scryfall before viewing stats.";
+    els.deckStatsContent.append(empty);
+    return;
+  }
+  const total = cards.reduce((sum, card) => sum + (Number(card.quantity) || 1), 0);
+  els.deckStatsContent.append(
+    statSection("Mana Curve", manaCurveData(cards), "mana"),
+    statSection("Production Curve", productionCurveData(cards, els.deckStatsProductionSelect.value), "production"),
+    statSection("Deck Composition", compositionData(cards), "composition"),
+    statSection("Draw Odds by Type", drawOddsData(cards, (card) => primaryType(card), total), "odds"),
+    statSection("Draw Odds by Category", drawOddsData(cards, (card) => deckCategory(card), total), "odds"),
+  );
+}
+
+function statSection(title, rows, mode) {
+  const section = document.createElement("section");
+  section.className = "deck-stat-section";
+  section.innerHTML = `<h3>${escapeHtml(title)}</h3>`;
+  const max = Math.max(1, ...rows.map((row) => Number(row.value) || 0));
+  rows.forEach((row) => {
+    const item = document.createElement("div");
+    item.className = `deck-stat-bar deck-stat-${mode}`;
+    item.style.setProperty("--bar-width", `${Math.max(3, ((Number(row.value) || 0) / max) * 100)}%`);
+    item.innerHTML = `<span>${escapeHtml(row.label)}</span><div><i></i></div><strong>${escapeHtml(row.display ?? String(row.value))}</strong>`;
+    section.append(item);
+  });
+  return section;
+}
+
+function manaCurveData(cards) {
+  const curve = new Map();
+  cards.forEach((card) => {
+    const mv = Math.max(0, Math.min(8, Math.floor(Number(card.manaValue) || 0)));
+    const label = mv >= 8 ? "8+" : String(mv);
+    curve.set(label, (curve.get(label) || 0) + (Number(card.quantity) || 1));
+  });
+  return ["0", "1", "2", "3", "4", "5", "6", "7", "8+"].map((label) => ({ label, value: curve.get(label) || 0 }));
+}
+
+function productionCurveData(cards, color = "all") {
+  const curve = new Map();
+  cards.forEach((card) => {
+    const produced = Array.isArray(card.producedMana) && card.producedMana.length
+      ? card.producedMana
+      : card.isLand ? card.colorIdentity || [] : [];
+    const normalized = produced.length ? produced : card.isLand ? ["C"] : [];
+    if (!normalized.length) return;
+    if (color !== "all" && !normalized.includes(color)) return;
+    const mv = Math.max(0, Math.min(8, Math.floor(Number(card.manaValue) || 0)));
+    const label = mv >= 8 ? "8+" : String(mv);
+    curve.set(label, (curve.get(label) || 0) + (Number(card.quantity) || 1));
+  });
+  return ["0", "1", "2", "3", "4", "5", "6", "7", "8+"].map((label) => ({ label, value: curve.get(label) || 0 }));
+}
+
+function compositionData(cards) {
+  const counts = new Map();
+  cards.forEach((card) => counts.set(primaryType(card), (counts.get(primaryType(card)) || 0) + (Number(card.quantity) || 1)));
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([label, value]) => ({ label, value }));
+}
+
+function drawOddsData(cards, groupFn, total) {
+  const counts = new Map();
+  cards.forEach((card) => {
+    const label = groupFn(card);
+    counts.set(label, (counts.get(label) || 0) + (Number(card.quantity) || 1));
+  });
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([label, value]) => {
+      const odds = drawAtLeastOneProbability(total, value, 7);
+      return { label, value: odds, display: `${Math.round(odds)}% (${value})` };
+    });
+}
+
+function drawAtLeastOneProbability(deckSize, copies, handSize) {
+  if (!deckSize || !copies) return 0;
+  let miss = 1;
+  for (let i = 0; i < handSize; i += 1) {
+    miss *= Math.max(0, deckSize - copies - i) / Math.max(1, deckSize - i);
+  }
+  return Math.max(0, Math.min(100, (1 - miss) * 100));
 }
 
 function deckGroupLabel(card, mode) {
@@ -1098,6 +1346,7 @@ function primaryType(card) {
 }
 
 function deckCategory(card) {
+  if (card.category) return card.category;
   if (card.name.toLowerCase() === els.deckBuilderCommanderInput.value.trim().toLowerCase()) return "Commander";
   if (card.isLand || /\bLand\b/i.test(card.typeLine || "")) return "Land";
   return primaryType(card);
@@ -1134,11 +1383,11 @@ function mergeDeckBuilderEntries(currentEntries, importedEntries) {
   const merged = [];
   const byName = new Map();
   [...currentEntries, ...importedEntries].forEach((entry) => {
-    const key = entry.name.toLowerCase();
+    const key = (entry.rawName || entry.name).toLowerCase();
     const existing = byName.get(key);
     if (existing) existing.quantity += entry.quantity;
     else {
-      const next = { quantity: entry.quantity, name: entry.name };
+      const next = { quantity: entry.quantity, name: entry.name, rawName: entry.rawName };
       byName.set(key, next);
       merged.push(next);
     }
@@ -1162,7 +1411,7 @@ function applyBulkDeckImport(mode) {
     ? mergeDeckBuilderEntries(parseDeckBuilderEntries(els.deckBuilderListInput.value), imported)
     : mergeDeckBuilderEntries([], imported);
   els.deckBuilderListInput.value = serializeDeckBuilderEntries(entries);
-  deckBuilderPreviewCollapsed = true;
+  deckBuilderPreviewCollapsed = false;
   invalidateDeckMetadata();
   deckCardSearchResults = [];
   renderDeckCardSearchResults();
@@ -1172,7 +1421,10 @@ function applyBulkDeckImport(mode) {
 }
 
 function exportCurrentDeck() {
-  const deck = currentBuilderDeck();
+  exportDeck(currentBuilderDeck());
+}
+
+function exportDeck(deck) {
   const name = deck.name || "Untitled deck";
   const text = [
     `Deck: ${name}`,
@@ -1181,7 +1433,7 @@ function exportCurrentDeck() {
     deck.decklist,
   ].filter((line, index) => index < 2 ? Boolean(line) : true).join("\n");
   copyText(text);
-  els.deckBuilderStatus.textContent = "Deck copied to clipboard.";
+  els.deckBuilderStatus.textContent = `${name} copied to clipboard.`;
 }
 
 function playableDeck(deck = currentBuilderDeck()) {
@@ -1938,7 +2190,10 @@ function displayCardElement(card, label = "Card", zoomZone = "preview") {
   button.type = "button";
   button.className = "card preview-only-card";
   const name = cardDisplayName(card);
-  if (card?.imageUrl) {
+  if (card?.faceDown && !card?.imageUrl) {
+    button.classList.add("face-down-card");
+    button.innerHTML = `<div class="face-down-art"><span>MT</span><small>Face down</small></div><strong>${escapeHtml(name)}</strong>`;
+  } else if (card?.imageUrl) {
     button.classList.add("image-card");
     button.innerHTML = `<img src="${escapeHtml(card.imageUrl)}" alt="${escapeHtml(name)}" draggable="false"><span>${escapeHtml(name)}</span>`;
   } else {
@@ -3326,7 +3581,10 @@ function cardElement(card, seat, zone, index = 0) {
     attachCardPointerDrag(button, card, seat, zone, index);
   }
   const displayName = cardDisplayName(card);
-  if (card.imageUrl) {
+  if (card.faceDown && !card.imageUrl) {
+    button.classList.add("face-down-card");
+    button.innerHTML = `<div class="face-down-art"><span>MT</span><small>Face down</small></div><strong>${escapeHtml(displayName)}</strong>`;
+  } else if (card.imageUrl) {
     button.classList.add("image-card");
     button.innerHTML = `<img src="${escapeHtml(card.imageUrl)}" alt="${escapeHtml(displayName)}" draggable="false"><span>${escapeHtml(displayName)}</span>`;
   } else {
@@ -4963,6 +5221,7 @@ function openCardDialog(card, seat, zone) {
 
   if (zone === "hand") {
     actions.push(["Reveal to Playgroup", () => sendAction("revealHandCard", { cardId: card.id })]);
+    actions.push([card.faceDown ? "Turn Face Up" : "Turn Face Down", () => sendAction("toggleFaceDown", { zone: "hand", cardId: card.id })]);
     actions.push(["To Battlefield", () => moveCard(state.currentSeat, "hand", "battlefield", card.id)]);
     if (isCommanderForSeat(card, state.currentSeat)) actions.push(["To Commander", () => moveCard(state.currentSeat, "hand", "commanderZone", card.id)]);
     actions.push(["To Graveyard", () => moveCard(state.currentSeat, "hand", "graveyard", card.id)]);
@@ -4974,6 +5233,7 @@ function openCardDialog(card, seat, zone) {
   if (zone === "battlefield" || zone === "commanderZone") {
     if (zone === "battlefield") {
       actions.push([card.tapped ? "Untap" : "Tap", () => sendAction("tap", { seat, zone, cardId: card.id })]);
+      actions.push([card.faceDown ? "Turn Face Up" : "Turn Face Down", () => sendAction("toggleFaceDown", { zone, cardId: card.id })]);
       actions.push(["Make Token Copy", () => copyBattlefieldToken(card)]);
       if (card.isToken) actions.push(["Remove Token", () => removeBattlefieldToken(card)]);
       if (card.isToken && isCreatureCard(card)) {
@@ -4987,6 +5247,7 @@ function openCardDialog(card, seat, zone) {
       }]);
       actions.push(["Clear Counters", () => adjustCounter(card, "clear", 1)]);
     }
+    if (zone === "commanderZone") actions.push([card.faceDown ? "Turn Face Up" : "Turn Face Down", () => sendAction("toggleFaceDown", { zone, cardId: card.id })]);
     if (zone !== "battlefield") actions.push(["To Battlefield", () => moveCard(seat, zone, "battlefield", card.id)]);
     if (zone !== "commanderZone" && isCommanderForSeat(card, seat)) actions.push(["To Commander", () => moveCard(seat, zone, "commanderZone", card.id)]);
     actions.push(["To Graveyard", () => moveCard(seat, zone, "graveyard", card.id)]);
@@ -4994,6 +5255,7 @@ function openCardDialog(card, seat, zone) {
   }
 
   if (zone === "graveyard" || zone === "exile") {
+    actions.push([card.faceDown ? "Turn Face Up" : "Turn Face Down", () => sendAction("toggleFaceDown", { zone, cardId: card.id })]);
     actions.push(["To Battlefield", () => moveCard(seat, zone, "battlefield", card.id)]);
     if (isCommanderForSeat(card, seat)) actions.push(["To Commander", () => moveCard(seat, zone, "commanderZone", card.id)]);
   }
@@ -5223,13 +5485,36 @@ els.logoutButton.addEventListener("click", async () => {
 els.accountDecksTab.addEventListener("click", () => setAccountWorkspaceTab("decks"));
 els.accountGamesTab.addEventListener("click", () => setAccountWorkspaceTab("games"));
 els.accountStartGameButton.addEventListener("click", startGameWithoutDeck);
+els.collapseDeckRailButton.addEventListener("click", () => {
+  deckRailCollapsed = !deckRailCollapsed;
+  localStorage.setItem("mage-table-deck-rail-collapsed", deckRailCollapsed ? "1" : "0");
+  renderAccountPanel();
+});
 els.newSavedDeckButton.addEventListener("click", newBuilderDeck);
 els.bulkImportDeckButton.addEventListener("click", openBulkImportDialog);
 els.exportBuilderDeckButton.addEventListener("click", exportCurrentDeck);
+els.editDeckDetailsButton.addEventListener("click", openDeckDetailsDialog);
+els.deckStatsButton.addEventListener("click", () => openDeckStatsDialog(currentBuilderDeck()));
 els.closeBulkImportButton.addEventListener("click", () => els.bulkImportDialog.close());
 els.appendBulkImportButton.addEventListener("click", () => applyBulkDeckImport("append"));
 els.replaceBulkImportButton.addEventListener("click", () => applyBulkDeckImport("replace"));
 els.bulkImportForm.addEventListener("submit", (event) => event.preventDefault());
+els.closeDeckDetailsButton.addEventListener("click", () => els.deckDetailsDialog.close());
+els.deckDetailsForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (event.submitter?.value !== "save") {
+    els.deckDetailsDialog.close();
+    return;
+  }
+  els.deckBuilderNameInput.value = els.deckDetailsNameInput.value.trim();
+  els.deckBuilderCommanderInput.value = els.deckDetailsCommanderInput.value.trim();
+  els.deckBuilderStatus.textContent = "Unsaved changes";
+  els.deckDetailsDialog.close();
+  renderDeckBuilderPreview();
+});
+els.closeDeckActionButton.addEventListener("click", () => els.deckActionDialog.close());
+els.closeDeckStatsButton.addEventListener("click", () => els.deckStatsDialog.close());
+els.deckStatsProductionSelect.addEventListener("change", renderDeckStatsContent);
 els.savedDeckSearchInput.addEventListener("input", renderSavedDecks);
 els.deckBuilderListInput.addEventListener("input", () => {
   els.deckBuilderStatus.textContent = "Unsaved changes";
@@ -5257,7 +5542,9 @@ els.deckBuilderForm.addEventListener("submit", async (event) => {
 });
 els.deckGroupSelect.addEventListener("change", renderDeckBuilderPreview);
 els.deckSortSelect.addEventListener("change", renderDeckBuilderPreview);
+els.deckViewModeSelect.addEventListener("change", renderDeckBuilderPreview);
 els.deckVisualSearchInput.addEventListener("input", renderDeckBuilderPreview);
+els.deckMaybeBoardInput.addEventListener("input", saveMaybeBoard);
 els.duplicateBuilderDeckButton.addEventListener("click", async () => {
   const deck = savedDecks.find((candidate) => candidate.id === selectedBuilderDeckId);
   if (deck) await duplicateSavedDeck(deck);

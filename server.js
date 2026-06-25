@@ -686,7 +686,7 @@ function cardForViewer(card, viewerSeat) {
     artUrl: "",
     faces: [],
     faceIndex: 0,
-    tapped: false,
+    tapped: Boolean(card.tapped),
     faceDown: true,
     counters: emptyCounters(),
   };
@@ -706,7 +706,8 @@ function parseDeckList(text) {
         return;
       }
       const count = Number(match[1]);
-      const name = normalizeCardName(match[2]);
+      const details = parseDeckEntryDetails(match[2]);
+      const name = details.name;
       if (!Number.isInteger(count) || count <= 0) {
         errors.push(`Line ${index + 1}: invalid quantity.`);
         return;
@@ -715,7 +716,7 @@ function parseDeckList(text) {
         errors.push(`Line ${index + 1}: missing card name.`);
         return;
       }
-      entries.push({ count, name });
+      entries.push({ count, ...details });
     });
   return { entries, errors };
 }
@@ -735,6 +736,55 @@ function normalizeCardName(rawName) {
     .replace(/\s+\([A-Z0-9]{2,6}\)(?:\s+\d+[a-z]?)?\s*$/i, "")
     .replace(/\s+[A-Z0-9]{2,6}-?\d+[a-z]?\s*$/i, "")
     .trim();
+}
+
+function parseDeckEntryDetails(rawName) {
+  let rest = String(rawName || "").trim();
+  let tagText = "";
+  let category = "";
+  let finish = "";
+  let set = "";
+  let collectorNumber = "";
+
+  const tagMatch = rest.match(/\s+\^([^]+)\^\s*$/);
+  if (tagMatch) {
+    tagText = tagMatch[1].trim();
+    rest = rest.slice(0, tagMatch.index).trim();
+  }
+  const categoryMatch = rest.match(/\s+\[([^\]]+)\]\s*$/);
+  if (categoryMatch) {
+    category = categoryMatch[1].trim();
+    rest = rest.slice(0, categoryMatch.index).trim();
+  }
+  const finishMatch = rest.match(/\s+\*([^*]+)\*\s*$/);
+  if (finishMatch) {
+    finish = finishMatch[1].trim().toUpperCase();
+    rest = rest.slice(0, finishMatch.index).trim();
+  }
+  const printMatch = rest.match(/\s+\(([A-Za-z0-9]{2,8})\)\s+([A-Za-z0-9\-★☆]+)\s*$/);
+  if (printMatch) {
+    set = printMatch[1].trim().toLowerCase();
+    collectorNumber = printMatch[2].trim();
+    rest = rest.slice(0, printMatch.index).trim();
+  }
+  const tags = tagText
+    ? tagText.split(",").map((tag) => tag.trim()).filter(Boolean)
+    : [];
+  return {
+    name: normalizeCardName(rest),
+    set,
+    collectorNumber,
+    finish,
+    category,
+    tags,
+  };
+}
+
+function deckEntryKey(entry) {
+  const set = String(entry?.set || "").toLowerCase();
+  const collector = String(entry?.collectorNumber || "").toLowerCase();
+  if (set && collector) return `${set}:${collector}`;
+  return String(entry?.name || entry || "").toLowerCase();
 }
 
 function cardImages(card) {
@@ -767,6 +817,7 @@ function summarizeScryfallCard(card) {
   const colorIdentity = Array.isArray(card.color_identity) ? card.color_identity : [];
   const colors = Array.isArray(card.colors) ? card.colors : colorIdentity;
   const priceUsd = Number(card.prices?.usd || card.prices?.usd_foil || 0) || 0;
+  const priceUsdFoil = Number(card.prices?.usd_foil || card.prices?.usd || 0) || 0;
   const faces = (card.card_faces || [])
     .map((face) => {
       const images = cardImages(face);
@@ -802,11 +853,21 @@ function summarizeScryfallCard(card) {
     colorIdentity,
     rarity: card.rarity || "unknown",
     priceUsd,
+    priceUsdFoil,
+    set: card.set || "",
+    setName: card.set_name || "",
+    collectorNumber: card.collector_number || "",
     isLand: frontFace ? frontFace.isLand : /\bLand\b/.test(card.type_line || ""),
     power: frontFace?.power || card.power || "",
     toughness: frontFace?.toughness || card.toughness || "",
   };
   return summary;
+}
+
+function priceForDeckEntry(cardData, entry) {
+  const finish = String(entry?.finish || "").toUpperCase();
+  if (finish.includes("F")) return Number(cardData.priceUsdFoil || cardData.priceUsd || 0) || 0;
+  return Number(cardData.priceUsd || 0) || 0;
 }
 
 function requestScryfallNamed(mode, name) {
@@ -865,27 +926,40 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function fetchScryfallCollection(names) {
+async function fetchScryfallCollection(requests) {
   const results = new Map();
-  const pendingNames = [];
-  names.forEach((name) => {
-    const cached = scryfallCache.get(name.toLowerCase());
-    if (cached) results.set(name.toLowerCase(), cached);
-    else pendingNames.push(name);
+  const pendingEntries = [];
+  requests.forEach((request) => {
+    const entry = typeof request === "string" ? { name: request } : request;
+    const key = deckEntryKey(entry);
+    const cached = scryfallCache.get(key) || scryfallCache.get(String(entry.name || "").toLowerCase());
+    if (cached) {
+      results.set(key, cached);
+      if (entry.name) results.set(String(entry.name).toLowerCase(), cached);
+    } else {
+      pendingEntries.push(entry);
+    }
   });
-  for (let i = 0; i < pendingNames.length; i += 75) {
-    const chunk = pendingNames.slice(i, i + 75);
+  for (let i = 0; i < pendingEntries.length; i += 75) {
+    const chunk = pendingEntries.slice(i, i + 75);
     const response = await throttledScryfallFetch("https://api.scryfall.com/cards/collection", {
       method: "POST",
       body: JSON.stringify({
-        identifiers: chunk.map((name) => ({ name })),
+        identifiers: chunk.map((entry) => entry.set && entry.collectorNumber
+          ? { set: entry.set, collector_number: entry.collectorNumber }
+          : { name: entry.name }),
       }),
     });
     throwForScryfallServiceError(response);
     if (!response.ok) continue;
     const payload = await response.json();
-    for (const card of payload.data || []) {
+    for (const [index, card] of (payload.data || []).entries()) {
       const summary = summarizeScryfallCard(card);
+      const request = chunk[index];
+      if (request) {
+        results.set(deckEntryKey(request), summary);
+        scryfallCache.set(deckEntryKey(request), summary);
+      }
       addCollectionAliases(results, card, summary);
     }
   }
@@ -984,14 +1058,13 @@ async function buildDeck(text, ownerSeat) {
   const notFound = [];
   const unique = [];
   const byName = new Map();
-  const requestedNames = [...new Set(parsed.entries.map((entry) => entry.name))];
-  const batchCards = await fetchScryfallCollection(requestedNames);
+  const batchCards = await fetchScryfallCollection(parsed.entries);
   let total = 0;
   let land = 0;
   let nonland = 0;
 
   for (const entry of parsed.entries) {
-    let cardData = batchCards.get(entry.name.toLowerCase());
+    let cardData = batchCards.get(deckEntryKey(entry)) || batchCards.get(entry.name.toLowerCase());
     if (!cardData) {
       try {
         cardData = await fetchScryfallCard(entry.name);
@@ -1011,6 +1084,10 @@ async function buildDeck(text, ownerSeat) {
         oracleText: "",
         images: {},
         faces: [],
+        set: entry.set || "",
+        setName: "",
+        collectorNumber: entry.collectorNumber || "",
+        priceUsdFoil: 0,
         isLand: false,
         power: "",
         toughness: "",
@@ -1038,6 +1115,13 @@ async function buildDeck(text, ownerSeat) {
         artUrl: frontFace?.artUrl || cardData.images.artCrop || "",
         faces: cardData.faces || [],
         faceIndex: 0,
+        set: cardData.set || entry.set || "",
+        setName: cardData.setName || "",
+        collectorNumber: cardData.collectorNumber || entry.collectorNumber || "",
+        finish: entry.finish || "",
+        category: entry.category || "",
+        tags: entry.tags || [],
+        priceUsd: priceForDeckEntry(cardData, entry),
         isLand: cardData.isLand,
         power: cardData.power || "",
         toughness: cardData.toughness || "",
@@ -1070,12 +1154,11 @@ async function inspectDeck(text) {
   if (parsed.errors.length > 0) {
     throw new Error(parsed.errors.slice(0, 5).join(" "));
   }
-  const requestedNames = [...new Set(parsed.entries.map((entry) => entry.name))];
-  const batchCards = await fetchScryfallCollection(requestedNames);
+  const batchCards = await fetchScryfallCollection(parsed.entries);
   const cards = [];
   const notFound = [];
   for (const entry of parsed.entries) {
-    let cardData = batchCards.get(entry.name.toLowerCase());
+    let cardData = batchCards.get(deckEntryKey(entry)) || batchCards.get(entry.name.toLowerCase());
     if (!cardData) {
       try {
         cardData = await fetchScryfallCard(entry.name);
@@ -1098,9 +1181,14 @@ async function inspectDeck(text) {
         colorIdentity: [],
         rarity: "unknown",
         priceUsd: 0,
+        priceUsdFoil: 0,
+        set: entry.set || "",
+        setName: "",
+        collectorNumber: entry.collectorNumber || "",
         isLand: false,
       };
     }
+    const priceUsd = priceForDeckEntry(cardData, entry);
     cards.push({
       quantity: entry.count,
       name: cardData.name,
@@ -1108,11 +1196,18 @@ async function inspectDeck(text) {
       typeLine: cardData.typeLine || "",
       manaCost: cardData.manaCost || "",
       manaValue: Number(cardData.manaValue) || manaValueFromCost(cardData.manaCost),
+      producedMana: cardData.producedMana || [],
       imageUrl: cardData.faces?.[0]?.imageUrl || cardData.images?.normal || cardData.images?.small || "",
       colors: cardData.colors || [],
       colorIdentity: cardData.colorIdentity || [],
       rarity: cardData.rarity || "unknown",
-      priceUsd: Number(cardData.priceUsd) || 0,
+      priceUsd,
+      set: cardData.set || entry.set || "",
+      setName: cardData.setName || "",
+      collectorNumber: cardData.collectorNumber || entry.collectorNumber || "",
+      finish: entry.finish || "",
+      category: entry.category || "",
+      tags: entry.tags || [],
       isLand: Boolean(cardData.isLand),
     });
   }
@@ -1144,7 +1239,6 @@ function prepareForNonBattlefield(card) {
   delete card.attachedTo;
   delete card.attachmentIndex;
   delete card.position;
-  delete card.faceDown;
   return card;
 }
 
@@ -1207,7 +1301,6 @@ function moveCard(actor, target, fromZone, toZone, cardId, destinationPlayer = t
     throw new Error("Only the specified commander can be moved to the command zone.");
   }
   if (toZone === "battlefield") {
-    delete card.faceDown;
     if (fromZone !== "battlefield") {
       card.tapped = false;
       card.counters = emptyCounters();
@@ -2355,6 +2448,24 @@ async function applyAction(room, actor, body) {
         cardName: card.name,
         displayName: card.displayName || card.name,
         faceIndex: Number(card.faceIndex) || 0,
+      });
+      break;
+    }
+    case "toggleFaceDown": {
+      assertCanAct(room, actor);
+      const zone = String(body.zone || "hand");
+      if (!["hand", "commanderZone", "battlefield", "graveyard", "exile"].includes(zone)) {
+        throw new Error("That card cannot be turned face down.");
+      }
+      const targetZone = getOwnedZone(actor, actor, zone);
+      const card = targetZone.find((item) => item.id === body.cardId);
+      if (!card) throw new Error("Card not found");
+      card.faceDown = body.faceDown === undefined ? !card.faceDown : Boolean(body.faceDown);
+      addLog(room, `${actor.name} turned a card ${card.faceDown ? "face down" : "face up"}.`, actor, {
+        kind: "faceDown",
+        cardName: card.faceDown ? "Face-down card" : card.name,
+        zone,
+        faceDown: Boolean(card.faceDown),
       });
       break;
     }
