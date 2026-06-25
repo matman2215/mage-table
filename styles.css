@@ -1019,11 +1019,12 @@ body.landing-mode .account-workspace-shell label {
 .deck-builder-preview {
   --deck-view-scale: 1;
   min-height: 0;
+  max-width: 100%;
   overflow-y: scroll;
   overflow-x: hidden;
   border-top: 1px solid #34433e;
   scrollbar-gutter: stable;
-  padding-bottom: calc(340px * var(--deck-view-scale, 1));
+  padding-bottom: calc(760px * var(--deck-view-scale, 1));
   overscroll-behavior: contain;
 }
 
@@ -1093,12 +1094,16 @@ body.landing-mode .account-workspace-shell label {
 }
 
 .deck-visual-columns {
+  --cascade-rest-step: 44px;
+  --cascade-open-step: 112px;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(clamp(190px, calc(230px * var(--deck-view-scale, 1)), 390px), 1fr));
   gap: 12px;
   align-content: start;
   align-items: start;
-  padding: 10px 2px calc(520px * var(--deck-view-scale, 1));
+  min-width: 0;
+  min-height: calc(100% + (420px * var(--deck-view-scale, 1)));
+  padding: 10px 2px calc(940px * var(--deck-view-scale, 1));
   overflow: visible;
 }
 
@@ -1148,13 +1153,13 @@ body.landing-mode .account-workspace-shell label {
 
 .deck-card-stack {
   position: relative;
-  min-height: max(calc(500px * var(--deck-view-scale, 1)), calc((var(--stack-count, 1) - 1) * 40px * var(--deck-view-scale, 1) + 340px * var(--deck-view-scale, 1)));
+  min-height: max(calc(560px * var(--deck-view-scale, 1)), calc((var(--stack-count, 1) - 1) * var(--cascade-open-step) * var(--deck-view-scale, 1) + 1320px * var(--deck-view-scale, 1)));
 }
 
 .deck-stack-card {
   position: absolute;
   left: 0;
-  top: calc(var(--stack-index, 0) * 40px * var(--deck-view-scale, 1));
+  top: calc(var(--stack-index, 0) * var(--cascade-rest-step) * var(--deck-view-scale, 1));
   width: min(100%, calc(230px * var(--deck-view-scale, 1)));
   aspect-ratio: 488 / 680;
   border: 1px solid rgba(237, 244, 240, 0.28);
@@ -1166,7 +1171,7 @@ body.landing-mode .account-workspace-shell label {
 }
 
 .deck-card-stack:hover .deck-stack-card {
-  top: calc(var(--stack-index, 0) * 94px * var(--deck-view-scale, 1));
+  top: calc(var(--stack-index, 0) * var(--cascade-open-step) * var(--deck-view-scale, 1));
 }
 
 .deck-stack-card:hover {
@@ -1343,9 +1348,11 @@ body.shift-cascade .deck-stack-card strong {
 }
 
 .deck-stats-dialog-card {
-  width: min(1380px, calc(100vw - 24px));
-  max-height: calc(100vh - 24px);
-  overflow-y: auto;
+  width: 100%;
+  height: calc(100vh - 12px);
+  max-height: none;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  overflow: hidden;
   overflow-x: hidden;
 }
 
@@ -1353,6 +1360,10 @@ body.shift-cascade .deck-stack-card strong {
   display: grid;
   grid-template-columns: 1fr;
   gap: 14px;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
 }
 
 .deck-stat-section {
@@ -1421,6 +1432,7 @@ body.shift-cascade .deck-stack-card strong {
 .production-strip-bar {
   display: flex;
   gap: 8px;
+  min-width: 0;
   min-height: 44px;
   align-items: stretch;
 }
@@ -1449,6 +1461,7 @@ body.shift-cascade .deck-stack-card strong {
   grid-template-columns: 82px minmax(0, 1fr);
   gap: 14px;
   align-items: center;
+  min-width: 0;
 }
 
 .mana-disc {
@@ -1504,6 +1517,7 @@ body.shift-cascade .deck-stack-card strong {
 .deck-probability-section {
   padding: 0;
   overflow: hidden;
+  min-width: 0;
 }
 
 .deck-probability-section h3,
@@ -1513,11 +1527,12 @@ body.shift-cascade .deck-stack-card strong {
 }
 
 .probability-summary {
-  display: grid;
-  grid-template-columns: repeat(6, max-content);
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
   color: #d5ddd9;
+  max-width: 100%;
 }
 
 .probability-summary strong {
@@ -1529,6 +1544,7 @@ body.shift-cascade .deck-stack-card strong {
 
 .probability-table {
   width: 100%;
+  max-width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
   font-size: 0.78rem;
@@ -3829,6 +3845,13 @@ dialog {
   width: min(720px, calc(100vw - 28px));
 }
 
+#deckStatsDialog {
+  width: calc(100vw - 12px);
+  max-width: none;
+  max-height: calc(100vh - 12px);
+  overflow: hidden;
+}
+
 #revealNoticeDialog {
   width: min(980px, calc(100vw - 28px));
   max-height: min(86vh, 820px);
@@ -5071,7 +5094,8 @@ body.terminal-table-theme .life-menu-summary {
   }
 
   .deck-builder-preview {
-    max-height: 300px;
+    max-height: none;
+    min-height: 520px;
   }
 
   .deck-view-toolbar,

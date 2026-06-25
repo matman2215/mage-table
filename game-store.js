@@ -107,7 +107,6 @@ class GameStore {
         PRIMARY KEY (game_id, sequence)
       );
       CREATE INDEX IF NOT EXISTS games_status_updated_idx ON games(status, updated_at DESC);
-      CREATE INDEX IF NOT EXISTS games_join_code_idx ON games(join_code, status);
       CREATE INDEX IF NOT EXISTS game_members_account_idx ON game_members(account_id, game_id);
       CREATE INDEX IF NOT EXISTS game_events_game_created_idx ON game_events(game_id, created_at);
     `);

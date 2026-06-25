@@ -1083,8 +1083,33 @@ function currentBuilderDeck() {
   };
 }
 
-function renderDeckBuilderPreview() {
+function fallbackBuilderDeckName(deck) {
+  const commander = String(deck.commander || "").trim();
+  if (commander) return `${commander} Deck`;
+  const firstCard = parseDeckBuilderEntries(deck.decklist)[0]?.name;
+  if (firstCard) return `${firstCard} Deck`;
+  return "Untitled Deck";
+}
+
+function upsertSavedDeck(deck) {
+  if (!deck?.id) return;
+  const index = savedDecks.findIndex((candidate) => candidate.id === deck.id);
+  if (index >= 0) savedDecks.splice(index, 1, deck);
+  else savedDecks = [deck, ...savedDecks];
+}
+
+function deckViewSettings() {
+  return {
+    groupMode: els.deckGroupSelect.value || "type",
+    sortMode: els.deckSortSelect.value || "name",
+    viewMode: els.deckViewModeSelect.value || "cascade",
+    query: els.deckVisualSearchInput.value.trim().toLowerCase(),
+  };
+}
+
+function renderDeckBuilderPreview(options = {}) {
   if (!account) return;
+  const previousScroll = els.deckBuilderPreview.scrollTop;
   const entries = parseDeckBuilderEntries(els.deckBuilderListInput.value);
   const total = entries.reduce((sum, entry) => sum + entry.quantity, 0);
   const selectedDeck = savedDecks.find((deck) => deck.id === selectedBuilderDeckId);
@@ -1119,7 +1144,8 @@ function renderDeckBuilderPreview() {
     return;
   }
   if (deckBuilderMetadata?.cards?.length) {
-    renderDeckVisualStacks(deckBuilderMetadata.cards);
+    renderDeckVisualStacks(deckBuilderMetadata.cards, deckViewSettings());
+    if (options.preserveScroll) requestAnimationFrame(() => { els.deckBuilderPreview.scrollTop = previousScroll; });
     return;
   }
   if (deckBuilderMetadata?.error) {
@@ -1156,10 +1182,11 @@ function renderDeckBuilderPreview() {
     row.append(minus, quantity, name, plus);
     els.deckBuilderPreview.append(row);
   });
+  if (options.preserveScroll) requestAnimationFrame(() => { els.deckBuilderPreview.scrollTop = previousScroll; });
 }
 
 function deckViewScale() {
-  return Math.max(70, Math.min(160, Number(els.deckViewScaleInput?.value) || 100));
+  return Math.max(70, Math.min(300, Number(els.deckViewScaleInput?.value) || 100));
 }
 
 function applyDeckViewScale() {
@@ -1170,14 +1197,16 @@ function applyDeckViewScale() {
 function applyDeckViewSettings() {
   deckBuilderPreviewCollapsed = false;
   applyDeckViewScale();
-  renderDeckBuilderPreview();
+  renderDeckBuilderPreview({ preserveScroll: true });
+  if (els.deckBuilderPreview) {
+    els.deckBuilderPreview.dataset.renderRevision = String(Date.now());
+    els.deckBuilderPreview.getBoundingClientRect();
+    requestAnimationFrame(applyDeckViewScale);
+  }
 }
 
-function renderDeckVisualStacks(cards) {
-  const groupMode = els.deckGroupSelect.value || "type";
-  const sortMode = els.deckSortSelect.value || "alphabet";
-  const viewMode = els.deckViewModeSelect.value || "cascade";
-  const query = els.deckVisualSearchInput.value.trim().toLowerCase();
+function renderDeckVisualStacks(cards, settings = deckViewSettings()) {
+  const { groupMode, sortMode, viewMode, query } = settings;
   const grouped = new Map();
   cards.forEach((card) => {
     const group = deckGroupLabel(card, groupMode);
@@ -1961,18 +1990,24 @@ async function duplicateSavedDeck(deck) {
 async function saveBuilderDeck() {
   const deck = currentBuilderDeck();
   if (!account) throw new Error("Sign in again before saving this deck.");
-  if (!deck.name) {
-    openDeckDetailsDialog();
-    throw new Error("Deck name is required.");
-  }
   if (!deck.decklist) throw new Error("Add at least one card before saving.");
+  const deckToSave = {
+    ...deck,
+    name: deck.name || fallbackBuilderDeckName(deck),
+  };
+  if (!deck.name) els.deckBuilderNameInput.value = deckToSave.name;
   const path = deck.id ? `/api/account/decks/${encodeURIComponent(deck.id)}` : "/api/account/decks";
   const result = await accountApi(path, {
     method: deck.id ? "PUT" : "POST",
-    body: JSON.stringify(deck),
+    body: JSON.stringify(deckToSave),
   });
+  upsertSavedDeck(result.deck);
   selectedBuilderDeckId = result.deck.id;
-  await loadSavedDecks();
+  els.deckBuilderNameInput.value = result.deck.name || deckToSave.name;
+  els.deckBuilderCommanderInput.value = result.deck.commander || deckToSave.commander || "";
+  els.deckBuilderListInput.value = result.deck.decklist || deckToSave.decklist;
+  renderSavedDecks();
+  renderDeckBuilderPreview({ preserveScroll: true });
   els.deckBuilderStatus.textContent = "Deck saved";
 }
 
@@ -4101,14 +4136,22 @@ function counterTotal(counters = {}) {
 }
 
 function attachCardZoomHandlers(button, zone, index = 0) {
-  button.addEventListener("mouseenter", () => {
+  button.addEventListener("mouseenter", (event) => {
     hoveredZoomCard = button;
-    if (document.body.classList.contains("ctrl-zoom")) showCardZoom(button);
-    if (document.body.classList.contains("ctrl-zoom")) button.style.zIndex = "1000";
+    if (event.ctrlKey) document.body.classList.add("ctrl-zoom");
+    if (event.ctrlKey || document.body.classList.contains("ctrl-zoom")) {
+      showCardZoom(button);
+      button.style.zIndex = "1000";
+    }
   });
-  button.addEventListener("mousemove", () => {
+  button.addEventListener("mousemove", (event) => {
     hoveredZoomCard = button;
-    if (document.body.classList.contains("ctrl-zoom")) positionCardZoom(button);
+    if (event.ctrlKey) document.body.classList.add("ctrl-zoom");
+    if (event.ctrlKey || document.body.classList.contains("ctrl-zoom")) {
+      if (!zoomOverlay || zoomOverlay.classList.contains("hidden")) showCardZoom(button);
+      else positionCardZoom(button);
+      button.style.zIndex = "1000";
+    }
   });
   button.addEventListener("mouseleave", () => {
     if (battlefieldPointerDrag?.button === button || battlefieldGroupDrag?.button === button) return;
@@ -5898,10 +5941,13 @@ els.deckSortSelect.addEventListener("change", applyDeckViewSettings);
 els.deckViewModeSelect.addEventListener("change", applyDeckViewSettings);
 els.deckVisualSearchInput.addEventListener("input", applyDeckViewSettings);
 if (els.deckViewScaleInput) {
-  els.deckViewScaleInput.addEventListener("input", applyDeckViewScale);
+  els.deckViewScaleInput.addEventListener("input", applyDeckViewSettings);
   els.deckViewScaleInput.addEventListener("change", applyDeckViewSettings);
 }
-if (els.applyDeckViewButton) els.applyDeckViewButton.addEventListener("click", applyDeckViewSettings);
+if (els.applyDeckViewButton) {
+  els.applyDeckViewButton.addEventListener("click", applyDeckViewSettings);
+  els.applyDeckViewButton.addEventListener("pointerdown", applyDeckViewSettings);
+}
 els.deckMaybeBoardInput.addEventListener("input", saveMaybeBoard);
 els.deckCardSearchButton.addEventListener("click", searchDeckBuilderCards);
 els.deckCardSearchInput.addEventListener("keydown", (event) => {
@@ -6628,7 +6674,10 @@ document.addEventListener("mousemove", (event) => {
   document.body.classList.toggle("hide-counters", event.shiftKey);
   document.body.classList.toggle("shift-cascade", event.shiftKey);
   document.body.classList.toggle("alt-counters", event.altKey);
-  if (event.ctrlKey && hoveredZoomCard) positionCardZoom(hoveredZoomCard);
+  if (event.ctrlKey && hoveredZoomCard) {
+    if (!zoomOverlay || zoomOverlay.classList.contains("hidden")) showCardZoom(hoveredZoomCard);
+    else positionCardZoom(hoveredZoomCard);
+  }
   if (!event.ctrlKey) hideCardZoom();
 });
 
