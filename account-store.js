@@ -29,6 +29,14 @@ function validatePassword(value) {
   return password;
 }
 
+function validateFirstName(value, fallback = "") {
+  const firstName = String(value || fallback || "").trim();
+  if (firstName.length < 1 || firstName.length > 40) {
+    throw new Error("First name must be between 1 and 40 characters.");
+  }
+  return firstName;
+}
+
 function passwordHash(password, salt) {
   return crypto.scryptSync(password, salt, 32).toString("hex");
 }
@@ -55,6 +63,7 @@ class AccountStore {
         id TEXT PRIMARY KEY,
         username TEXT NOT NULL,
         username_normalized TEXT NOT NULL UNIQUE,
+        first_name TEXT NOT NULL DEFAULT '',
         password_hash TEXT NOT NULL,
         password_salt TEXT NOT NULL,
         created_at INTEGER NOT NULL
@@ -77,20 +86,29 @@ class AccountStore {
       CREATE INDEX IF NOT EXISTS decks_account_updated_idx ON decks(account_id, updated_at DESC);
       CREATE INDEX IF NOT EXISTS sessions_account_idx ON sessions(account_id);
     `);
+    this.ensureColumn("accounts", "first_name", "TEXT NOT NULL DEFAULT ''");
   }
 
-  createAccount(usernameValue, passwordValue) {
+  ensureColumn(table, column, definition) {
+    const columns = this.db.prepare(`PRAGMA table_info(${table})`).all().map((row) => row.name);
+    if (!columns.includes(column)) {
+      this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
+    }
+  }
+
+  createAccount(usernameValue, passwordValue, firstNameValue = "") {
     const username = validateUsername(usernameValue);
+    const firstName = validateFirstName(firstNameValue, username);
     const normalized = normalizeUsername(username);
     const existing = this.db.prepare("SELECT id FROM accounts WHERE username_normalized = ?").get(normalized);
     if (existing) throw new Error("That username is already in use.");
     const password = validatePassword(passwordValue);
     const salt = crypto.randomBytes(16).toString("hex");
-    const account = { id: newId("account"), username, createdAt: Date.now() };
+    const account = { id: newId("account"), username, firstName, createdAt: Date.now() };
     this.db.prepare(`
-      INSERT INTO accounts (id, username, username_normalized, password_hash, password_salt, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(account.id, account.username, normalized, passwordHash(password, salt), salt, account.createdAt);
+      INSERT INTO accounts (id, username, username_normalized, first_name, password_hash, password_salt, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(account.id, account.username, normalized, account.firstName, passwordHash(password, salt), salt, account.createdAt);
     return { account, sessionToken: this.createSession(account.id) };
   }
 
@@ -100,7 +118,7 @@ class AccountStore {
     if (!row) return null;
     const suppliedHash = passwordHash(String(passwordValue || ""), row.password_salt);
     if (!safeEqualHex(suppliedHash, row.password_hash)) return null;
-    const account = { id: row.id, username: row.username, createdAt: Number(row.created_at) };
+    const account = { id: row.id, username: row.username, firstName: row.first_name || row.username, createdAt: Number(row.created_at) };
     return { account, sessionToken: this.createSession(account.id) };
   }
 
@@ -119,12 +137,12 @@ class AccountStore {
     if (!token) return null;
     const now = Date.now();
     const row = this.db.prepare(`
-      SELECT accounts.id, accounts.username, accounts.created_at
+      SELECT accounts.id, accounts.username, accounts.first_name, accounts.created_at
       FROM sessions
       JOIN accounts ON accounts.id = sessions.account_id
       WHERE sessions.token_hash = ? AND sessions.expires_at > ?
     `).get(sessionHash(token), now);
-    return row ? { id: row.id, username: row.username, createdAt: Number(row.created_at) } : null;
+    return row ? { id: row.id, username: row.username, firstName: row.first_name || row.username, createdAt: Number(row.created_at) } : null;
   }
 
   deleteSession(token) {

@@ -24,6 +24,7 @@ const els = {
   loginUsernameInput: document.querySelector("#loginUsernameInput"),
   loginPasswordInput: document.querySelector("#loginPasswordInput"),
   registerForm: document.querySelector("#registerForm"),
+  registerFirstNameInput: document.querySelector("#registerFirstNameInput"),
   registerUsernameInput: document.querySelector("#registerUsernameInput"),
   registerPasswordInput: document.querySelector("#registerPasswordInput"),
   logoutButton: document.querySelector("#logoutButton"),
@@ -232,6 +233,12 @@ const els = {
   joinRoomPasswordInput: document.querySelector("#joinRoomPasswordInput"),
   submitRoomPasswordButton: document.querySelector("#submitRoomPasswordButton"),
   newLobbyDialog: document.querySelector("#newLobbyDialog"),
+  guestLeaveDialog: document.querySelector("#guestLeaveDialog"),
+  guestLeaveForm: document.querySelector("#guestLeaveForm"),
+  guestLeaveTitle: document.querySelector("#guestLeaveTitle"),
+  guestLeaveSummary: document.querySelector("#guestLeaveSummary"),
+  closeGuestLeaveButton: document.querySelector("#closeGuestLeaveButton"),
+  confirmGuestLeaveButton: document.querySelector("#confirmGuestLeaveButton"),
   saveDeckDialog: document.querySelector("#saveDeckDialog"),
   saveDeckForm: document.querySelector("#saveDeckForm"),
   saveDeckDialogTitle: document.querySelector("#saveDeckDialogTitle"),
@@ -572,14 +579,80 @@ function renderActiveLobbies() {
   });
 }
 
-function leaveGameForLanding(view = "lobbies") {
-  if (state) rememberActiveLobby(state);
+function leaveGameForLanding(view = "lobbies", { remember = true } = {}) {
+  if (state && remember) rememberActiveLobby(state);
   state = null;
   closeRoomEvents();
   closeActionPopovers();
   landingView = view;
   history.replaceState(null, "", "/");
   render();
+}
+
+function clearCurrentActiveLobby() {
+  if (!state?.id || !currentToken) return;
+  const roomId = state.id;
+  const token = currentToken;
+  writeActiveLobbies(activeLobbies().filter((item) => {
+    if (item.roomId !== roomId) return true;
+    try {
+      const url = new URL(item.url, window.location.origin);
+      return url.searchParams.get("token") !== token;
+    } catch {
+      return false;
+    }
+  }));
+}
+
+function currentSeatIsGuest() {
+  return Boolean(state?.currentPlayer?.isGuest) || !account;
+}
+
+function openGuestLeaveDialog() {
+  if (!state) return;
+  const isHost = Boolean(state.currentPlayer?.isHost);
+  els.guestLeaveTitle.textContent = isHost ? "Close Guest-Hosted Game?" : "Leave Guest Game?";
+  els.guestLeaveSummary.textContent = isHost
+    ? "This room is hosted as a guest. Leaving will end the game for every player, and it will not be preserved as an account game."
+    : "This guest seat is only stored in this browser. Leaving removes it from your active lobbies, so you may not be able to return without the original link.";
+  els.confirmGuestLeaveButton.textContent = isHost ? "End and Leave" : "Leave Game";
+  if (!els.guestLeaveDialog.open) els.guestLeaveDialog.showModal();
+}
+
+async function confirmGuestLeave() {
+  if (!state) {
+    els.guestLeaveDialog.close();
+    return;
+  }
+  const wasHost = Boolean(state.currentPlayer?.isHost);
+  els.confirmGuestLeaveButton.disabled = true;
+  try {
+    if (wasHost) {
+      await sendAction("leaveGame");
+    }
+  } catch {
+    // Dormant guest-host cleanup will close the game if the explicit leave request fails.
+  } finally {
+    els.confirmGuestLeaveButton.disabled = false;
+  }
+  clearCurrentActiveLobby();
+  els.guestLeaveDialog.close();
+  leaveGameForLanding("menu", { remember: false });
+}
+
+function sendGuestHostLeaveBeacon() {
+  if (!state?.currentPlayer?.isHost || !currentSeatIsGuest()) return;
+  const payload = JSON.stringify({
+    token: currentToken,
+    password: roomPasswordFor(state.id),
+    type: "leaveGame",
+  });
+  try {
+    const blob = new Blob([payload], { type: "application/json" });
+    navigator.sendBeacon?.(`/api/rooms/${encodeURIComponent(state.id)}/actions`, blob);
+  } catch {
+    // The server-side dormant guest cleanup is the fallback for hard browser exits.
+  }
 }
 
 function setAccountStatus(message = "", isError = false) {
@@ -600,7 +673,7 @@ function renderAccountPanel() {
   els.showRegisterButton.classList.toggle("active", accountMode === "register");
   els.showRegisterButton.classList.toggle("secondary", accountMode !== "register");
   if (!signedIn) return;
-  els.accountUsername.textContent = account.username;
+  els.accountUsername.textContent = account.firstName ? `${account.firstName} (@${account.username})` : account.username;
   els.accountDecksTab.classList.toggle("active", accountWorkspaceTab === "decks");
   els.accountDecksTab.classList.toggle("secondary", accountWorkspaceTab !== "decks");
   els.accountGamesTab.classList.toggle("active", accountWorkspaceTab === "games");
@@ -951,19 +1024,37 @@ function useSavedDeck(deck) {
   startGameWithDeck(deck);
 }
 
-function startGameWithDeck(deck) {
-  pendingGameDeck = {
-    name: deck.name || "Saved Deck",
-    commander: deck.commander || "",
-    decklist: deck.decklist || "",
-  };
-  els.deckInput.value = pendingGameDeck.decklist;
-  els.setupDeckInput.value = pendingGameDeck.decklist;
-  els.commanderInput.value = pendingGameDeck.commander;
-  els.roomNameInput.value = `${pendingGameDeck.name} Game`.slice(0, 40);
-  landingView = "create";
-  setAccountStatus();
-  renderLanding();
+async function startGameWithDeck(deck) {
+  const decklist = String(deck.decklist || "").trim();
+  if (!decklist) {
+    setAccountStatus("Add cards before starting a game with this deck.", true);
+    return;
+  }
+  const name = String(deck.name || "Saved Deck").trim() || "Saved Deck";
+  setAccountStatus("Creating game and loading deck...");
+  try {
+    const room = await api("/api/rooms", {
+      method: "POST",
+      body: JSON.stringify({
+        name: `${name} Game`.slice(0, 40),
+        playerCount: 1,
+        inviteMode: "links",
+        deck: {
+          decklist,
+          commander: deck.commander || "",
+          playerName: account?.firstName || account?.username || "Player 1",
+        },
+      }),
+    });
+    pendingGameDeck = null;
+    storeRoomPassword(room.id, "");
+    history.replaceState(null, "", sameOriginRoomUrl(room.selfUrl));
+    forceInviteDialog = false;
+    setAccountStatus();
+    await refreshState();
+  } catch (error) {
+    setAccountStatus(error.message, true);
+  }
 }
 
 function startGameWithoutDeck() {
@@ -4683,10 +4774,10 @@ els.showRegisterButton.addEventListener("click", () => {
   renderAccountPanel();
 });
 
-async function completeAccountAuthentication(path, username, password) {
+async function completeAccountAuthentication(path, username, password, extra = {}) {
   const result = await api(path, {
     method: "POST",
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ username, password, ...extra }),
   });
   account = result.account;
   accountWorkspaceTab = "decks";
@@ -4710,7 +4801,10 @@ els.loginForm.addEventListener("submit", async (event) => {
 els.registerForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   try {
-    await completeAccountAuthentication("/api/accounts/register", els.registerUsernameInput.value, els.registerPasswordInput.value);
+    await completeAccountAuthentication("/api/accounts/register", els.registerUsernameInput.value, els.registerPasswordInput.value, {
+      firstName: els.registerFirstNameInput.value,
+    });
+    els.registerFirstNameInput.value = "";
     els.registerPasswordInput.value = "";
   } catch (error) {
     setAccountStatus(error.message, true);
@@ -4761,7 +4855,14 @@ els.deckBuilderForm.addEventListener("submit", async (event) => {
     if (submit) submit.disabled = false;
   }
 });
-els.startBuilderDeckGameButton.addEventListener("click", () => startGameWithDeck(currentBuilderDeck()));
+els.startBuilderDeckGameButton.addEventListener("click", async () => {
+  els.startBuilderDeckGameButton.disabled = true;
+  try {
+    await startGameWithDeck(currentBuilderDeck());
+  } finally {
+    if (!state) els.startBuilderDeckGameButton.disabled = false;
+  }
+});
 els.duplicateBuilderDeckButton.addEventListener("click", async () => {
   const deck = savedDecks.find((candidate) => candidate.id === selectedBuilderDeckId);
   if (deck) await duplicateSavedDeck(deck);
@@ -4913,13 +5014,24 @@ els.newLobbyDialog.addEventListener("close", () => {
 });
 
 els.exitGameButton.addEventListener("click", () => {
-  if (!account) {
-    leaveGameForLanding("lobbies");
+  if (currentSeatIsGuest()) {
+    openGuestLeaveDialog();
     return;
   }
   accountWorkspaceTab = "games";
   leaveGameForLanding("account");
   loadActiveGames().catch((error) => setAccountStatus(error.message, true));
+});
+
+els.closeGuestLeaveButton.addEventListener("click", () => els.guestLeaveDialog.close());
+els.guestLeaveDialog.addEventListener("cancel", (event) => event.preventDefault());
+els.guestLeaveForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (event.submitter?.value !== "leave") {
+    els.guestLeaveDialog.close();
+    return;
+  }
+  await confirmGuestLeave();
 });
 
 els.singlePlayerInput.addEventListener("change", () => {
@@ -5472,6 +5584,7 @@ document.querySelectorAll("dialog").forEach((dialog) => {
   dialog.addEventListener("click", (event) => {
     if (event.target !== dialog) return;
     if (dialog === els.saveDeckDialog || dialog === els.deleteDeckDialog) return;
+    if (dialog === els.guestLeaveDialog) return;
     if (dialog === els.mulliganDialog && state?.currentPlayer?.mulliganPending) return;
     if (dialog === els.recapDialog) {
       closeRecapDialog();
@@ -5489,10 +5602,17 @@ window.addEventListener("resize", () => {
   applyCardScale(recommendedCardScale(), { persist: false });
 });
 
-window.addEventListener("beforeunload", () => {
+window.addEventListener("beforeunload", (event) => {
   if (state && !els.recapDialog.open) {
     localStorage.setItem(recapStorageKey(), String(latestEventSeq()));
   }
+  if (!state || !currentSeatIsGuest()) return;
+  event.preventDefault();
+  event.returnValue = "";
+});
+
+window.addEventListener("pagehide", () => {
+  sendGuestHostLeaveBeacon();
 });
 
 document.addEventListener("visibilitychange", () => {

@@ -17,9 +17,10 @@ let lastScryfallRequestAt = 0;
 const scryfallRequestTimeoutMs = 25000;
 const scryfallMaxAttempts = 3;
 const presenceTimeoutMs = 30000;
+const residentRoomUnloadMs = 2 * 60 * 1000;
+const guestHostDormantMs = 10 * 60 * 1000;
+const cleanupIntervalMs = 60 * 1000;
 const phases = ["Untap", "Upkeep", "Draw", "Main 1", "Combat", "Main 2", "End"];
-
-gameStore.loadActiveRooms().forEach((room) => rooms.set(room.id, room));
 
 function id(prefix) {
   return `${prefix}-${crypto.randomBytes(5).toString("hex")}`;
@@ -37,7 +38,12 @@ function createJoinCode() {
     for (let index = 0; index < 6; index += 1) {
       code += joinCodeAlphabet[crypto.randomInt(joinCodeAlphabet.length)];
     }
-    if (![...rooms.values()].some((room) => room.joinCode === code)) return code;
+    if (
+      ![...rooms.values()].some((room) => !room.endedAt && room.joinCode === code)
+      && !gameStore.joinCodeExists(code)
+    ) {
+      return code;
+    }
   }
   throw new Error("Could not allocate a unique room code.");
 }
@@ -121,6 +127,114 @@ function persistRoomQuietly(room) {
   }
 }
 
+function activateRoom(room) {
+  if (!room?.id) return null;
+  const existing = rooms.get(room.id);
+  const activeRoom = existing || room;
+  if (!existing) rooms.set(activeRoom.id, activeRoom);
+  activeRoom.loadedAt = activeRoom.loadedAt || Date.now();
+  activeRoom.lastAccessedAt = Date.now();
+  activeRoom.subscribers = activeRoom.subscribers || new Set();
+  activeRoom.presenceConnections = activeRoom.presenceConnections || new Map();
+  activeRoom.undoStack = activeRoom.undoStack || [];
+  activeRoom.redoStack = activeRoom.redoStack || [];
+  return activeRoom;
+}
+
+function getRoomById(roomId) {
+  const idValue = String(roomId || "");
+  if (!idValue) return null;
+  const resident = rooms.get(idValue);
+  if (resident) return activateRoom(resident);
+  try {
+    return activateRoom(gameStore.loadRoom(idValue));
+  } catch (error) {
+    console.error(`Could not activate room ${idValue}:`, error);
+    return null;
+  }
+}
+
+function getRoomByJoinCode(joinCode) {
+  const code = normalizeJoinCode(joinCode);
+  if (!code) return null;
+  const resident = [...rooms.values()].find((room) => !room.endedAt && room.inviteMode === "code" && room.joinCode === code);
+  if (resident) return activateRoom(resident);
+  try {
+    return activateRoom(gameStore.findActiveRoomByJoinCode(code));
+  } catch (error) {
+    console.error(`Could not activate room by join code ${code}:`, error);
+    return null;
+  }
+}
+
+function roomHasLiveConnections(room) {
+  const subscriberCount = Number(room?.subscribers?.size) || 0;
+  const presenceCount = [...(room?.presenceConnections?.values?.() || [])]
+    .reduce((total, count) => total + (Number(count) || 0), 0);
+  return subscriberCount > 0 || presenceCount > 0;
+}
+
+function hostPlayer(room) {
+  return room?.players?.find((player) => player.isHost) || room?.players?.[0] || null;
+}
+
+function endRoom(room, actor, message, detail = { kind: "gameEnded" }) {
+  if (!room || room.endedAt) return;
+  const now = Date.now();
+  syncRoomClock(room, now);
+  room.endedAt = now;
+  room.updatedAt = now;
+  room.updateSeq = (Number(room.updateSeq) || 0) + 1;
+  addLog(room, message, actor || hostPlayer(room), detail);
+  persistRoom(room);
+  broadcastRoomUpdate(room);
+  broadcastPresence(room);
+}
+
+function terminateDormantGuestRoom(room, now) {
+  const host = hostPlayer(room);
+  if (!host || host.accountId || room.endedAt) return false;
+  const lastSeen = Number(room.guestHostLastSeenAt) || Number(host.presenceLastSeenAt) || Number(room.createdAt) || now;
+  if (roomHasLiveConnections(room) || now - lastSeen < guestHostDormantMs) return false;
+  endRoom(room, host, `${host.name} was away for 10 minutes, so this guest-hosted game was closed.`, {
+    kind: "gameEnded",
+    reason: "guestHostDormant",
+  });
+  return true;
+}
+
+function cleanupResidentRooms() {
+  const now = Date.now();
+  for (const [roomId, room] of rooms.entries()) {
+    try {
+      if (terminateDormantGuestRoom(room, now)) {
+        rooms.delete(roomId);
+        continue;
+      }
+      if (room.endedAt) {
+        persistRoomQuietly(room);
+        rooms.delete(roomId);
+        continue;
+      }
+      if (!roomHasLiveConnections(room) && now - (Number(room.lastAccessedAt) || Number(room.updatedAt) || now) > residentRoomUnloadMs) {
+        syncRoomClock(room, now);
+        persistRoomQuietly(room);
+        rooms.delete(roomId);
+      }
+    } catch (error) {
+      console.error(`Room cleanup failed for ${roomId}:`, error);
+    }
+  }
+  try {
+    for (const room of gameStore.listActiveGuestHostedRooms()) {
+      if (rooms.has(room.id)) continue;
+      terminateDormantGuestRoom(room, now);
+    }
+  } catch (error) {
+    console.error("Dormant guest-host cleanup failed:", error);
+  }
+}
+
 function sendMissingRoom(res, roomId, message = "Room not found") {
   const persisted = gameStore.gameStatus(roomId);
   if (persisted?.status === "ended") {
@@ -143,6 +257,7 @@ function playerIsPresent(room, player, now = Date.now()) {
 function touchPresence(room, player, now = Date.now()) {
   if (!room || !player) return;
   player.presenceLastSeenAt = now;
+  if (player.isHost && !player.accountId) room.guestHostLastSeenAt = now;
 }
 
 function syncRoomClock(room, now = Date.now()) {
@@ -379,7 +494,7 @@ function pushUndoSnapshot(room, snapshot) {
   room.undoStack = room.undoStack.slice(-40);
 }
 
-function createRoom(name, playerCount, origin, password = "", inviteMode = "links", hostAccountId = "") {
+function createRoomState(name, playerCount, password = "", inviteMode = "links", hostAccountId = "") {
   const createdAt = Date.now();
   const normalizedInviteMode = playerCount > 1 && inviteMode === "code" ? "code" : "links";
   const room = {
@@ -388,6 +503,7 @@ function createRoom(name, playerCount, origin, password = "", inviteMode = "link
     createdAt,
     updatedAt: createdAt,
     endedAt: 0,
+    guestHostLastSeenAt: hostAccountId ? 0 : createdAt,
     inviteMode: normalizedInviteMode,
     joinCode: normalizedInviteMode === "code" ? createJoinCode() : "",
     activePlayer: 0,
@@ -458,7 +574,13 @@ function createRoom(name, playerCount, origin, password = "", inviteMode = "link
   };
   setRoomPassword(room, password);
   addLog(room, `${name} created with ${playerCount} seats.`);
+  return room;
+}
+
+function createRoom(name, playerCount, origin, password = "", inviteMode = "links", hostAccountId = "") {
+  const room = createRoomState(name, playerCount, password, inviteMode, hostAccountId);
   rooms.set(room.id, room);
+  activateRoom(room);
   persistRoom(room);
   return viewRoom(room, room.players[0].token, origin);
 }
@@ -492,6 +614,7 @@ function viewRoom(room, token, origin) {
       name: currentPlayer.name,
       commander: currentPlayer.commander,
       isHost: currentPlayer.isHost,
+      isGuest: !currentPlayer.accountId,
       deckLoaded: currentPlayer.deckLoaded,
       deckStats: currentPlayer.deckStats,
       libraryPreview: currentPlayer.libraryPreview,
@@ -530,6 +653,7 @@ function viewRoom(room, token, origin) {
       commander: player.commander,
       deckLoaded: player.deckLoaded,
       deckStats: player.deckStats,
+      isGuest: !player.accountId,
       life: player.life,
       commanderTax: Number(player.commanderTax) || 0,
       playerCounters: player.playerCounters || {},
@@ -821,7 +945,7 @@ function accountGameSummary(room, accountId, origin) {
 }
 
 function activeGamesForAccount(accountId, origin) {
-  return [...rooms.values()]
+  return gameStore.listActiveRoomsForAccount(accountId)
     .filter((room) => !room.endedAt && room.players.some((player) => player.accountId === accountId))
     .map((room) => accountGameSummary(room, accountId, origin))
     .filter(Boolean)
@@ -1326,6 +1450,32 @@ function mulliganPlayer(room, actor) {
   actor.mulliganCount = (Number(actor.mulliganCount) || 0) + 1;
   actor.mulliganPending = true;
   addLog(room, `${actor.name} took a mulligan and drew ${drawn.length} card${drawn.length === 1 ? "" : "s"}.`, actor);
+}
+
+async function loadDeckIntoPlayer(room, actor, values = {}) {
+  const playerName = String(values.name || "").trim();
+  const commander = String(values.commander || "").trim();
+  if (playerName) actor.name = playerName.slice(0, 32);
+  actor.commander = commander.slice(0, 80);
+  const deck = await buildDeck(values.text || values.decklist || "", actor.seat);
+  actor.hand.forEach(prepareForNonBattlefield);
+  actor.graveyard.forEach(prepareForNonBattlefield);
+  actor.exile.forEach(prepareForNonBattlefield);
+  actor.commanderZone = await pullCommanderCard(deck.cards, actor.commander, actor.seat);
+  actor.library = shuffle(deck.cards);
+  actor.hand = [];
+  actor.battlefield = [];
+  actor.graveyard = [];
+  actor.exile = [];
+  actor.mulliganCount = 0;
+  actor.mulliganPending = true;
+  drawOpeningHand(actor, 7);
+  actor.libraryPreview = null;
+  actor.deckStats = deck.stats;
+  actor.deckLoaded = true;
+  const commanderText = actor.commanderZone.length ? " Commander moved to command zone." : "";
+  addLog(room, `${actor.name} loaded ${deck.stats.total} cards, shuffled, and reviewed an opening hand of ${actor.hand.length}.${commanderText}`, actor);
+  return deck;
 }
 
 async function pullCommanderCard(cards, commanderName, ownerSeat) {
@@ -2043,6 +2193,18 @@ async function applyAction(room, actor, body) {
       addLog(room, `${target.name} commander tax changed to ${tax}.`, actor);
       break;
     }
+    case "leaveGame": {
+      if (actor.isHost && !actor.accountId) {
+        room.endedAt = Date.now();
+        addLog(room, `${actor.name} left, so this guest-hosted game was closed.`, actor, {
+          kind: "gameEnded",
+          reason: "guestHostLeft",
+        });
+      } else {
+        addLog(room, `${actor.name} left the table.`, actor, { kind: "leave", seat: actor.seat });
+      }
+      break;
+    }
     case "chat": {
       const text = String(body.text || "").trim().slice(0, 240);
       if (!text) throw new Error("Message is required");
@@ -2068,21 +2230,7 @@ async function applyAction(room, actor, body) {
       break;
     }
     case "loadDeck": {
-      const playerName = String(body.name || "").trim();
-      const commander = String(body.commander || "").trim();
-      if (playerName) actor.name = playerName.slice(0, 32);
-      actor.commander = commander.slice(0, 80);
-      const deck = await buildDeck(body.text, actor.seat);
-      actor.commanderZone = await pullCommanderCard(deck.cards, actor.commander, actor.seat);
-      actor.library = shuffle(deck.cards);
-      actor.mulliganCount = 0;
-      actor.mulliganPending = true;
-      drawOpeningHand(actor, 7);
-      actor.libraryPreview = null;
-      actor.deckStats = deck.stats;
-      actor.deckLoaded = true;
-      const commanderText = actor.commanderZone.length ? " Commander moved to command zone." : "";
-      addLog(room, `${actor.name} loaded ${deck.stats.total} cards, shuffled, and reviewed an opening hand of ${actor.hand.length}.${commanderText}`, actor);
+      await loadDeckIntoPlayer(room, actor, body);
       break;
     }
     case "mulligan": {
@@ -2417,7 +2565,7 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && requestUrl.pathname === "/api/accounts/register") {
       const body = await readBody(req);
-      const result = accountStore.createAccount(body.username, body.password);
+      const result = accountStore.createAccount(body.username, body.password, body.firstName);
       return sendJson(res, 201, { account: result.account }, { "Set-Cookie": sessionCookie(req, result.sessionToken) });
     }
 
@@ -2451,19 +2599,15 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && endAccountGameMatch) {
       const account = authenticatedAccount(req, res);
       if (!account) return;
-      const room = rooms.get(decodeURIComponent(endAccountGameMatch[1]));
+      const room = getRoomById(decodeURIComponent(endAccountGameMatch[1]));
       if (!room) return sendJson(res, 404, { error: "Game not found.", code: "GAME_NOT_FOUND" });
       const host = room.players.find((player) => player.isHost);
       if (!host || host.accountId !== account.id) {
         return sendJson(res, 403, { error: "Only the host can end this game.", code: "HOST_REQUIRED" });
       }
       if (!room.endedAt) {
-        room.endedAt = Date.now();
-        room.updatedAt = room.endedAt;
-        room.updateSeq = (Number(room.updateSeq) || 0) + 1;
-        addLog(room, `${host.name} ended the game.`, host, { kind: "gameEnded" });
-        persistRoom(room);
-        broadcastRoomUpdate(room);
+        endRoom(room, host, `${host.name} ended the game.`, { kind: "gameEnded" });
+        rooms.delete(room.id);
       }
       return sendJson(res, 200, { ok: true, endedAt: room.endedAt });
     }
@@ -2498,14 +2642,26 @@ const server = http.createServer(async (req, res) => {
       const password = String(body.password || "").slice(0, 128);
       const inviteMode = body.inviteMode === "code" ? "code" : "links";
       const account = optionalAccount(req);
-      return sendJson(res, 201, createRoom(String(body.name || "Mage Table").slice(0, 40), playerCount, origin, password, inviteMode, account?.id || ""));
+      const room = createRoomState(String(body.name || "Mage Table").slice(0, 40), playerCount, password, inviteMode, account?.id || "");
+      const deck = body.deck && typeof body.deck === "object" ? body.deck : null;
+      if (deck?.decklist || deck?.text) {
+        await loadDeckIntoPlayer(room, room.players[0], {
+          text: deck.decklist || deck.text,
+          commander: deck.commander || "",
+          name: deck.playerName || account?.firstName || account?.username || room.players[0].name,
+        });
+      }
+      rooms.set(room.id, room);
+      activateRoom(room);
+      persistRoom(room);
+      return sendJson(res, 201, viewRoom(room, room.players[0].token, origin));
     }
 
     if (req.method === "POST" && requestUrl.pathname === "/api/rooms/join") {
       const body = await readBody(req);
       const joinCode = normalizeJoinCode(body.code);
       if (!joinCode) return sendJson(res, 400, { error: "Enter a room code.", code: "JOIN_CODE_REQUIRED" });
-      const room = [...rooms.values()].find((candidate) => !candidate.endedAt && candidate.inviteMode === "code" && candidate.joinCode === joinCode);
+      const room = getRoomByJoinCode(joinCode);
       if (!room) return sendJson(res, 404, { error: "That room code was not found.", code: "JOIN_CODE_NOT_FOUND" });
       const passwordError = roomPasswordError(room, String(body.password || ""));
       if (passwordError) return sendJson(res, passwordError.status, passwordError);
@@ -2528,7 +2684,7 @@ const server = http.createServer(async (req, res) => {
 
     const roomMatch = requestUrl.pathname.match(/^\/api\/rooms\/([^/]+)$/);
     if (req.method === "GET" && roomMatch) {
-      const room = rooms.get(roomMatch[1]);
+      const room = getRoomById(roomMatch[1]);
       if (!room) return sendMissingRoom(res, roomMatch[1], "Room or seat not found");
       if (room?.endedAt) return sendJson(res, 410, { error: "This game has ended.", code: "GAME_ENDED" });
       const token = requestUrl.searchParams.get("token");
@@ -2558,7 +2714,7 @@ const server = http.createServer(async (req, res) => {
 
     const streamMatch = requestUrl.pathname.match(/^\/api\/rooms\/([^/]+)\/stream$/);
     if (req.method === "GET" && streamMatch) {
-      const room = rooms.get(streamMatch[1]);
+      const room = getRoomById(streamMatch[1]);
       if (!room) return sendMissingRoom(res, streamMatch[1], "Room or seat not found");
       if (room?.endedAt) return sendJson(res, 410, { error: "This game has ended.", code: "GAME_ENDED" });
       const token = requestUrl.searchParams.get("token");
@@ -2603,7 +2759,7 @@ const server = http.createServer(async (req, res) => {
 
     const presenceMatch = requestUrl.pathname.match(/^\/api\/rooms\/([^/]+)\/presence$/);
     if (req.method === "POST" && presenceMatch) {
-      const room = rooms.get(presenceMatch[1]);
+      const room = getRoomById(presenceMatch[1]);
       if (!room) return sendMissingRoom(res, presenceMatch[1]);
       if (room.endedAt) return sendJson(res, 410, { error: "This game has ended.", code: "GAME_ENDED" });
       const body = await readBody(req);
@@ -2634,7 +2790,7 @@ const server = http.createServer(async (req, res) => {
 
     const actionMatch = requestUrl.pathname.match(/^\/api\/rooms\/([^/]+)\/actions$/);
     if (req.method === "POST" && actionMatch) {
-      const room = rooms.get(actionMatch[1]);
+      const room = getRoomById(actionMatch[1]);
       if (!room) return sendMissingRoom(res, actionMatch[1]);
       if (room.endedAt) return sendJson(res, 410, { error: "This game has ended.", code: "GAME_ENDED" });
       const body = await readBody(req);
@@ -2653,7 +2809,9 @@ const server = http.createServer(async (req, res) => {
       persistRoom(room);
       broadcastRoomUpdate(room);
       broadcastPresence(room);
-      return sendJson(res, 200, viewRoom(room, actor.token, origin));
+      const responseView = viewRoom(room, actor.token, origin);
+      if (room.endedAt) rooms.delete(room.id);
+      return sendJson(res, 200, responseView);
     }
 
     return serveStatic(req, res);
@@ -2661,6 +2819,9 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 400, { error: error.message });
   }
 });
+
+const cleanupTimer = setInterval(cleanupResidentRooms, cleanupIntervalMs);
+cleanupTimer.unref?.();
 
 if (require.main === module) {
   server.listen(port, "0.0.0.0", () => {

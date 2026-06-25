@@ -134,6 +134,10 @@
             </form>
             <form id="registerForm" class="account-form hidden">
               <label>
+                First name
+                <input id="registerFirstNameInput" type="text" minlength="1" maxlength="40" autocomplete="given-name" required>
+              </label>
+              <label>
                 Username
                 <input id="registerUsernameInput" type="text" minlength="3" maxlength="24" pattern="[A-Za-z0-9_-]+" autocomplete="username" required>
               </label>
@@ -487,6 +491,22 @@
         <div class="dialog-actions">
           <button value="cancel" class="secondary" type="submit">Stay Here</button>
           <button id="confirmNewLobbyButton" value="confirm" type="submit">Create New Lobby</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="guestLeaveDialog">
+      <form id="guestLeaveForm" method="dialog" class="dialog-card confirmation-dialog-card">
+        <header class="popover-header">
+          <div>
+            <h2 id="guestLeaveTitle">Leave Game?</h2>
+            <p id="guestLeaveSummary" class="dialog-note">Guest seats are not saved to an account.</p>
+          </div>
+          <button id="closeGuestLeaveButton" class="popover-close" type="button" title="Dismiss" aria-label="Dismiss leave confirmation">x</button>
+        </header>
+        <div class="dialog-actions">
+          <button value="cancel" class="secondary" type="submit">Stay Here</button>
+          <button id="confirmGuestLeaveButton" class="danger" value="leave" type="submit">Leave Game</button>
         </div>
       </form>
     </dialog>

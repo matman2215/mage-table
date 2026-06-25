@@ -12,6 +12,8 @@ function serializeRoom(room) {
     presenceConnections,
     undoStack,
     redoStack,
+    loadedAt,
+    lastAccessedAt,
     ...persisted
   } = room;
   return JSON.stringify(persisted);
@@ -53,6 +55,7 @@ function hydrateRoom(state) {
     : [];
   while (room.clock.playerMs.length < room.players.length) room.clock.playerMs.push(0);
   room.clock.lastSyncAt = now;
+  room.guestHostLastSeenAt = Number(room.guestHostLastSeenAt) || 0;
   room.updatedAt = Number(room.updatedAt) || Number(room.createdAt) || now;
   room.createdAt = Number(room.createdAt) || room.updatedAt;
   room.endedAt = Number(room.endedAt) || 0;
@@ -72,6 +75,7 @@ class GameStore {
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         host_account_id TEXT,
+        join_code TEXT NOT NULL DEFAULT '',
         status TEXT NOT NULL DEFAULT 'active',
         turn_number INTEGER NOT NULL DEFAULT 1,
         active_player INTEGER NOT NULL DEFAULT 0,
@@ -103,17 +107,21 @@ class GameStore {
         PRIMARY KEY (game_id, sequence)
       );
       CREATE INDEX IF NOT EXISTS games_status_updated_idx ON games(status, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS games_join_code_idx ON games(join_code, status);
       CREATE INDEX IF NOT EXISTS game_members_account_idx ON game_members(account_id, game_id);
       CREATE INDEX IF NOT EXISTS game_events_game_created_idx ON game_events(game_id, created_at);
     `);
+    this.ensureColumn("games", "join_code", "TEXT NOT NULL DEFAULT ''");
+    this.db.exec("CREATE INDEX IF NOT EXISTS games_join_code_idx ON games(join_code, status);");
     this.upsertGame = this.db.prepare(`
       INSERT INTO games (
-        id, name, host_account_id, status, turn_number, active_player,
+        id, name, host_account_id, join_code, status, turn_number, active_player,
         state_json, version, created_at, updated_at, ended_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         host_account_id = excluded.host_account_id,
+        join_code = excluded.join_code,
         status = excluded.status,
         turn_number = excluded.turn_number,
         active_player = excluded.active_player,
@@ -135,6 +143,13 @@ class GameStore {
     `);
   }
 
+  ensureColumn(table, column, definition) {
+    const columns = this.db.prepare(`PRAGMA table_info(${table})`).all().map((row) => row.name);
+    if (!columns.includes(column)) {
+      this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
+    }
+  }
+
   saveRoom(room) {
     if (!room?.id) throw new Error("Cannot persist a room without an id.");
     const host = room.players?.find((player) => player.isHost) || room.players?.[0] || null;
@@ -148,6 +163,7 @@ class GameStore {
         room.id,
         String(room.name || "Mage Table"),
         host?.accountId || null,
+        String(room.joinCode || ""),
         status,
         Number(room.turnNumber) || 1,
         Number(room.activePlayer) || 0,
@@ -199,6 +215,64 @@ class GameStore {
         }
       });
     return rooms;
+  }
+
+  loadRoom(gameId) {
+    const row = this.db.prepare("SELECT state_json FROM games WHERE id = ? AND status = 'active'").get(gameId);
+    if (!row) return null;
+    return hydrateRoom(JSON.parse(row.state_json));
+  }
+
+  findActiveRoomByJoinCode(joinCode) {
+    const code = String(joinCode || "").trim();
+    if (!code) return null;
+    const row = this.db.prepare(`
+      SELECT state_json FROM games
+      WHERE status = 'active' AND join_code = ?
+      ORDER BY updated_at DESC LIMIT 1
+    `).get(code);
+    if (row) return hydrateRoom(JSON.parse(row.state_json));
+
+    const fallback = this.db.prepare("SELECT state_json FROM games WHERE status = 'active' ORDER BY updated_at DESC").all();
+    for (const candidate of fallback) {
+      try {
+        const room = hydrateRoom(JSON.parse(candidate.state_json));
+        if (room.joinCode === code) return room;
+      } catch {
+        // Ignore damaged historical rows and keep looking.
+      }
+    }
+    return null;
+  }
+
+  joinCodeExists(joinCode) {
+    const code = String(joinCode || "").trim();
+    if (!code) return false;
+    const row = this.db.prepare("SELECT id FROM games WHERE status = 'active' AND join_code = ? LIMIT 1").get(code);
+    if (row) return true;
+    return Boolean(this.findActiveRoomByJoinCode(code));
+  }
+
+  listActiveRoomsForAccount(accountId) {
+    return this.db.prepare(`
+      SELECT DISTINCT games.state_json
+      FROM games
+      JOIN game_members ON game_members.game_id = games.id
+      WHERE games.status = 'active' AND game_members.account_id = ?
+      ORDER BY games.updated_at DESC
+    `).all(accountId).map((row) => hydrateRoom(JSON.parse(row.state_json)));
+  }
+
+  listActiveGuestHostedRooms() {
+    return this.db.prepare(`
+      SELECT games.state_json
+      FROM games
+      JOIN game_members ON game_members.game_id = games.id
+      WHERE games.status = 'active'
+        AND game_members.is_host = 1
+        AND (game_members.account_id IS NULL OR game_members.account_id = '')
+      ORDER BY games.updated_at ASC
+    `).all().map((row) => hydrateRoom(JSON.parse(row.state_json)));
   }
 
   gameStatus(gameId) {

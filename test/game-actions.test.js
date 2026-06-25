@@ -119,6 +119,57 @@ test("face-down exile hides the card from opponents", async () => {
   assert.equal(opponentCard.oracleText, undefined);
 });
 
+test("loading a deck shuffles, moves commander, and prompts mulligan", async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      data: [
+        {
+          id: "scryfall-commander",
+          name: "Test Commander",
+          type_line: "Legendary Creature - Merfolk",
+          mana_cost: "{2}{G}{U}",
+          cmc: 4,
+          oracle_text: "",
+          image_uris: { small: "https://example.test/commander-small.jpg", normal: "https://example.test/commander.jpg" },
+          power: "3",
+          toughness: "3",
+        },
+        {
+          id: "scryfall-island",
+          name: "Island",
+          type_line: "Basic Land - Island",
+          mana_cost: "",
+          cmc: 0,
+          oracle_text: "({T}: Add {U}.)",
+          produced_mana: ["U"],
+          image_uris: { small: "https://example.test/island-small.jpg", normal: "https://example.test/island.jpg" },
+        },
+      ],
+    }),
+  });
+  try {
+    const state = room();
+    await applyAction(state, state.players[0], {
+      type: "loadDeck",
+      text: "1 Test Commander\n7 Island",
+      commander: "Test Commander",
+      name: "Codex",
+    });
+    assert.equal(state.players[0].name, "Codex");
+    assert.equal(state.players[0].commanderZone.length, 1);
+    assert.equal(state.players[0].commanderZone[0].isCommander, true);
+    assert.equal(state.players[0].hand.length, 7);
+    assert.equal(state.players[0].library.length, 0);
+    assert.equal(state.players[0].mulliganPending, true);
+    assert.equal(state.players[0].deckLoaded, true);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("combat damage can be taken per creature without double counting", async () => {
   const state = room();
   state.priorityMode = "combat";

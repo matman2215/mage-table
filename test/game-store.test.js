@@ -112,7 +112,9 @@ test("persists and hydrates active room state without runtime connections", () =
   let secondStore;
   try {
     accountStore = new AccountStore(databasePath);
-    const { account } = accountStore.createAccount("persistence_user", "testing123");
+    const { account } = accountStore.createAccount("persistence_user", "testing123", "Penny");
+    assert.equal(account.firstName, "Penny");
+    assert.equal(accountStore.login("persistence_user", "testing123").account.firstName, "Penny");
     firstStore = new GameStore(databasePath);
     const room = sampleRoom(account.id);
 
@@ -130,6 +132,10 @@ test("persists and hydrates active room state without runtime connections", () =
     secondStore = new GameStore(databasePath);
     const restoredRooms = secondStore.loadActiveRooms();
     assert.equal(restoredRooms.length, 1);
+    assert.equal(secondStore.loadRoom(room.id).id, room.id);
+    assert.equal(secondStore.findActiveRoomByJoinCode("ABC234").id, room.id);
+    assert.equal(secondStore.joinCodeExists("ABC234"), true);
+    assert.equal(secondStore.listActiveRoomsForAccount(account.id).length, 1);
     const restored = restoredRooms[0];
     assert.equal(restored.turnNumber, 4);
     assert.equal(restored.players[0].hand[0].name, "Counterspell");
