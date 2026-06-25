@@ -691,6 +691,30 @@ body.landing-mode .landing-panel button:not(.landing-actions button) {
   gap: 2px;
 }
 
+.deck-title-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  min-width: 0;
+}
+
+.deck-header-scale {
+  display: inline-flex;
+  flex-direction: row;
+  gap: 6px;
+  align-items: center;
+  color: #a6b4ae;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+}
+
+.deck-header-scale input[type="range"] {
+  width: 116px;
+  min-height: 18px;
+  padding: 0;
+}
+
 .deck-library-heading h2,
 .deck-builder-header h2,
 .active-games-heading h2 {
@@ -1056,35 +1080,32 @@ body.landing-mode .account-workspace-shell label {
 
 .deck-view-toolbar {
   display: grid;
-  grid-template-columns: repeat(5, minmax(112px, 1fr)) auto;
-  gap: 8px;
+  grid-template-columns: minmax(86px, 112px) minmax(96px, 122px) minmax(108px, 136px) minmax(132px, 180px) auto;
+  gap: 6px;
   align-items: end;
+  justify-content: start;
   padding-bottom: 6px;
   border-bottom: 1px solid #34433e;
 }
 
 .deck-view-toolbar label {
   gap: 4px;
-  font-size: 0.68rem;
+  font-size: 0.62rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 
 .deck-view-toolbar input,
 .deck-view-toolbar select {
-  min-height: 32px;
-  padding: 6px 8px;
-  font-size: 0.78rem;
-}
-
-.deck-view-toolbar button {
-  min-height: 32px;
-  padding: 0 12px;
+  min-height: 28px;
+  padding: 4px 7px;
   font-size: 0.72rem;
 }
 
-.deck-view-toolbar input[type="range"] {
-  padding: 0;
+.deck-view-toolbar button {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 0.68rem;
 }
 
 .deck-visual-columns {

@@ -44,7 +44,7 @@
             <button id="joinGameButton" class="secondary" type="button">Join Game</button>
             <button id="loginButton" class="secondary" type="button">Log In</button>
           </div>
-          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.4.1</p>
+          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.4.2</p>
         </div>
         <section id="createModePanel" class="landing-subpanel create-mode-panel hidden">
           <header class="create-room-header">
@@ -217,7 +217,13 @@
                   <header class="deck-builder-header">
                     <div>
                       <h2 id="deckBuilderTitle">New Deck</h2>
-                      <span id="deckBuilderCount">0 cards</span>
+                      <div class="deck-title-meta">
+                        <span id="deckBuilderCount">0 cards</span>
+                        <label class="deck-header-scale">
+                          Scale
+                          <input id="deckViewScaleInput" type="range" min="70" max="160" step="5" value="100">
+                        </label>
+                      </div>
                     </div>
                     <div class="deck-builder-header-actions">
                       <button id="bulkImportDeckButton" class="secondary" type="button">Bulk Import</button>
@@ -270,10 +276,6 @@
                     <label>
                       Find
                       <input id="deckVisualSearchInput" type="search" maxlength="120" placeholder="Highlight card">
-                    </label>
-                    <label>
-                      Scale
-                      <input id="deckViewScaleInput" type="range" min="70" max="160" step="5" value="100">
                     </label>
                     <button id="applyDeckViewButton" type="button">Apply</button>
                   </section>

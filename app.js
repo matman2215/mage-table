@@ -460,6 +460,14 @@ function accountApi(path, options = {}) {
   return api(path, options);
 }
 
+function setDisabled(element, disabled) {
+  if (element) element.disabled = Boolean(disabled);
+}
+
+function isDisabled(element) {
+  return !element || Boolean(element.disabled);
+}
+
 function setLoading(isLoading) {
   pendingRequests += isLoading ? 1 : -1;
   pendingRequests = Math.max(0, pendingRequests);
@@ -574,7 +582,7 @@ function selectedInviteMode() {
 function updateRoomCreationControls() {
   if (!els.singlePlayerInput || !els.playerCountInput || !els.playerCountLabel || !els.inviteDebugDetails || !els.createRoomSubmitButton) return;
   const solo = els.singlePlayerInput.checked;
-  els.playerCountInput.disabled = solo;
+  setDisabled(els.playerCountInput, solo);
   els.playerCountLabel.classList.toggle("disabled-field", solo);
   els.inviteDebugDetails.classList.toggle("hidden", solo);
   els.createRoomSubmitButton.textContent = solo
@@ -773,7 +781,7 @@ async function confirmGuestLeave() {
     return;
   }
   const wasHost = Boolean(state.currentPlayer?.isHost);
-  els.confirmGuestLeaveButton.disabled = true;
+  setDisabled(els.confirmGuestLeaveButton, true);
   try {
     if (wasHost) {
       await sendAction("leaveGame");
@@ -781,7 +789,7 @@ async function confirmGuestLeave() {
   } catch {
     // Dormant guest-host cleanup will close the game if the explicit leave request fails.
   } finally {
-    els.confirmGuestLeaveButton.disabled = false;
+    setDisabled(els.confirmGuestLeaveButton, false);
   }
   clearCurrentActiveLobby();
   els.guestLeaveDialog.close();
@@ -1576,7 +1584,7 @@ async function joinRoomWithDeck() {
   if (!pendingJoinDeck) return;
   const code = els.joinWithDeckCodeInput.value.trim();
   const passwordStep = !els.joinWithDeckPasswordLabel.classList.contains("hidden");
-  els.submitJoinWithDeckButton.disabled = true;
+  setDisabled(els.submitJoinWithDeckButton, true);
   try {
     if (!passwordStep) {
       const check = await api("/api/rooms/check-code", {
@@ -1604,7 +1612,7 @@ async function joinRoomWithDeck() {
   } catch (error) {
     els.joinWithDeckStatus.textContent = error.message;
   } finally {
-    els.submitJoinWithDeckButton.disabled = false;
+    setDisabled(els.submitJoinWithDeckButton, false);
     hideGameLoading();
   }
 }
@@ -1730,7 +1738,7 @@ async function searchDeckBuilderCards() {
     els.deckCardSearchSummary.textContent = "Enter at least two characters.";
     return;
   }
-  els.deckCardSearchButton.disabled = true;
+  setDisabled(els.deckCardSearchButton, true);
   els.deckCardSearchSummary.textContent = "Searching Scryfall...";
   try {
     const result = await api(`/api/scryfall/cards?q=${encodeURIComponent(query)}`);
@@ -1742,7 +1750,7 @@ async function searchDeckBuilderCards() {
     renderDeckCardSearchResults();
     els.deckCardSearchSummary.textContent = error.message;
   } finally {
-    els.deckCardSearchButton.disabled = false;
+    setDisabled(els.deckCardSearchButton, false);
   }
 }
 
@@ -2197,8 +2205,8 @@ function renderRoomSettings() {
   const settings = state.settings || {};
   els.friendlyMulligansInput.checked = settings.friendlyMulligans !== false;
   els.themeSelect.value = settings.theme || (settings.terminalTheme ? "console" : settings.darkMode === false ? "light" : "dark");
-  els.friendlyMulligansInput.disabled = false;
-  els.themeSelect.disabled = false;
+  setDisabled(els.friendlyMulligansInput, false);
+  setDisabled(els.themeSelect, false);
 }
 
 function renderMulliganDialog() {
@@ -2326,8 +2334,8 @@ function renderRecapDialog() {
   const event = recapEvents[recapIndex];
   els.recapSummary.textContent = `${recapEvents.length} move${recapEvents.length === 1 ? "" : "s"} while you were away`;
   els.recapProgress.textContent = `${recapIndex + 1} of ${recapEvents.length}`;
-  els.recapPreviousButton.disabled = recapIndex === 0;
-  els.recapNextButton.disabled = recapIndex >= recapEvents.length - 1;
+  setDisabled(els.recapPreviousButton, recapIndex === 0);
+  setDisabled(els.recapNextButton, recapIndex >= recapEvents.length - 1);
   els.recapStep.innerHTML = "";
   if (!event) return;
   const actor = document.createElement("strong");
@@ -2429,7 +2437,7 @@ function renderDeckSetup() {
 
 function renderSeatSelect() {
   els.seatSelect.innerHTML = "";
-  els.seatSelect.disabled = true;
+  setDisabled(els.seatSelect, true);
   state.players.forEach((player) => {
     const option = document.createElement("option");
     option.value = String(player.seat);
@@ -2448,15 +2456,15 @@ function renderTurn() {
     : ` - priority: ${priorityName}`;
   els.activePlayerText.textContent = solo ? `${activeName} - Solo playtest` : `${activeName}${prioritySuffix}`;
   els.turnCountText.textContent = `Turn ${Number(state.turnNumber) || 1}`;
-  els.endTurnButton.disabled = !isMyTurn();
-  els.drawButton.disabled = !canActNow();
-  els.combatPassButton.disabled = !isMyTurn();
-  els.instantButton.disabled = isMyTurn() || isPriorityHolder();
-  els.passPriorityButton.disabled = !isPriorityHolder();
+  setDisabled(els.endTurnButton, !isMyTurn());
+  setDisabled(els.drawButton, !canActNow());
+  setDisabled(els.combatPassButton, !isMyTurn());
+  setDisabled(els.instantButton, isMyTurn() || isPriorityHolder());
+  setDisabled(els.passPriorityButton, !isPriorityHolder());
   els.instantButton.classList.toggle("hidden", solo);
   els.combatPassButton.classList.toggle("hidden", solo);
   els.passPriorityButton.classList.toggle("hidden", solo);
-  els.boardReferenceButton.disabled = state.players.length <= 1;
+  setDisabled(els.boardReferenceButton, state.players.length <= 1);
   els.boardReferenceButton.classList.toggle("hidden", solo);
   document.body.classList.toggle("not-my-turn", !isMyTurn());
 }
@@ -5642,13 +5650,13 @@ els.deckCardSearchInput.addEventListener("keydown", (event) => {
   searchDeckBuilderCards();
 });
 els.refreshActiveGamesButton.addEventListener("click", async () => {
-  els.refreshActiveGamesButton.disabled = true;
+  setDisabled(els.refreshActiveGamesButton, true);
   try {
     await loadActiveGames();
   } catch (error) {
     setAccountStatus(error.message, true);
   } finally {
-    els.refreshActiveGamesButton.disabled = false;
+    setDisabled(els.refreshActiveGamesButton, false);
   }
 });
 els.savedDeckListInput.addEventListener("input", updateSavedDeckCount);
@@ -5694,7 +5702,7 @@ els.endGameForm.addEventListener("submit", async (event) => {
     return;
   }
   if (event.submitter?.value !== "end" || !pendingEndGameId) return;
-  els.confirmEndGameButton.disabled = true;
+  setDisabled(els.confirmEndGameButton, true);
   try {
     await accountApi(`/api/account/games/${encodeURIComponent(pendingEndGameId)}/end`, { method: "POST", body: "{}" });
     pendingEndGameId = "";
@@ -5704,7 +5712,7 @@ els.endGameForm.addEventListener("submit", async (event) => {
   } catch (error) {
     setAccountStatus(error.message, true);
   } finally {
-    els.confirmEndGameButton.disabled = false;
+    setDisabled(els.confirmEndGameButton, false);
   }
 });
 
@@ -5723,7 +5731,7 @@ els.roomForm.addEventListener("submit", async (event) => {
 
 els.joinRoomForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  els.joinRoomSubmitButton.disabled = true;
+  setDisabled(els.joinRoomSubmitButton, true);
   setJoinRoomStatus();
   try {
     const code = els.joinCodeInput.value;
@@ -5742,7 +5750,7 @@ els.joinRoomForm.addEventListener("submit", async (event) => {
   } catch (error) {
     setJoinRoomStatus(error.message, true);
   } finally {
-    els.joinRoomSubmitButton.disabled = false;
+    setDisabled(els.joinRoomSubmitButton, false);
   }
 });
 
@@ -5838,7 +5846,7 @@ els.roomPasswordForm.addEventListener("submit", async (event) => {
     return;
   }
   const password = els.joinRoomPasswordInput.value;
-  els.submitRoomPasswordButton.disabled = true;
+  setDisabled(els.submitRoomPasswordButton, true);
   els.roomPasswordDialog.close();
   try {
     if (pendingPasswordJoin?.type === "code") {
@@ -5853,7 +5861,7 @@ els.roomPasswordForm.addEventListener("submit", async (event) => {
   } catch (error) {
     setJoinRoomStatus(error.message, true);
   } finally {
-    els.submitRoomPasswordButton.disabled = false;
+    setDisabled(els.submitRoomPasswordButton, false);
   }
 });
 
@@ -5907,13 +5915,13 @@ els.combatButton.addEventListener("click", () => {
 });
 
 els.randomFirstPlayerButton.addEventListener("click", async () => {
-  els.randomFirstPlayerButton.disabled = true;
+  setDisabled(els.randomFirstPlayerButton, true);
   try {
     await sendAction("randomFirstPlayer");
   } catch (error) {
     alert(error.message);
   } finally {
-    els.randomFirstPlayerButton.disabled = false;
+    setDisabled(els.randomFirstPlayerButton, false);
   }
 });
 
@@ -5945,7 +5953,7 @@ els.dismissDiceNoticeButton.addEventListener("click", () => {
 });
 
 els.loadDeckButton.addEventListener("click", async () => {
-  els.loadDeckButton.disabled = true;
+  setDisabled(els.loadDeckButton, true);
   try {
     await sendAction("loadDeck", {
       text: els.deckInput.value,
@@ -5955,7 +5963,7 @@ els.loadDeckButton.addEventListener("click", async () => {
   } catch (error) {
     alert(error.message);
   } finally {
-    els.loadDeckButton.disabled = false;
+    setDisabled(els.loadDeckButton, false);
   }
 });
 
@@ -6025,7 +6033,7 @@ els.drawButton.addEventListener("click", () => {
 });
 
 els.drawReminderAction.addEventListener("click", () => {
-  if (els.drawButton.disabled) return;
+    if (isDisabled(els.drawButton)) return;
   clearDrawButtonFlash();
   sendAction("draw");
 });
@@ -6082,24 +6090,24 @@ els.resetKeybindsButton.addEventListener("click", () => {
 });
 
 els.keepHandButton.addEventListener("click", async () => {
-  els.keepHandButton.disabled = true;
-  els.mulliganButton.disabled = true;
+  setDisabled(els.keepHandButton, true);
+  setDisabled(els.mulliganButton, true);
   try {
     await sendAction("keepHand");
   } finally {
-    els.keepHandButton.disabled = false;
-    els.mulliganButton.disabled = false;
+    setDisabled(els.keepHandButton, false);
+    setDisabled(els.mulliganButton, false);
   }
 });
 
 els.mulliganButton.addEventListener("click", async () => {
-  els.keepHandButton.disabled = true;
-  els.mulliganButton.disabled = true;
+  setDisabled(els.keepHandButton, true);
+  setDisabled(els.mulliganButton, true);
   try {
     await sendAction("mulligan");
   } finally {
-    els.keepHandButton.disabled = false;
-    els.mulliganButton.disabled = false;
+    setDisabled(els.keepHandButton, false);
+    setDisabled(els.mulliganButton, false);
   }
 });
 
@@ -6308,12 +6316,12 @@ function executeShortcutAction(actionId) {
   if (actionId === "selectAll") return selectAllBattlefieldCards();
   if (actionId === "cascade") return arrangeSelectedBattlefieldCards("stack");
   if (actionId === "equip") return equipSelectedBattlefieldCards();
-  if (actionId === "passPriority") return !els.passPriorityButton.disabled ? sendAction("passPriority") : null;
-  if (actionId === "takePriority") return !els.instantButton.disabled ? sendAction("takePriority") : null;
-  if (actionId === "combatPass") return !els.combatPassButton.disabled ? sendCombatPass() : null;
-  if (actionId === "endTurn") return !els.endTurnButton.disabled ? sendAction("turn") : null;
+  if (actionId === "passPriority") return !isDisabled(els.passPriorityButton) ? sendAction("passPriority") : null;
+  if (actionId === "takePriority") return !isDisabled(els.instantButton) ? sendAction("takePriority") : null;
+  if (actionId === "combatPass") return !isDisabled(els.combatPassButton) ? sendCombatPass() : null;
+  if (actionId === "endTurn") return !isDisabled(els.endTurnButton) ? sendAction("turn") : null;
   if (actionId === "draw") {
-    if (els.drawButton.disabled) return null;
+    if (isDisabled(els.drawButton)) return null;
     clearDrawButtonFlash();
     return sendAction("draw");
   }
@@ -6429,9 +6437,7 @@ document.addEventListener("visibilitychange", () => {
 loadCardScale();
 loadOpacitySettings();
 renderKeybindSettings();
-if (els.playerCountInput && els.singlePlayerInput) {
-  els.playerCountInput.disabled = els.singlePlayerInput.checked;
-}
+setDisabled(els.playerCountInput, els.singlePlayerInput?.checked);
 refreshState();
 restoreAccountSession();
 startPolling();
