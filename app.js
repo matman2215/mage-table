@@ -568,6 +568,7 @@ function renderLanding() {
   els.joinRoomForm.classList.toggle("hidden", landingView !== "join");
   els.activeLobbiesPanel.classList.toggle("hidden", landingView !== "lobbies");
   els.accountPanel.classList.toggle("hidden", landingView !== "account");
+  document.body.classList.toggle("account-workspace-mode", landingView === "account" && Boolean(account));
   els.setupPanel.classList.toggle("account-view", landingView === "account");
   els.setupPanel.classList.toggle("account-workspace-shell", landingView === "account" && Boolean(account));
   els.setupPanel.classList.toggle("lobbies-view", landingView === "lobbies");
@@ -1194,14 +1195,18 @@ function applyDeckViewScale() {
   els.deckBuilderPreview.style.setProperty("--deck-view-scale", String(deckViewScale() / 100));
 }
 
-function applyDeckViewSettings() {
+function applyDeckViewSettings(event = null) {
+  if (event?.type === "click" || event?.type === "pointerup" || event?.type === "submit") event.preventDefault();
   deckBuilderPreviewCollapsed = false;
   applyDeckViewScale();
-  renderDeckBuilderPreview({ preserveScroll: true });
+  renderDeckBuilderPreview();
   if (els.deckBuilderPreview) {
     els.deckBuilderPreview.dataset.renderRevision = String(Date.now());
     els.deckBuilderPreview.getBoundingClientRect();
-    requestAnimationFrame(applyDeckViewScale);
+    requestAnimationFrame(() => {
+      applyDeckViewScale();
+      els.deckBuilderPreview.scrollTop = 0;
+    });
   }
 }
 
@@ -1215,6 +1220,9 @@ function renderDeckVisualStacks(cards, settings = deckViewSettings()) {
   });
   const wrap = document.createElement("div");
   wrap.className = `deck-visual-columns deck-view-${viewMode}`;
+  wrap.dataset.groupMode = groupMode;
+  wrap.dataset.sortMode = sortMode;
+  wrap.dataset.viewMode = viewMode;
   [...grouped.entries()]
     .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
     .forEach(([group, groupCards]) => {
@@ -1996,19 +2004,40 @@ async function saveBuilderDeck() {
     name: deck.name || fallbackBuilderDeckName(deck),
   };
   if (!deck.name) els.deckBuilderNameInput.value = deckToSave.name;
-  const path = deck.id ? `/api/account/decks/${encodeURIComponent(deck.id)}` : "/api/account/decks";
-  const result = await accountApi(path, {
-    method: deck.id ? "PUT" : "POST",
-    body: JSON.stringify(deckToSave),
-  });
-  upsertSavedDeck(result.deck);
-  selectedBuilderDeckId = result.deck.id;
-  els.deckBuilderNameInput.value = result.deck.name || deckToSave.name;
-  els.deckBuilderCommanderInput.value = result.deck.commander || deckToSave.commander || "";
-  els.deckBuilderListInput.value = result.deck.decklist || deckToSave.decklist;
+  let result;
+  try {
+    const path = deck.id ? `/api/account/decks/${encodeURIComponent(deck.id)}` : "/api/account/decks";
+    result = await accountApi(path, {
+      method: deck.id ? "PUT" : "POST",
+      body: JSON.stringify(deckToSave),
+    });
+  } catch (error) {
+    if (!deck.id || error.status === 401) throw error;
+    result = await accountApi("/api/account/decks", {
+      method: "POST",
+      body: JSON.stringify({ ...deckToSave, id: "" }),
+    });
+  }
+  const savedDeck = result.deck;
+  upsertSavedDeck(savedDeck);
+  selectedBuilderDeckId = savedDeck.id;
+  els.deckBuilderNameInput.value = savedDeck.name || deckToSave.name;
+  els.deckBuilderCommanderInput.value = savedDeck.commander || deckToSave.commander || "";
+  els.deckBuilderListInput.value = savedDeck.decklist || deckToSave.decklist;
+  if (els.savedDeckSearchInput) els.savedDeckSearchInput.value = "";
+  renderSavedDecks();
+  const refreshed = await accountApi("/api/account/decks");
+  savedDecks = refreshed.decks || [];
+  const reloadedDeck = savedDecks.find((candidate) => candidate.id === savedDeck.id) || savedDeck;
+  upsertSavedDeck(reloadedDeck);
+  selectedBuilderDeckId = reloadedDeck.id;
+  els.deckBuilderNameInput.value = reloadedDeck.name || savedDeck.name || deckToSave.name;
+  els.deckBuilderCommanderInput.value = reloadedDeck.commander || savedDeck.commander || deckToSave.commander || "";
+  els.deckBuilderListInput.value = reloadedDeck.decklist || savedDeck.decklist || deckToSave.decklist;
   renderSavedDecks();
   renderDeckBuilderPreview({ preserveScroll: true });
-  els.deckBuilderStatus.textContent = "Deck saved";
+  els.deckBuilderStatus.textContent = `Deck saved to library - ${savedDecks.length} deck${savedDecks.length === 1 ? "" : "s"}`;
+  setAccountStatus("Deck saved to library.");
 }
 
 async function handleDeckBuilderSave() {
@@ -2390,6 +2419,7 @@ function render() {
   }
 
   document.body.classList.remove("landing-mode");
+  document.body.classList.remove("account-workspace-mode");
   applyTheme();
   els.setupPanel.classList.add("hidden");
   els.tablePanel.classList.remove("hidden");
@@ -5204,6 +5234,11 @@ function hideCardZoom(cardNode = null) {
   zoomOverlay.innerHTML = "";
 }
 
+function clearCtrlZoomState() {
+  document.body.classList.remove("ctrl-zoom");
+  hideCardZoom();
+}
+
 function dropCard(source, targetSeat, targetZone, position = null) {
   return sendAction("moveCard", {
     seat: source.seat,
@@ -5935,6 +5970,12 @@ els.deckBuilderCommanderInput.addEventListener("input", () => {
 els.deckBuilderForm.addEventListener("submit", async (event) => {
   event.preventDefault();
 });
+els.deckBuilderForm.addEventListener("change", (event) => {
+  if (event.target.closest(".deck-view-toolbar")) applyDeckViewSettings(event);
+});
+els.deckBuilderForm.addEventListener("input", (event) => {
+  if (event.target.closest(".deck-view-toolbar")) applyDeckViewSettings(event);
+});
 els.saveBuilderDeckButton.addEventListener("click", handleDeckBuilderSave);
 els.deckGroupSelect.addEventListener("change", applyDeckViewSettings);
 els.deckSortSelect.addEventListener("change", applyDeckViewSettings);
@@ -5946,7 +5987,7 @@ if (els.deckViewScaleInput) {
 }
 if (els.applyDeckViewButton) {
   els.applyDeckViewButton.addEventListener("click", applyDeckViewSettings);
-  els.applyDeckViewButton.addEventListener("pointerdown", applyDeckViewSettings);
+  els.applyDeckViewButton.addEventListener("pointerup", applyDeckViewSettings);
 }
 els.deckMaybeBoardInput.addEventListener("input", saveMaybeBoard);
 els.deckCardSearchButton.addEventListener("click", searchDeckBuilderCards);
@@ -6656,10 +6697,7 @@ document.addEventListener("keydown", (event) => {
 });
 
 document.addEventListener("keyup", (event) => {
-  if (event.key === "Control") {
-    document.body.classList.remove("ctrl-zoom");
-    hideCardZoom();
-  }
+  if (event.key === "Control" || !event.ctrlKey) clearCtrlZoomState();
   if (event.key === "Shift") {
     document.body.classList.remove("hide-counters");
     document.body.classList.remove("shift-cascade");
@@ -6678,7 +6716,12 @@ document.addEventListener("mousemove", (event) => {
     if (!zoomOverlay || zoomOverlay.classList.contains("hidden")) showCardZoom(hoveredZoomCard);
     else positionCardZoom(hoveredZoomCard);
   }
-  if (!event.ctrlKey) hideCardZoom();
+  if (!event.ctrlKey) clearCtrlZoomState();
+});
+
+window.addEventListener("blur", clearCtrlZoomState);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") clearCtrlZoomState();
 });
 
 document.addEventListener("pointerdown", (event) => {

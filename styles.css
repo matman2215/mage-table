@@ -151,6 +151,14 @@ label {
   gap: 0;
 }
 
+body.account-workspace-mode .app-shell {
+  padding-left: 4px;
+}
+
+body.account-workspace-mode .topbar {
+  display: none;
+}
+
 .topbar {
   position: fixed;
   left: 4px;
@@ -1024,7 +1032,7 @@ body.landing-mode .account-workspace-shell label {
   overflow-x: hidden;
   border-top: 1px solid #34433e;
   scrollbar-gutter: stable;
-  padding-bottom: calc(760px * var(--deck-view-scale, 1));
+  padding-bottom: calc(1500px * var(--deck-view-scale, 1));
   overscroll-behavior: contain;
 }
 
@@ -1103,7 +1111,7 @@ body.landing-mode .account-workspace-shell label {
   align-items: start;
   min-width: 0;
   min-height: calc(100% + (420px * var(--deck-view-scale, 1)));
-  padding: 10px 2px calc(940px * var(--deck-view-scale, 1));
+  padding: 10px 2px calc(1800px * var(--deck-view-scale, 1));
   overflow: visible;
 }
 
@@ -1153,7 +1161,7 @@ body.landing-mode .account-workspace-shell label {
 
 .deck-card-stack {
   position: relative;
-  min-height: max(calc(560px * var(--deck-view-scale, 1)), calc((var(--stack-count, 1) - 1) * var(--cascade-open-step) * var(--deck-view-scale, 1) + 1320px * var(--deck-view-scale, 1)));
+  min-height: max(calc(980px * var(--deck-view-scale, 1)), calc((var(--stack-count, 1) - 1) * var(--cascade-open-step) * var(--deck-view-scale, 1) + 2080px * var(--deck-view-scale, 1)));
 }
 
 .deck-stack-card {
