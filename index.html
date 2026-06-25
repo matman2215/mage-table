@@ -197,10 +197,18 @@
                     <h2>Deck Library</h2>
                     <span id="savedDeckSummary">0 decks</span>
                   </div>
-                  <button id="collapseDeckRailButton" class="secondary compact-icon-button" type="button" title="Collapse deck library" aria-label="Collapse deck library">&#8249;</button>
+                  <button id="collapseDeckRailButton" class="secondary compact-icon-button" type="button" title="Collapse deck library" aria-label="Collapse deck library">☰</button>
+                  <button id="toggleMaybeBoardButton" class="secondary compact-icon-button" type="button" title="Maybe board" aria-label="Open maybe board">☆</button>
                   <button id="newSavedDeckButton" type="button">New Deck</button>
                 </header>
                 <input id="savedDeckSearchInput" type="search" placeholder="Filter decks" aria-label="Filter saved decks">
+                <aside id="deckMaybeBoardRail" class="deck-maybe-board-rail hidden">
+                  <header>
+                    <h3>Maybe Board</h3>
+                    <span>Planning space</span>
+                  </header>
+                  <textarea id="deckMaybeBoardInput" rows="8" maxlength="20000" placeholder="Cards to consider"></textarea>
+                </aside>
                 <div id="savedDeckList" class="saved-deck-list"></div>
               </aside>
 
@@ -213,15 +221,12 @@
                     </div>
                     <div class="deck-builder-header-actions">
                       <button id="bulkImportDeckButton" class="secondary" type="button">Bulk Import</button>
-                      <button id="exportBuilderDeckButton" class="secondary" type="button">Export</button>
-                      <button id="editDeckDetailsButton" class="secondary" type="button">Edit Details</button>
+                      <button id="deckContextButton" class="secondary deck-context-button" type="button" title="Deck actions" aria-label="Deck actions">⋯</button>
                       <button id="deckStatsButton" class="secondary" type="button">Stats</button>
-                      <button id="duplicateBuilderDeckButton" class="secondary" type="button">Duplicate</button>
-                      <button id="deleteBuilderDeckButton" class="danger" type="button">Delete</button>
                       <button id="saveBuilderDeckButton" type="submit">Save Deck</button>
                     </div>
                   </header>
-                  <input id="deckBuilderNameInput" type="hidden" maxlength="80" required>
+                  <input id="deckBuilderNameInput" type="hidden" maxlength="80">
                   <input id="deckBuilderCommanderInput" type="hidden" maxlength="120">
                   <section class="deck-card-search">
                     <div class="deck-card-search-row">
@@ -266,19 +271,17 @@
                       Find
                       <input id="deckVisualSearchInput" type="search" maxlength="120" placeholder="Highlight card">
                     </label>
+                    <label>
+                      Scale
+                      <input id="deckViewScaleInput" type="range" min="70" max="160" step="5" value="100">
+                    </label>
+                    <button id="applyDeckViewButton" type="button">Apply</button>
                   </section>
                   <div class="deck-builder-content">
                     <section class="deck-structured-list deck-viewer-panel">
                       <h3>Deck View</h3>
                       <div id="deckBuilderPreview" class="deck-builder-preview"></div>
                     </section>
-                    <aside class="deck-maybe-board">
-                      <header>
-                        <h3>Maybe Board</h3>
-                        <span>Planning space</span>
-                      </header>
-                      <textarea id="deckMaybeBoardInput" rows="8" maxlength="20000" placeholder="Cards to consider"></textarea>
-                    </aside>
                   </div>
                   <details class="deck-debug-panel">
                     <summary>Raw decklist / debug</summary>

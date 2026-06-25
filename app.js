@@ -54,16 +54,17 @@ const els = {
   deckBuilderPreview: document.querySelector("#deckBuilderPreview"),
   deckBuilderStatus: document.querySelector("#deckBuilderStatus"),
   bulkImportDeckButton: document.querySelector("#bulkImportDeckButton"),
-  exportBuilderDeckButton: document.querySelector("#exportBuilderDeckButton"),
-  editDeckDetailsButton: document.querySelector("#editDeckDetailsButton"),
+  deckContextButton: document.querySelector("#deckContextButton"),
   deckStatsButton: document.querySelector("#deckStatsButton"),
   saveBuilderDeckButton: document.querySelector("#saveBuilderDeckButton"),
-  duplicateBuilderDeckButton: document.querySelector("#duplicateBuilderDeckButton"),
-  deleteBuilderDeckButton: document.querySelector("#deleteBuilderDeckButton"),
   deckGroupSelect: document.querySelector("#deckGroupSelect"),
   deckSortSelect: document.querySelector("#deckSortSelect"),
   deckViewModeSelect: document.querySelector("#deckViewModeSelect"),
   deckVisualSearchInput: document.querySelector("#deckVisualSearchInput"),
+  deckViewScaleInput: document.querySelector("#deckViewScaleInput"),
+  applyDeckViewButton: document.querySelector("#applyDeckViewButton"),
+  toggleMaybeBoardButton: document.querySelector("#toggleMaybeBoardButton"),
+  deckMaybeBoardRail: document.querySelector("#deckMaybeBoardRail"),
   deckMaybeBoardInput: document.querySelector("#deckMaybeBoardInput"),
   deckCardSearchInput: document.querySelector("#deckCardSearchInput"),
   deckCardSearchButton: document.querySelector("#deckCardSearchButton"),
@@ -365,6 +366,7 @@ let deckBuilderMetadata = null;
 let deckBuilderMetadataKey = "";
 let deckBuilderMetadataTimer = null;
 let deckRailCollapsed = localStorage.getItem("mage-table-deck-rail-collapsed") === "1";
+let deckMaybeBoardOpen = localStorage.getItem("mage-table-maybeboard-open") === "1";
 let pendingDeckActionDeck = null;
 let pendingGameDeck = null;
 let pendingCreateDeck = null;
@@ -831,9 +833,13 @@ function renderAccountPanel() {
   els.accountDecksView.classList.toggle("hidden", accountWorkspaceTab !== "decks");
   els.accountGamesView.classList.toggle("hidden", accountWorkspaceTab !== "games");
   els.accountDecksView.classList.toggle("deck-rail-collapsed", deckRailCollapsed);
-  els.collapseDeckRailButton.textContent = deckRailCollapsed ? "›" : "‹";
+  els.collapseDeckRailButton.textContent = deckRailCollapsed ? "☰" : "⇤";
   els.collapseDeckRailButton.title = deckRailCollapsed ? "Expand deck library" : "Collapse deck library";
   els.collapseDeckRailButton.setAttribute("aria-label", els.collapseDeckRailButton.title);
+  els.toggleMaybeBoardButton.classList.toggle("active", deckMaybeBoardOpen);
+  els.toggleMaybeBoardButton.title = deckMaybeBoardOpen ? "Hide maybe board" : "Open maybe board";
+  els.toggleMaybeBoardButton.setAttribute("aria-label", els.toggleMaybeBoardButton.title);
+  els.deckMaybeBoardRail.classList.toggle("hidden", !deckMaybeBoardOpen);
   renderSavedDecks();
   renderDeckBuilderPreview();
   renderActiveGames();
@@ -909,21 +915,28 @@ function saveMaybeBoard() {
 }
 
 function openDeckActionDialog(deck) {
-  pendingDeckActionDeck = deck;
-  els.deckActionTitle.textContent = deck.name || "Deck Actions";
-  els.deckActionSummary.textContent = `${deckListCardCount(deck.decklist)} cards - ${deck.commander || "No commander"}`;
+  const current = deck || currentBuilderDeck();
+  const savedDeck = current.id ? savedDecks.find((candidate) => candidate.id === current.id) || current : null;
+  const loadDeckForEditing = () => {
+    if (deck?.id && deck.id !== selectedBuilderDeckId) selectBuilderDeck(deck);
+    openDeckDetailsDialog();
+  };
+  pendingDeckActionDeck = current;
+  els.deckActionTitle.textContent = current.name || "Deck Actions";
+  els.deckActionSummary.textContent = `${deckListCardCount(current.decklist)} cards - ${current.commander || "No commander"}`;
   els.deckActionList.innerHTML = "";
   [
-    ["Play", () => openDeckPlayChoice(deck)],
-    ["Export", () => exportDeck(deck)],
-    ["Duplicate", () => duplicateSavedDeck(deck)],
-    ["Stats", () => openDeckStatsDialog(deck)],
-    ["Delete", () => openDeleteDeckDialog(deck)],
-  ].forEach(([label, handler]) => {
+    { label: "Play", handler: () => openDeckPlayChoice(current), disabled: !String(current.decklist || "").trim() },
+    { label: "Edit Details", handler: loadDeckForEditing },
+    { label: "Export", handler: () => exportDeck(current), disabled: !current.decklist },
+    { label: "Duplicate", handler: () => duplicateSavedDeck(savedDeck), disabled: !savedDeck },
+    { label: "Delete", handler: () => openDeleteDeckDialog(savedDeck), disabled: !savedDeck },
+  ].forEach(({ label, handler, disabled }) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = label === "Delete" ? "danger" : label === "Play" ? "" : "secondary";
     button.textContent = label;
+    button.disabled = Boolean(disabled);
     button.addEventListener("click", async () => {
       els.deckActionDialog.close();
       await handler();
@@ -1066,8 +1079,7 @@ function renderDeckBuilderPreview() {
   const commander = els.deckBuilderCommanderInput.value.trim();
   els.deckBuilderTitle.textContent = deckName;
   els.deckBuilderCount.textContent = `${total} card${total === 1 ? "" : "s"}${commander ? ` - Commander: ${commander}` : ""}`;
-  els.duplicateBuilderDeckButton.disabled = !selectedDeck;
-  els.deleteBuilderDeckButton.disabled = !selectedDeck;
+  applyDeckViewScale();
   els.deckBuilderPreview.innerHTML = "";
   if (!entries.length) {
     const empty = document.createElement("p");
@@ -1133,6 +1145,15 @@ function renderDeckBuilderPreview() {
   });
 }
 
+function deckViewScale() {
+  return Math.max(70, Math.min(160, Number(els.deckViewScaleInput?.value) || 100));
+}
+
+function applyDeckViewScale() {
+  if (!els.deckBuilderPreview) return;
+  els.deckBuilderPreview.style.setProperty("--deck-view-scale", String(deckViewScale() / 100));
+}
+
 function renderDeckVisualStacks(cards) {
   const groupMode = els.deckGroupSelect.value || "type";
   const sortMode = els.deckSortSelect.value || "alphabet";
@@ -1178,6 +1199,7 @@ function deckStackCard(card, index, query) {
     ? `<img src="${escapeHtml(card.imageUrl)}" alt="${escapeHtml(card.name)}" loading="lazy">`
     : `<div class="deck-stack-placeholder">${escapeHtml(card.name)}</div>`;
   item.innerHTML = `${image}<span class="deck-stack-qty">${card.quantity}</span><strong>${escapeHtml(card.name)}</strong>`;
+  attachCardZoomHandlers(item, "deck-viewer", index);
   return item;
 }
 
@@ -1253,10 +1275,18 @@ function statSection(title, rows, mode) {
     const item = document.createElement("div");
     item.className = `deck-stat-bar deck-stat-${mode}`;
     item.style.setProperty("--bar-width", `${Math.max(3, ((Number(row.value) || 0) / max) * 100)}%`);
+    item.style.setProperty("--bar-color", row.color || statColor(row.label, mode));
     item.innerHTML = `<span>${escapeHtml(row.label)}</span><div><i></i></div><strong>${escapeHtml(row.display ?? String(row.value))}</strong>`;
     section.append(item);
   });
   return section;
+}
+
+function statColor(label, mode) {
+  if (mode === "mana") return "#8ee7d6";
+  if (mode === "production") return colorSwatch(label);
+  if (mode === "composition" || mode === "odds") return typeColor(label);
+  return "#2a9d8f";
 }
 
 function manaCurveData(cards) {
@@ -1266,7 +1296,7 @@ function manaCurveData(cards) {
     const label = mv >= 8 ? "8+" : String(mv);
     curve.set(label, (curve.get(label) || 0) + (Number(card.quantity) || 1));
   });
-  return ["0", "1", "2", "3", "4", "5", "6", "7", "8+"].map((label) => ({ label, value: curve.get(label) || 0 }));
+  return ["0", "1", "2", "3", "4", "5", "6", "7", "8+"].map((label) => ({ label, value: curve.get(label) || 0, color: "#8ee7d6" }));
 }
 
 function productionCurveData(cards, color = "all") {
@@ -1282,7 +1312,12 @@ function productionCurveData(cards, color = "all") {
     const label = mv >= 8 ? "8+" : String(mv);
     curve.set(label, (curve.get(label) || 0) + (Number(card.quantity) || 1));
   });
-  return ["0", "1", "2", "3", "4", "5", "6", "7", "8+"].map((label) => ({ label, value: curve.get(label) || 0 }));
+  const selected = color === "all" ? "all" : color;
+  return ["0", "1", "2", "3", "4", "5", "6", "7", "8+"].map((label) => ({
+    label,
+    value: curve.get(label) || 0,
+    color: colorSwatch(selected),
+  }));
 }
 
 function compositionData(cards) {
@@ -1290,7 +1325,7 @@ function compositionData(cards) {
   cards.forEach((card) => counts.set(primaryType(card), (counts.get(primaryType(card)) || 0) + (Number(card.quantity) || 1)));
   return [...counts.entries()]
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .map(([label, value]) => ({ label, value }));
+    .map(([label, value]) => ({ label, value, color: typeColor(label) }));
 }
 
 function drawOddsData(cards, groupFn, total) {
@@ -1303,8 +1338,46 @@ function drawOddsData(cards, groupFn, total) {
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .map(([label, value]) => {
       const odds = drawAtLeastOneProbability(total, value, 7);
-      return { label, value: odds, display: `${Math.round(odds)}% (${value})` };
+      return { label, value: odds, display: `${Math.round(odds)}% (${value})`, color: typeColor(label) };
     });
+}
+
+function colorSwatch(value) {
+  const key = String(value || "").trim();
+  const colors = {
+    W: "#f4e7b2",
+    White: "#f4e7b2",
+    U: "#5da9e9",
+    Blue: "#5da9e9",
+    B: "#8b7f8d",
+    Black: "#8b7f8d",
+    R: "#e45d3f",
+    Red: "#e45d3f",
+    G: "#4fb06d",
+    Green: "#4fb06d",
+    C: "#b8b2a4",
+    Colorless: "#b8b2a4",
+    all: "#c9b36a",
+  };
+  return colors[key] || "#8ee7d6";
+}
+
+function typeColor(value) {
+  const label = String(value || "");
+  if (/commander/i.test(label)) return "#c9b36a";
+  if (/creature/i.test(label)) return "#52b788";
+  if (/instant/i.test(label)) return "#4dabf7";
+  if (/sorcery/i.test(label)) return "#f08c00";
+  if (/artifact/i.test(label)) return "#adb5bd";
+  if (/enchantment/i.test(label)) return "#d0bfff";
+  if (/planeswalker/i.test(label)) return "#e599f7";
+  if (/battle/i.test(label)) return "#ff8787";
+  if (/land/i.test(label)) return "#8d6e63";
+  if (/ramp|mana/i.test(label)) return "#69db7c";
+  if (/draw|card/i.test(label)) return "#74c0fc";
+  if (/removal|wipe/i.test(label)) return "#ff922b";
+  if (/counter|protection/i.test(label)) return "#91a7ff";
+  return "#8ee7d6";
 }
 
 function drawAtLeastOneProbability(deckSize, copies, handSize) {
@@ -1632,7 +1705,11 @@ async function duplicateSavedDeck(deck) {
 
 async function saveBuilderDeck() {
   const deck = currentBuilderDeck();
-  if (!deck.name) throw new Error("Deck name is required.");
+  if (!account) throw new Error("Sign in again before saving this deck.");
+  if (!deck.name) {
+    openDeckDetailsDialog();
+    throw new Error("Deck name is required.");
+  }
   if (!deck.decklist) throw new Error("Add at least one card before saving.");
   const path = deck.id ? `/api/account/decks/${encodeURIComponent(deck.id)}` : "/api/account/decks";
   const result = await accountApi(path, {
@@ -5492,9 +5569,13 @@ els.collapseDeckRailButton.addEventListener("click", () => {
 });
 els.newSavedDeckButton.addEventListener("click", newBuilderDeck);
 els.bulkImportDeckButton.addEventListener("click", openBulkImportDialog);
-els.exportBuilderDeckButton.addEventListener("click", exportCurrentDeck);
-els.editDeckDetailsButton.addEventListener("click", openDeckDetailsDialog);
+els.deckContextButton.addEventListener("click", () => openDeckActionDialog(currentBuilderDeck()));
 els.deckStatsButton.addEventListener("click", () => openDeckStatsDialog(currentBuilderDeck()));
+els.toggleMaybeBoardButton.addEventListener("click", () => {
+  deckMaybeBoardOpen = !deckMaybeBoardOpen;
+  localStorage.setItem("mage-table-maybeboard-open", deckMaybeBoardOpen ? "1" : "0");
+  renderAccountPanel();
+});
 els.closeBulkImportButton.addEventListener("click", () => els.bulkImportDialog.close());
 els.appendBulkImportButton.addEventListener("click", () => applyBulkDeckImport("append"));
 els.replaceBulkImportButton.addEventListener("click", () => applyBulkDeckImport("replace"));
@@ -5513,8 +5594,11 @@ els.deckDetailsForm.addEventListener("submit", (event) => {
   renderDeckBuilderPreview();
 });
 els.closeDeckActionButton.addEventListener("click", () => els.deckActionDialog.close());
-els.closeDeckStatsButton.addEventListener("click", () => els.deckStatsDialog.close());
-els.deckStatsProductionSelect.addEventListener("change", renderDeckStatsContent);
+els.closeDeckStatsButton.addEventListener("click", (event) => {
+  event.preventDefault();
+  els.deckStatsDialog.close();
+});
+["change", "input", "click"].forEach((eventName) => els.deckStatsProductionSelect.addEventListener(eventName, renderDeckStatsContent));
 els.savedDeckSearchInput.addEventListener("input", renderSavedDecks);
 els.deckBuilderListInput.addEventListener("input", () => {
   els.deckBuilderStatus.textContent = "Unsaved changes";
@@ -5544,15 +5628,9 @@ els.deckGroupSelect.addEventListener("change", renderDeckBuilderPreview);
 els.deckSortSelect.addEventListener("change", renderDeckBuilderPreview);
 els.deckViewModeSelect.addEventListener("change", renderDeckBuilderPreview);
 els.deckVisualSearchInput.addEventListener("input", renderDeckBuilderPreview);
+els.deckViewScaleInput.addEventListener("input", applyDeckViewScale);
+els.applyDeckViewButton.addEventListener("click", renderDeckBuilderPreview);
 els.deckMaybeBoardInput.addEventListener("input", saveMaybeBoard);
-els.duplicateBuilderDeckButton.addEventListener("click", async () => {
-  const deck = savedDecks.find((candidate) => candidate.id === selectedBuilderDeckId);
-  if (deck) await duplicateSavedDeck(deck);
-});
-els.deleteBuilderDeckButton.addEventListener("click", () => {
-  const deck = savedDecks.find((candidate) => candidate.id === selectedBuilderDeckId);
-  if (deck) openDeleteDeckDialog(deck);
-});
 els.deckCardSearchButton.addEventListener("click", searchDeckBuilderCards);
 els.deckCardSearchInput.addEventListener("keydown", (event) => {
   if (event.key !== "Enter") return;

@@ -654,7 +654,7 @@ body.landing-mode .landing-panel button:not(.landing-actions button) {
 
 .deck-library-rail {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   gap: 10px;
   min-height: 0;
   border-right: 1px solid #34433e;
@@ -670,6 +670,7 @@ body.landing-mode .landing-panel button:not(.landing-actions button) {
 .deck-rail-collapsed .deck-library-heading > div,
 .deck-rail-collapsed .deck-library-heading #newSavedDeckButton,
 .deck-rail-collapsed #savedDeckSearchInput,
+.deck-rail-collapsed #deckMaybeBoardRail,
 .deck-rail-collapsed #savedDeckList {
   display: none;
 }
@@ -787,6 +788,44 @@ body.landing-mode .account-workspace-shell label {
   min-height: 30px;
   padding: 0;
   font-size: 1rem;
+}
+
+.deck-maybe-board-rail {
+  display: grid;
+  grid-template-rows: auto minmax(96px, 1fr);
+  gap: 6px;
+  min-height: 150px;
+  border: 1px solid #34433e;
+  border-radius: 6px;
+  background: #0d1210;
+  padding: 8px;
+}
+
+.deck-maybe-board-rail header {
+  display: grid;
+  gap: 2px;
+}
+
+.deck-maybe-board-rail h3 {
+  margin: 0;
+  font-size: 0.76rem;
+}
+
+.deck-maybe-board-rail span {
+  color: #a6b4ae;
+  font-size: 0.64rem;
+}
+
+.deck-maybe-board-rail textarea {
+  min-height: 96px;
+  resize: none;
+  font-size: 0.72rem;
+}
+
+.compact-icon-button.active {
+  border-color: rgba(142, 231, 214, 0.72);
+  background: rgba(142, 231, 214, 0.12);
+  color: #dffdf6;
 }
 
 .deck-builder-main {
@@ -951,7 +990,7 @@ body.landing-mode .account-workspace-shell label {
 
 .deck-builder-content {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(170px, 210px);
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   min-height: 0;
   overflow: hidden;
@@ -978,9 +1017,11 @@ body.landing-mode .account-workspace-shell label {
 }
 
 .deck-builder-preview {
+  --deck-view-scale: 1;
   min-height: 0;
   overflow: auto;
   border-top: 1px solid #34433e;
+  scrollbar-gutter: stable;
 }
 
 .deck-maybe-board {
@@ -1015,8 +1056,9 @@ body.landing-mode .account-workspace-shell label {
 
 .deck-view-toolbar {
   display: grid;
-  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  grid-template-columns: repeat(5, minmax(112px, 1fr)) auto;
   gap: 8px;
+  align-items: end;
   padding-bottom: 6px;
   border-bottom: 1px solid #34433e;
 }
@@ -1035,20 +1077,28 @@ body.landing-mode .account-workspace-shell label {
   font-size: 0.78rem;
 }
 
+.deck-view-toolbar button {
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 0.72rem;
+}
+
+.deck-view-toolbar input[type="range"] {
+  padding: 0;
+}
+
 .deck-visual-columns {
   display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(200px, 250px);
+  grid-template-columns: repeat(auto-fill, minmax(clamp(190px, calc(230px * var(--deck-view-scale, 1)), 390px), 1fr));
   gap: 12px;
-  min-height: 100%;
+  align-content: start;
   padding: 10px 2px 18px;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: visible;
 }
 
 .deck-stack-column {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
   gap: 7px;
   min-width: 0;
   border-right: 1px solid rgba(52, 67, 62, 0.64);
@@ -1064,9 +1114,9 @@ body.landing-mode .account-workspace-shell label {
 
 .deck-stack-column > header strong,
 .deck-stack-column > header span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .deck-stack-column > header span {
@@ -1091,14 +1141,14 @@ body.landing-mode .account-workspace-shell label {
 
 .deck-card-stack {
   position: relative;
-  min-height: max(620px, calc((var(--stack-count, 1) - 1) * 30px + 300px));
+  min-height: max(calc(460px * var(--deck-view-scale, 1)), calc((var(--stack-count, 1) - 1) * 30px * var(--deck-view-scale, 1) + 330px * var(--deck-view-scale, 1)));
 }
 
 .deck-stack-card {
   position: absolute;
   left: 0;
-  top: calc(var(--stack-index, 0) * 30px);
-  width: min(100%, 230px);
+  top: calc(var(--stack-index, 0) * 30px * var(--deck-view-scale, 1));
+  width: min(100%, calc(230px * var(--deck-view-scale, 1)));
   aspect-ratio: 488 / 680;
   border: 1px solid rgba(237, 244, 240, 0.28);
   border-radius: 10px;
@@ -1109,7 +1159,7 @@ body.landing-mode .account-workspace-shell label {
 }
 
 .deck-card-stack:hover .deck-stack-card {
-  top: calc(var(--stack-index, 0) * 86px);
+  top: calc(var(--stack-index, 0) * 86px * var(--deck-view-scale, 1));
 }
 
 .deck-stack-card:hover {
@@ -1145,15 +1195,28 @@ body.landing-mode .account-workspace-shell label {
   color: #fff;
   padding: 5px 7px;
   font-size: 0.72rem;
+  opacity: 0;
+  transform: translateY(-100%);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  pointer-events: none;
+}
+
+body.shift-cascade .deck-stack-card strong {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.deck-view-table {
+  grid-template-columns: 1fr;
 }
 
 .deck-view-grid {
-  grid-auto-columns: minmax(260px, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(clamp(230px, calc(290px * var(--deck-view-scale, 1)), 420px), 1fr));
 }
 
 .deck-image-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(116px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(clamp(98px, calc(126px * var(--deck-view-scale, 1)), 230px), 1fr));
   gap: 8px;
   align-content: start;
   min-height: 0;
@@ -1170,7 +1233,8 @@ body.landing-mode .account-workspace-shell label {
   width: 100%;
   border-collapse: collapse;
   color: #edf4f0;
-  font-size: 0.72rem;
+  table-layout: fixed;
+  font-size: calc(0.72rem * var(--deck-view-scale, 1));
 }
 
 .deck-text-table th,
@@ -1178,6 +1242,11 @@ body.landing-mode .account-workspace-shell label {
   border-bottom: 1px solid #34433e;
   padding: 5px;
   text-align: left;
+  height: calc(34px * var(--deck-view-scale, 1));
+  line-height: 1.25;
+  vertical-align: top;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .deck-text-table .highlight {
@@ -1265,8 +1334,8 @@ body.landing-mode .account-workspace-shell label {
 }
 
 .deck-stats-dialog-card {
-  width: min(980px, calc(100vw - 28px));
-  max-height: min(88vh, 860px);
+  width: min(1180px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
   overflow: auto;
 }
 
@@ -1316,7 +1385,8 @@ body.landing-mode .account-workspace-shell label {
   width: var(--bar-width);
   height: 100%;
   border-radius: inherit;
-  background: var(--accent);
+  background: var(--bar-color, var(--accent));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--bar-color, var(--accent)) 42%, transparent);
 }
 
 .deck-stat-bar strong {
@@ -3482,6 +3552,21 @@ body.ctrl-zoom .card:hover {
   object-fit: cover;
 }
 
+.card-zoom-overlay .deck-stack-card {
+  position: relative;
+  inset: auto;
+  top: auto !important;
+  left: auto !important;
+  width: 100%;
+  height: 100%;
+  transform: none !important;
+}
+
+.card-zoom-overlay .deck-stack-card strong {
+  opacity: 1;
+  transform: none;
+}
+
 .card strong {
   overflow-wrap: anywhere;
 }
@@ -4826,6 +4911,11 @@ body.terminal-table-theme .life-menu-summary {
 
   .deck-builder-preview {
     max-height: 300px;
+  }
+
+  .deck-view-toolbar,
+  .deck-stats-content {
+    grid-template-columns: 1fr;
   }
 
   .deck-raw-list textarea {

@@ -1,8 +1,8 @@
 {
   "name": "mage-table",
-  "version": "0.2.0-alpha.0",
+  "version": "0.4.0-alpha.0",
   "private": true,
-  "description": "Manual multiplayer Magic-style card table.",
+  "description": "Manual multiplayer Magic The Gathering card table.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
