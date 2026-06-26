@@ -271,6 +271,7 @@ const els = {
   deckStatsDialogSummary: document.querySelector("#deckStatsDialogSummary"),
   deckStatsProductionSelect: document.querySelector("#deckStatsProductionSelect"),
   deckStatsOddsSortSelect: document.querySelector("#deckStatsOddsSortSelect"),
+  closeDeckStatsButton: document.querySelector("#closeDeckStatsButton"),
   deckStatsApplyButton: document.querySelector("#deckStatsApplyButton"),
   deckStatsContent: document.querySelector("#deckStatsContent"),
   deckPlayChoiceDialog: document.querySelector("#deckPlayChoiceDialog"),
@@ -5843,36 +5844,51 @@ function showRoomPasswordDialog(message = "Enter the password to join this room.
   requestAnimationFrame(() => els.joinRoomPasswordInput.focus());
 }
 
-els.createGameButton.addEventListener("click", () => {
-  openCreateMode(null);
-});
-
-els.backFromCreateModeButton.addEventListener("click", () => {
-  pendingCreateDeck = null;
-  landingView = account ? "account" : "menu";
-  renderLanding();
-});
-
-els.createLiveGameButton.addEventListener("click", () => openLiveGameSetup(pendingCreateDeck));
-els.createSoloGameButton.addEventListener("click", async () => {
-  try {
-    await createGameFromSetup({ solo: true, deck: pendingCreateDeck });
-  } catch (error) {
-    setAccountStatus(error.message, true);
-  }
-});
-
-els.joinGameButton.addEventListener("click", () => {
+function openJoinGameForm() {
   landingView = "join";
   setJoinRoomStatus();
   setJoinPasswordVisible(false);
   renderLanding();
   requestAnimationFrame(() => els.joinCodeInput.focus());
-});
+}
 
-els.loginButton.addEventListener("click", () => {
-  landingView = "account";
-  setAccountStatus();
+async function handleLandingAction(action, event = null) {
+  event?.preventDefault();
+  event?.stopPropagation();
+  switch (action) {
+    case "create-mode":
+      openCreateMode(null);
+      break;
+    case "create-live":
+      openLiveGameSetup(pendingCreateDeck);
+      break;
+    case "create-solo":
+      try {
+        await createGameFromSetup({ solo: true, deck: pendingCreateDeck });
+      } catch (error) {
+        setAccountStatus(error.message, true);
+      }
+      break;
+    case "join":
+      openJoinGameForm();
+      break;
+    case "account":
+      landingView = "account";
+      setAccountStatus();
+      renderLanding();
+      break;
+  }
+}
+
+document.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-landing-action]");
+  if (!button || !els.setupPanel.contains(button) || isDisabled(button)) return;
+  handleLandingAction(button.dataset.landingAction, event);
+}, true);
+
+els.backFromCreateModeButton.addEventListener("click", () => {
+  pendingCreateDeck = null;
+  landingView = account ? "account" : "menu";
   renderLanding();
 });
 
@@ -6146,8 +6162,10 @@ async function handleCreateRoomSubmit(event = null) {
 els.roomForm.addEventListener("submit", handleCreateRoomSubmit);
 els.createRoomSubmitButton.addEventListener("click", handleCreateRoomSubmit);
 
-els.joinRoomForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
+async function handleJoinRoomSubmit(event = null) {
+  event?.preventDefault();
+  event?.stopPropagation();
+  if (isDisabled(els.joinRoomSubmitButton)) return;
   setDisabled(els.joinRoomSubmitButton, true);
   setJoinRoomStatus();
   try {
@@ -6169,7 +6187,10 @@ els.joinRoomForm.addEventListener("submit", async (event) => {
   } finally {
     setDisabled(els.joinRoomSubmitButton, false);
   }
-});
+}
+
+els.joinRoomForm.addEventListener("submit", handleJoinRoomSubmit);
+els.joinRoomSubmitButton.addEventListener("click", handleJoinRoomSubmit);
 
 els.joinCodeInput.addEventListener("input", () => {
   els.joinCodeInput.value = els.joinCodeInput.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);

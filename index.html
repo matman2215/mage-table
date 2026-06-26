@@ -40,11 +40,11 @@
           <h1><span>Mage</span> Table</h1>
           <p class="landing-prompt">&gt; SELECT A TABLE COMMAND<span aria-hidden="true" class="terminal-cursor"></span></p>
           <div class="landing-actions">
-            <button id="createGameButton" type="button">Create Game</button>
-            <button id="joinGameButton" class="secondary" type="button">Join Game</button>
-            <button id="loginButton" class="secondary" type="button">Log In</button>
+            <button id="createGameButton" data-landing-action="create-mode" type="button">Create Game</button>
+            <button id="joinGameButton" class="secondary" data-landing-action="join" type="button">Join Game</button>
+            <button id="loginButton" class="secondary" data-landing-action="account" type="button">Log In</button>
           </div>
-          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.4.10</p>
+          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.4.12</p>
         </div>
         <section id="createModePanel" class="landing-subpanel create-mode-panel hidden">
           <header class="create-room-header">
@@ -52,8 +52,8 @@
             <h2>Create Game</h2>
           </header>
           <div class="create-mode-actions">
-            <button id="createLiveGameButton" type="button">Live Multiplayer</button>
-            <button id="createSoloGameButton" class="secondary" type="button">Single Player</button>
+            <button id="createLiveGameButton" data-landing-action="create-live" type="button">Live Multiplayer</button>
+            <button id="createSoloGameButton" class="secondary" data-landing-action="create-solo" type="button">Single Player</button>
           </div>
         </section>
         <form id="roomForm" class="room-form create-room-form hidden">
@@ -113,7 +113,7 @@
             <input id="joinCodePasswordInput" type="password" maxlength="128" autocomplete="current-password" placeholder="No password">
           </label>
           <p id="joinRoomStatus" class="account-status hidden" role="status"></p>
-          <button id="joinRoomSubmitButton" type="submit">Join Room</button>
+          <button id="joinRoomSubmitButton" type="button">Join Room</button>
         </form>
         <section id="activeLobbiesPanel" class="landing-subpanel hidden">
           <header class="create-room-header">
@@ -965,6 +965,6 @@
       </form>
     </dialog>
 
-    <script src="app.js?v=0.4.10"></script>
+    <script src="app.js?v=0.4.12"></script>
   </body>
 </html>
