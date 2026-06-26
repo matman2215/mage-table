@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Mage Table</title>
-    <link rel="stylesheet" href="styles.css?v=0.4.3">
+    <link rel="stylesheet" href="styles.css?v=0.4.4">
   </head>
   <body class="dark-mode">
     <main class="app-shell">
@@ -44,7 +44,7 @@
             <button id="joinGameButton" class="secondary" data-landing-action="join" type="button">Join Game</button>
             <button id="loginButton" class="secondary" data-landing-action="account" type="button">Log In</button>
           </div>
-          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.4.13</p>
+          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.4.14</p>
         </div>
         <section id="createModePanel" class="landing-subpanel create-mode-panel hidden">
           <header class="create-room-header">
@@ -652,12 +652,14 @@
           <label>
             Draw odds by
             <select id="deckStatsOddsSortSelect">
-              <option value="name" selected>Card Name</option>
-              <option value="category">Category</option>
+              <option value="name">Card Name</option>
+              <option value="category" selected>Categories</option>
               <option value="type">Type</option>
               <option value="subtype">Subtype</option>
               <option value="manaValue">Mana Value</option>
               <option value="keyword">Keyword</option>
+              <option value="color">Color</option>
+              <option value="rarity">Rarity</option>
             </select>
           </label>
           <button id="deckStatsApplyButton" class="secondary" type="button">Apply</button>
@@ -966,6 +968,6 @@
       </form>
     </dialog>
 
-    <script src="app.js?v=0.4.13"></script>
+    <script src="app.js?v=0.4.14"></script>
   </body>
 </html>

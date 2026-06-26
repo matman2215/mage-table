@@ -1567,32 +1567,109 @@ body.shift-cascade .deck-stack-card strong {
   font-weight: 800;
 }
 
-.deck-probability-section {
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
   padding: 0;
+  margin: -1px;
   overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.deck-probability-section {
+  width: min(540px, 100%);
+  padding: 0;
+  overflow: visible;
+  min-width: 0;
+  justify-self: start;
+  align-self: start;
+  border-color: #5a5a5a;
+  background: #343434;
+}
+
+.probability-builder {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  padding: 18px 28px 22px;
+  background: #343434;
+}
+
+.probability-builder h3 {
+  margin: 0 0 4px;
+  color: #ededed;
+  font-size: 1.22rem;
+  font-weight: 900;
+}
+
+.probability-field,
+.probability-stepper {
   min-width: 0;
 }
 
-.deck-probability-section h3,
-.probability-summary {
-  margin: 0;
-  padding: 12px;
+.probability-field select,
+.probability-stepper input {
+  width: 100%;
+  min-height: 58px;
+  border: 1px solid #666;
+  border-radius: 8px;
+  background: #242424;
+  color: #f4f4f4;
+  font-size: 1.12rem;
+  font-weight: 700;
 }
 
-.probability-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-  color: #d5ddd9;
-  max-width: 100%;
+.probability-field select {
+  padding: 0 18px;
 }
 
-.probability-summary strong {
-  border: 1px solid #59635f;
-  border-radius: 6px;
-  background: #202624;
-  padding: 7px 12px;
+.probability-stepper {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 156px;
+  gap: 14px;
+}
+
+.probability-stepper input {
+  padding: 0 18px;
+}
+
+.probability-step-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 58px;
+  overflow: hidden;
+  border: 1px solid #666;
+  border-radius: 8px;
+  background: #242424;
+}
+
+.probability-step-buttons button {
+  border: 0;
+  border-right: 1px solid #555;
+  background: transparent;
+  color: #ff5b68;
+  font-size: 1.45rem;
+  font-weight: 1000;
+}
+
+.probability-step-buttons button:last-child {
+  border-right: 0;
+  color: #20c878;
+}
+
+.probability-step-buttons button:active,
+.probability-field select:active,
+.probability-stepper input:focus {
+  filter: brightness(1.18);
+}
+
+.probability-copy {
+  color: #ededed;
+  font-size: 1rem;
+  font-weight: 900;
 }
 
 .probability-table {
@@ -1600,29 +1677,43 @@ body.shift-cascade .deck-stack-card strong {
   max-width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
-  font-size: 0.78rem;
+  font-size: 1rem;
 }
 
 .probability-table th,
 .probability-table td {
-  border-top: 1px solid #2d3632;
-  padding: 7px 9px;
+  border-top: 1px solid #454545;
+  padding: 10px 16px;
   text-align: left;
   overflow-wrap: anywhere;
 }
 
 .probability-table th {
-  background: #101513;
-  color: #f0f4f2;
-}
-
-.probability-table td:last-child {
+  background: #111;
+  color: #f0f0f0;
   font-weight: 900;
 }
 
-.probability-table td:last-child span {
-  color: #9da8a3;
-  font-weight: 700;
+.probability-table th:nth-child(2),
+.probability-table th:nth-child(3),
+.probability-table td:nth-child(2),
+.probability-table td:nth-child(3) {
+  width: 70px;
+  text-align: right;
+}
+
+.probability-table tbody tr:nth-child(odd) {
+  background: #303030;
+}
+
+.probability-table tbody tr:nth-child(even) {
+  background: #202020;
+}
+
+.probability-table td:nth-child(2),
+.probability-table td:nth-child(3) {
+  font-weight: 900;
+  color: #ededed;
 }
 
 .active-games-workspace {

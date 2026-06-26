@@ -370,6 +370,12 @@ let deckBuilderMetadata = null;
 let deckBuilderMetadataKey = "";
 let deckBuilderMetadataTimer = null;
 let deckBuilderSaveInFlight = false;
+const probabilitySettings = {
+  mode: "atLeast",
+  targetCount: 1,
+  groupBy: "category",
+  drawnCards: 7,
+};
 let deckRailCollapsed = localStorage.getItem("mage-table-deck-rail-collapsed") === "1";
 let deckMaybeBoardOpen = localStorage.getItem("mage-table-maybeboard-open") === "1";
 let pendingDeckActionDeck = null;
@@ -1330,7 +1336,7 @@ function renderDeckStatsContent() {
     statSection("Mana Curve", manaCurveData(cards), "mana"),
     productionSection(cards, els.deckStatsProductionSelect.value),
     statSection("Deck Composition", compositionData(cards), "composition"),
-    probabilitySection(cards, total, els.deckStatsOddsSortSelect?.value || "name"),
+    probabilitySection(cards, total),
   );
 }
 
@@ -1347,7 +1353,9 @@ function applyDeckStatsFilters() {
 function scrollDeckStatsToProbability() {
   const target = els.deckStatsContent?.querySelector(".deck-probability-section");
   if (!target || !els.deckStatsContent) return;
-  els.deckStatsContent.scrollTop = Math.max(0, target.offsetTop - els.deckStatsContent.offsetTop);
+  const containerTop = els.deckStatsContent.getBoundingClientRect().top;
+  const targetTop = target.getBoundingClientRect().top;
+  els.deckStatsContent.scrollTop = Math.max(0, els.deckStatsContent.scrollTop + targetTop - containerTop);
 }
 
 function statSection(title, rows, mode) {
@@ -1564,22 +1572,19 @@ function drawOddsData(cards, groupFn, total) {
     });
 }
 
-function probabilitySection(cards, total, sortMode) {
+function probabilitySection(cards, total) {
   const section = document.createElement("section");
   section.className = "deck-stat-section deck-probability-section";
-  section.innerHTML = `
-    <h3>Draw Odds / Probability of Drawing</h3>
-    <div class="probability-summary">
-      <span>Exactly</span><strong>1</strong><span>card by</span><strong>${escapeHtml(probabilitySortLabel(sortMode))}</strong><span>having drawn</span><strong>7 cards</strong>
-    </div>
-  `;
+  section.append(probabilityControls(total));
   const table = document.createElement("table");
   table.className = "probability-table";
-  table.innerHTML = "<thead><tr><th>Card Name</th><th>Group</th><th>Qty</th><th>Odds</th></tr></thead>";
+  const label = probabilitySortLabel(probabilitySettings.groupBy);
+  table.innerHTML = `<thead><tr><th>${escapeHtml(label)}</th><th>Qty</th><th>Odds</th></tr></thead>`;
   const body = document.createElement("tbody");
-  probabilityRows(cards, total, sortMode).forEach((row) => {
+  probabilityRows(cards, total, probabilitySettings.groupBy).forEach((row) => {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${escapeHtml(row.name)}</td><td>${escapeHtml(row.group)}</td><td>${row.quantity}</td><td>${Math.round(row.odds)}% <span>${escapeHtml(oddsRatio(row.odds))}</span></td>`;
+    tr.title = oddsRatio(row.odds);
+    tr.innerHTML = `<td>${escapeHtml(row.label)}</td><td>${row.quantity}</td><td>${Math.round(row.odds)}%</td>`;
     body.append(tr);
   });
   table.append(body);
@@ -1587,22 +1592,110 @@ function probabilitySection(cards, total, sortMode) {
   return section;
 }
 
-function probabilityRows(cards, total, sortMode) {
-  const byName = new Map();
-  cards.forEach((card) => {
-    const existing = byName.get(card.name) || { ...card, quantity: 0 };
-    existing.quantity += Number(card.quantity) || 1;
-    byName.set(card.name, existing);
+function probabilityControls(total) {
+  const maxCards = Math.max(1, total);
+  probabilitySettings.targetCount = clampInteger(probabilitySettings.targetCount, 1, maxCards);
+  probabilitySettings.drawnCards = clampInteger(probabilitySettings.drawnCards, 1, maxCards);
+  const controls = document.createElement("div");
+  controls.className = "probability-builder";
+  controls.innerHTML = `
+    <h3>Probability of drawing</h3>
+    <label class="probability-field probability-full">
+      <span class="sr-only">Probability mode</span>
+      <select data-probability-control="mode">
+        <option value="atLeast"${probabilitySettings.mode === "atLeast" ? " selected" : ""}>At least</option>
+        <option value="exactly"${probabilitySettings.mode === "exactly" ? " selected" : ""}>Exactly</option>
+      </select>
+    </label>
+    ${probabilityStepper("targetCount", probabilitySettings.targetCount, 1, maxCards, "card target")}
+    <strong class="probability-copy">card(s) by</strong>
+    <label class="probability-field probability-full">
+      <span class="sr-only">Group draw odds by</span>
+      <select data-probability-control="groupBy">
+        ${probabilityGroupOptions().map((option) => `<option value="${option.value}"${option.value === probabilitySettings.groupBy ? " selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
+      </select>
+    </label>
+    <strong class="probability-copy">having drawn</strong>
+    ${probabilityStepper("drawnCards", probabilitySettings.drawnCards, 1, maxCards, "cards drawn")}
+    <strong class="probability-copy">card(s)</strong>
+  `;
+  controls.querySelectorAll("[data-probability-control]").forEach((control) => {
+    control.addEventListener("change", handleProbabilityControlChange);
+    control.addEventListener("input", handleProbabilityControlChange);
   });
-  return [...byName.values()]
-    .map((card) => ({
-      name: card.name,
-      quantity: card.quantity,
-      group: probabilityGroup(card, sortMode),
-      sortValue: probabilitySortValue(card, sortMode),
-      odds: drawAtLeastOneProbability(total, card.quantity, 7),
+  controls.querySelectorAll("[data-probability-step]").forEach((button) => {
+    button.addEventListener("click", handleProbabilityStep);
+  });
+  return controls;
+}
+
+function probabilityStepper(id, value, min, max, label) {
+  const safeValue = clampInteger(value, min, max);
+  return `
+    <div class="probability-stepper" data-probability-stepper="${id}">
+      <input data-probability-control="${id}" type="number" min="${min}" max="${max}" step="1" value="${safeValue}" aria-label="${escapeHtml(label)}">
+      <div class="probability-step-buttons">
+        <button type="button" data-probability-step="${id}" data-delta="-1" aria-label="Decrease ${escapeHtml(label)}">-</button>
+        <button type="button" data-probability-step="${id}" data-delta="1" aria-label="Increase ${escapeHtml(label)}">+</button>
+      </div>
+    </div>
+  `;
+}
+
+function clampInteger(value, min, max) {
+  const numeric = Math.floor(Number(value));
+  if (!Number.isFinite(numeric)) return min;
+  return Math.max(min, Math.min(max, numeric));
+}
+
+function probabilityGroupOptions() {
+  return [
+    { value: "name", label: "Card Name" },
+    { value: "category", label: "Categories" },
+    { value: "type", label: "Type" },
+    { value: "subtype", label: "Subtype" },
+    { value: "manaValue", label: "Mana Value" },
+    { value: "keyword", label: "Keyword" },
+    { value: "color", label: "Color" },
+    { value: "rarity", label: "Rarity" },
+  ];
+}
+
+function handleProbabilityControlChange(event) {
+  const key = event.currentTarget.dataset.probabilityControl;
+  if (!key) return;
+  if (key === "mode") probabilitySettings.mode = event.currentTarget.value === "exactly" ? "exactly" : "atLeast";
+  if (key === "groupBy") {
+    probabilitySettings.groupBy = event.currentTarget.value || "category";
+    if (els.deckStatsOddsSortSelect) els.deckStatsOddsSortSelect.value = probabilitySettings.groupBy;
+  }
+  if (key === "targetCount") probabilitySettings.targetCount = clampInteger(event.currentTarget.value, 1, 300);
+  if (key === "drawnCards") probabilitySettings.drawnCards = clampInteger(event.currentTarget.value, 1, 300);
+  renderDeckStatsContent();
+}
+
+function handleProbabilityStep(event) {
+  const key = event.currentTarget.dataset.probabilityStep;
+  const delta = Number(event.currentTarget.dataset.delta) || 0;
+  if (!key || !delta) return;
+  probabilitySettings[key] = clampInteger((Number(probabilitySettings[key]) || 1) + delta, 1, 300);
+  renderDeckStatsContent();
+}
+
+function probabilityRows(cards, total, sortMode) {
+  const grouped = new Map();
+  cards.forEach((card) => {
+    const label = probabilityGroup(card, sortMode);
+    const existing = grouped.get(label) || { label, quantity: 0, sortValue: probabilitySortValue(card, sortMode) };
+    existing.quantity += Number(card.quantity) || 1;
+    grouped.set(label, existing);
+  });
+  return [...grouped.values()]
+    .map((row) => ({
+      ...row,
+      odds: drawProbability(total, row.quantity, probabilitySettings.drawnCards, probabilitySettings.targetCount, probabilitySettings.mode),
     }))
-    .sort((a, b) => String(a.sortValue).localeCompare(String(b.sortValue), undefined, { numeric: true }) || a.name.localeCompare(b.name));
+    .sort((a, b) => String(a.sortValue).localeCompare(String(b.sortValue), undefined, { numeric: true }) || a.label.localeCompare(b.label));
 }
 
 function probabilityGroup(card, sortMode) {
@@ -1611,16 +1704,19 @@ function probabilityGroup(card, sortMode) {
   if (sortMode === "subtype") return primarySubtype(card);
   if (sortMode === "manaValue") return `MV ${Number(card.manaValue) || 0}`;
   if (sortMode === "keyword") return primaryKeyword(card);
+  if (sortMode === "color") return colorLabel(card.colorIdentity || card.colors || []);
+  if (sortMode === "rarity") return titleCase(card.rarity || "Unknown");
   return card.name;
 }
 
 function probabilitySortValue(card, sortMode) {
   if (sortMode === "manaValue") return Number(card.manaValue) || 0;
+  if (sortMode === "rarity") return rarityRank(card.rarity);
   return probabilityGroup(card, sortMode);
 }
 
 function probabilitySortLabel(sortMode) {
-  return ({ name: "Card Name", category: "Category", type: "Type", subtype: "Subtype", manaValue: "Mana Value", keyword: "Keyword" })[sortMode] || "Card Name";
+  return ({ name: "Card Name", category: "Categories", type: "Type", subtype: "Subtype", manaValue: "Mana Value", keyword: "Keyword", color: "Color", rarity: "Rarity" })[sortMode] || "Card Name";
 }
 
 function oddsRatio(odds) {
@@ -1670,12 +1766,46 @@ function typeColor(value) {
 }
 
 function drawAtLeastOneProbability(deckSize, copies, handSize) {
-  if (!deckSize || !copies) return 0;
-  let miss = 1;
-  for (let i = 0; i < handSize; i += 1) {
-    miss *= Math.max(0, deckSize - copies - i) / Math.max(1, deckSize - i);
+  return drawProbability(deckSize, copies, handSize, 1, "atLeast");
+}
+
+function drawProbability(deckSize, copies, handSize, targetCount, mode = "atLeast") {
+  const deck = Math.max(0, Math.floor(Number(deckSize) || 0));
+  const hits = Math.max(0, Math.min(deck, Math.floor(Number(copies) || 0)));
+  const draws = Math.max(0, Math.min(deck, Math.floor(Number(handSize) || 0)));
+  const target = Math.max(0, Math.floor(Number(targetCount) || 0));
+  if (!deck || !draws || !hits) return 0;
+  if (mode === "exactly") return clampPercent(hypergeometricProbability(deck, hits, draws, target) * 100);
+  let probability = 0;
+  const maxSuccess = Math.min(hits, draws);
+  for (let successes = target; successes <= maxSuccess; successes += 1) {
+    probability += hypergeometricProbability(deck, hits, draws, successes);
   }
-  return Math.max(0, Math.min(100, (1 - miss) * 100));
+  return clampPercent(probability * 100);
+}
+
+function hypergeometricProbability(deckSize, hits, draws, successes) {
+  if (successes < 0 || successes > hits || successes > draws) return 0;
+  const misses = deckSize - hits;
+  const missDraws = draws - successes;
+  if (missDraws < 0 || missDraws > misses) return 0;
+  const logOdds = logCombination(hits, successes) + logCombination(misses, missDraws) - logCombination(deckSize, draws);
+  return Number.isFinite(logOdds) ? Math.exp(logOdds) : 0;
+}
+
+function logCombination(total, chosen) {
+  if (chosen < 0 || chosen > total) return Number.NEGATIVE_INFINITY;
+  const count = Math.min(chosen, total - chosen);
+  let value = 0;
+  for (let index = 1; index <= count; index += 1) {
+    value += Math.log(total - count + index) - Math.log(index);
+  }
+  return value;
+}
+
+function clampPercent(value) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, value));
 }
 
 function deckGroupLabel(card, mode) {
@@ -6041,6 +6171,7 @@ els.deckStatsProductionSelect.addEventListener("change", () => {
 });
 if (els.deckStatsOddsSortSelect) {
   els.deckStatsOddsSortSelect.addEventListener("change", () => {
+    probabilitySettings.groupBy = els.deckStatsOddsSortSelect.value || "category";
     if (els.deckStatsApplyButton) els.deckStatsApplyButton.textContent = "Apply";
   });
 }
