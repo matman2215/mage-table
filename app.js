@@ -273,6 +273,7 @@ const els = {
   deckStatsOddsSortSelect: document.querySelector("#deckStatsOddsSortSelect"),
   closeDeckStatsButton: document.querySelector("#closeDeckStatsButton"),
   deckStatsApplyButton: document.querySelector("#deckStatsApplyButton"),
+  deckStatsOddsJumpButton: document.querySelector("#deckStatsOddsJumpButton"),
   deckStatsContent: document.querySelector("#deckStatsContent"),
   deckPlayChoiceDialog: document.querySelector("#deckPlayChoiceDialog"),
   deckPlayChoiceForm: document.querySelector("#deckPlayChoiceForm"),
@@ -1341,6 +1342,12 @@ function applyDeckStatsFilters() {
   window.setTimeout(() => {
     if (els.deckStatsApplyButton) els.deckStatsApplyButton.textContent = original || "Apply";
   }, 700);
+}
+
+function scrollDeckStatsToProbability() {
+  const target = els.deckStatsContent?.querySelector(".deck-probability-section");
+  if (!target || !els.deckStatsContent) return;
+  els.deckStatsContent.scrollTop = Math.max(0, target.offsetTop - els.deckStatsContent.offsetTop);
 }
 
 function statSection(title, rows, mode) {
@@ -6028,6 +6035,7 @@ els.closeDeckStatsButton.addEventListener("click", (event) => {
   els.deckStatsDialog.close();
 });
 if (els.deckStatsApplyButton) els.deckStatsApplyButton.addEventListener("click", applyDeckStatsFilters);
+if (els.deckStatsOddsJumpButton) els.deckStatsOddsJumpButton.addEventListener("click", scrollDeckStatsToProbability);
 els.deckStatsProductionSelect.addEventListener("change", () => {
   if (els.deckStatsApplyButton) els.deckStatsApplyButton.textContent = "Apply";
 });

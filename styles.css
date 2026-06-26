@@ -548,6 +548,8 @@ body.landing-mode .landing-panel button:not(.landing-actions button) {
 
 .landing-panel.account-workspace-shell {
   position: relative;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
   width: calc(100vw - 20px);
   height: calc(100vh - 20px);
   max-height: calc(100vh - 20px);
@@ -564,7 +566,9 @@ body.landing-mode .landing-panel button:not(.landing-actions button) {
 .account-workspace-shell .account-panel {
   display: block;
   min-width: 0;
+  min-height: 0;
   height: 100%;
+  overflow: hidden;
 }
 
 .account-workspace-shell .account-panel-header {
@@ -576,6 +580,7 @@ body.landing-mode .landing-panel button:not(.landing-actions button) {
   grid-template-rows: 52px minmax(0, 1fr);
   height: 100%;
   min-height: 0;
+  overflow: hidden;
 }
 
 .account-workspace-bar {
@@ -653,6 +658,9 @@ body.landing-mode .landing-panel button:not(.landing-actions button) {
 .deck-workspace {
   display: grid;
   grid-template-columns: minmax(260px, 310px) minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
   transition: grid-template-columns 0.18s ease;
 }
 
@@ -1013,10 +1021,15 @@ body.landing-mode .account-workspace-shell label {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 7px;
+  overflow: hidden;
 }
 
 .deck-viewer-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .deck-structured-list h3 {
@@ -1032,7 +1045,7 @@ body.landing-mode .account-workspace-shell label {
   overflow-x: hidden;
   border-top: 1px solid #34433e;
   scrollbar-gutter: stable;
-  padding-bottom: calc(3600px * var(--deck-view-scale, 1));
+  padding-bottom: 0;
   overscroll-behavior: contain;
 }
 
@@ -1383,7 +1396,7 @@ body.shift-cascade .deck-stack-card strong {
 
 .deck-stats-controls {
   display: grid;
-  grid-template-columns: minmax(150px, 220px) minmax(150px, 220px) auto;
+  grid-template-columns: minmax(150px, 220px) minmax(150px, 220px) auto auto;
   gap: 8px;
   align-items: end;
 }
@@ -5081,15 +5094,16 @@ body.terminal-table-theme .life-menu-summary {
 
   .landing-panel.account-workspace-shell {
     width: calc(100vw - 12px);
-    height: auto;
-    min-height: calc(100vh - 12px);
-    max-height: none;
-    overflow: auto;
+    height: calc(100vh - 12px);
+    min-height: 0;
+    max-height: calc(100vh - 12px);
+    overflow: hidden;
   }
 
   .account-workspace {
     grid-template-rows: auto minmax(0, 1fr);
-    min-height: calc(100vh - 14px);
+    height: 100%;
+    min-height: 0;
   }
 
   .account-workspace-bar {
@@ -5110,7 +5124,10 @@ body.terminal-table-theme .life-menu-summary {
 
   .deck-workspace {
     grid-template-columns: 1fr;
-    overflow: visible;
+    grid-template-rows: auto minmax(0, 1fr);
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
   }
 
   .deck-library-rail {
@@ -5120,8 +5137,8 @@ body.terminal-table-theme .life-menu-summary {
   }
 
   .deck-builder-form {
-    height: auto;
-    min-height: 720px;
+    height: 100%;
+    min-height: 0;
   }
 
   .deck-builder-metadata,
@@ -5130,16 +5147,17 @@ body.terminal-table-theme .life-menu-summary {
   }
 
   .deck-builder-content {
-    overflow: visible;
+    overflow: hidden;
   }
 
   .deck-builder-preview {
     max-height: none;
-    min-height: 520px;
+    min-height: 0;
   }
 
   .deck-view-toolbar,
-  .deck-stats-content {
+  .deck-stats-content,
+  .deck-stats-controls {
     grid-template-columns: 1fr;
   }
 
