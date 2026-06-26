@@ -2070,10 +2070,30 @@ async function handleDeckBuilderSave() {
   }
 }
 
-async function handleDeckBuilderFormSubmit(event) {
+function openDeckBuilderSaveDialog(event = null) {
+  event?.preventDefault();
+  event?.stopPropagation();
+  if (!account) {
+    setAccountStatus("Sign in before saving this deck.", true);
+    return;
+  }
+  const deck = currentBuilderDeck();
+  if (!deck.decklist) {
+    els.deckBuilderStatus.textContent = "Add at least one card before saving.";
+    setAccountStatus("Add at least one card before saving this deck.", true);
+    return;
+  }
+  const savedDeck = deck.id ? savedDecks.find((candidate) => candidate.id === deck.id) || deck : null;
+  openSaveDeckDialog(savedDeck, {
+    ...deck,
+    name: deck.name || fallbackBuilderDeckName(deck),
+  });
+  els.deckBuilderStatus.textContent = "Review deck details, then save.";
+}
+
+function handleDeckBuilderFormSubmit(event) {
   event.preventDefault();
-  if (event.submitter && event.submitter !== els.saveBuilderDeckButton) return;
-  await handleDeckBuilderSave();
+  if (!event.submitter || event.submitter === els.saveBuilderDeckButton) openDeckBuilderSaveDialog(event);
 }
 
 async function searchDeckBuilderCards() {
@@ -6005,6 +6025,11 @@ els.deckBuilderForm.addEventListener("change", (event) => {
 els.deckBuilderForm.addEventListener("input", (event) => {
   if (event.target.closest(".deck-view-toolbar")) applyDeckViewSettings(event);
 });
+els.saveBuilderDeckButton.addEventListener("click", openDeckBuilderSaveDialog);
+document.addEventListener("click", (event) => {
+  if (!event.target.closest("#saveBuilderDeckButton")) return;
+  openDeckBuilderSaveDialog(event);
+}, true);
 els.deckGroupSelect.addEventListener("change", applyDeckViewSettings);
 els.deckSortSelect.addEventListener("change", applyDeckViewSettings);
 els.deckViewModeSelect.addEventListener("change", applyDeckViewSettings);
@@ -6358,20 +6383,47 @@ els.saveDeckForm.addEventListener("submit", async (event) => {
     return;
   }
   const deckId = els.savedDeckIdInput.value;
-  const path = deckId ? `/api/account/decks/${encodeURIComponent(deckId)}` : "/api/account/decks";
   try {
-    await accountApi(path, {
-      method: deckId ? "PUT" : "POST",
-      body: JSON.stringify({
-        name: els.savedDeckNameInput.value,
-        commander: els.savedDeckCommanderInput.value,
-        decklist: els.savedDeckListInput.value,
-      }),
-    });
-    await loadSavedDecks();
+    const result = await persistAccountDeck({
+      name: els.savedDeckNameInput.value,
+      commander: els.savedDeckCommanderInput.value,
+      decklist: els.savedDeckListInput.value,
+    }, deckId);
+    const savedDeck = result.deck;
+    selectedBuilderDeckId = savedDeck.id;
+    els.deckBuilderNameInput.value = savedDeck.name || "";
+    els.deckBuilderCommanderInput.value = savedDeck.commander || "";
+    els.deckBuilderListInput.value = savedDeck.decklist || "";
+    upsertSavedDeck(savedDeck);
+    await reloadSavedDeckSidebar(savedDeck.id);
+    renderDeckBuilderPreview({ preserveScroll: true });
+    els.deckBuilderStatus.textContent = `Deck saved to library - ${savedDecks.length} deck${savedDecks.length === 1 ? "" : "s"}`;
     els.saveDeckDialog.close();
-    if (landingView === "account") setAccountStatus("Deck saved.");
+    setAccountStatus("Deck saved.");
   } catch (error) {
+    if (deckId && error.status !== 401) {
+      try {
+        const result = await persistAccountDeck({
+          name: els.savedDeckNameInput.value,
+          commander: els.savedDeckCommanderInput.value,
+          decklist: els.savedDeckListInput.value,
+        }, "");
+        const savedDeck = result.deck;
+        selectedBuilderDeckId = savedDeck.id;
+        els.deckBuilderNameInput.value = savedDeck.name || "";
+        els.deckBuilderCommanderInput.value = savedDeck.commander || "";
+        els.deckBuilderListInput.value = savedDeck.decklist || "";
+        upsertSavedDeck(savedDeck);
+        await reloadSavedDeckSidebar(savedDeck.id);
+        renderDeckBuilderPreview({ preserveScroll: true });
+        els.deckBuilderStatus.textContent = `Deck saved to library - ${savedDecks.length} deck${savedDecks.length === 1 ? "" : "s"}`;
+        els.saveDeckDialog.close();
+        setAccountStatus("Deck saved.");
+        return;
+      } catch (fallbackError) {
+        error = fallbackError;
+      }
+    }
     if (error.status === 401) {
       clearAccountSession();
       els.saveDeckDialog.close();
