@@ -686,7 +686,6 @@ body.landing-mode .landing-panel button:not(.landing-actions button) {
 .deck-rail-collapsed .deck-library-heading > div,
 .deck-rail-collapsed .deck-library-heading #newSavedDeckButton,
 .deck-rail-collapsed #savedDeckSearchInput,
-.deck-rail-collapsed #deckMaybeBoardRail,
 .deck-rail-collapsed #savedDeckList {
   display: none;
 }
@@ -737,6 +736,14 @@ body.landing-mode .landing-panel button:not(.landing-actions button) {
   font-size: 0.66rem !important;
   font-weight: 900;
   white-space: nowrap;
+}
+
+.deck-header-price-source {
+  width: auto;
+  min-width: 96px;
+  min-height: 24px;
+  padding: 2px 6px;
+  font-size: 0.68rem;
 }
 
 .deck-library-heading span,
@@ -832,19 +839,29 @@ body.landing-mode .account-workspace-shell label {
 }
 
 .deck-maybe-board-rail {
+  position: fixed;
+  left: max(12px, env(safe-area-inset-left));
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  z-index: 1200;
   display: grid;
-  grid-template-rows: auto minmax(96px, 1fr);
-  gap: 6px;
-  min-height: 150px;
-  border: 1px solid #34433e;
-  border-radius: 6px;
-  background: #0d1210;
-  padding: 8px;
+  grid-template-rows: auto minmax(120px, 32vh);
+  gap: 8px;
+  width: min(920px, calc(100vw - 24px));
+  min-height: 0;
+  margin: 0 auto;
+  border: 1px solid rgba(142, 231, 214, 0.45);
+  border-radius: 8px 8px 0 0;
+  background: rgba(13, 18, 16, 0.96);
+  box-shadow: 0 -22px 50px rgba(0, 0, 0, 0.42);
+  padding: 10px;
 }
 
 .deck-maybe-board-rail header {
-  display: grid;
-  gap: 2px;
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 10px;
 }
 
 .deck-maybe-board-rail h3 {
@@ -858,7 +875,7 @@ body.landing-mode .account-workspace-shell label {
 }
 
 .deck-maybe-board-rail textarea {
-  min-height: 96px;
+  min-height: 0;
   resize: none;
   font-size: 0.72rem;
 }
@@ -1404,6 +1421,40 @@ body.shift-cascade .deck-stack-card strong {
 .deck-visual-columns.deck-view-grid {
   grid-template-columns: repeat(var(--masonry-columns, 1), minmax(0, 1fr));
   align-items: start;
+}
+
+.deck-visual-columns.deck-view-table.deck-table-full {
+  display: block;
+  grid-template-columns: none;
+  width: 100%;
+}
+
+.deck-grouped-text-table {
+  width: 100%;
+}
+
+.deck-table-group-row th {
+  padding: 9px 7px 6px;
+  border-top: 1px solid rgba(142, 231, 214, 0.3);
+  border-bottom: 1px solid rgba(142, 231, 214, 0.42);
+  background: rgba(142, 231, 214, 0.08);
+  color: #dffdf6;
+}
+
+.deck-table-group-row th span,
+.deck-table-group-row th small {
+  display: inline-flex;
+  align-items: center;
+}
+
+.deck-table-group-row th span {
+  margin-right: 12px;
+  font-size: 0.82rem;
+}
+
+.deck-table-group-row th small {
+  color: #a6b4ae;
+  font-size: 0.68rem;
 }
 
 .deck-image-grid {
@@ -2339,13 +2390,18 @@ body.shift-cascade .deck-stack-card strong {
 
 .game-loading-card {
   width: min(520px, calc(100vw - 28px));
+  min-height: 132px;
+  transform: none !important;
+  zoom: 1;
   text-align: center;
+  align-content: center;
 }
 
 .mana-loading-bar {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
   gap: 5px;
+  width: 100%;
   height: 10px;
   margin-top: 12px;
   overflow: hidden;
@@ -4269,7 +4325,7 @@ body.ctrl-zoom .card:hover {
 .card-zoom-overlay {
   position: fixed;
   z-index: 10000;
-  pointer-events: none;
+  pointer-events: auto;
   display: grid;
   filter: drop-shadow(0 18px 42px rgba(27, 35, 32, 0.34));
 }
@@ -4553,6 +4609,10 @@ body.dark-mode kbd {
 
 .bulk-import-dialog-card {
   width: 100%;
+}
+
+.deck-builder-settings-card {
+  width: min(420px, calc(100vw - 28px));
 }
 
 .bulk-import-dialog-card textarea {
@@ -5586,6 +5646,82 @@ body.terminal-table-theme .player-header,
 body.terminal-table-theme .deck-stack-heading,
 body.terminal-table-theme .life-menu-summary {
   color: #8cff9f;
+}
+
+body.cosmic-table-theme {
+  --bg: #090716;
+  --panel: #151127;
+  --panel-strong: #21183a;
+  --ink: #f3edff;
+  --muted: #c6b7e8;
+  --line: #51406f;
+  --accent: #d9a7ff;
+  --accent-strong: #f0d1ff;
+  --warn: #ffbd6e;
+}
+
+body.cosmic-table-theme .landing-panel,
+body.cosmic-table-theme .topbar,
+body.cosmic-table-theme .sidebar,
+body.cosmic-table-theme .table-panel,
+body.cosmic-table-theme .active-player-board,
+body.cosmic-table-theme .player-board,
+body.cosmic-table-theme .battlefield-zone,
+body.cosmic-table-theme .pile-zone,
+body.cosmic-table-theme .commander-zone,
+body.cosmic-table-theme .turn-dock,
+body.cosmic-table-theme dialog,
+body.cosmic-table-theme .dialog-card,
+body.cosmic-table-theme .setup-card,
+body.cosmic-table-theme .account-workspace-shell,
+body.cosmic-table-theme .deck-builder-footer,
+body.cosmic-table-theme .deck-stack-column {
+  border-color: rgba(217, 167, 255, 0.36);
+  background:
+    radial-gradient(circle at 18% 10%, rgba(217, 167, 255, 0.12), transparent 32%),
+    radial-gradient(circle at 86% 18%, rgba(111, 181, 255, 0.12), transparent 30%),
+    linear-gradient(180deg, rgba(21, 17, 39, 0.98), rgba(9, 7, 22, 0.98));
+  color: var(--ink);
+}
+
+body.cosmic-table-theme .battlefield-zone {
+  background:
+    radial-gradient(circle at 28% 18%, rgba(217, 167, 255, 0.14), transparent 34%),
+    radial-gradient(circle at 78% 68%, rgba(111, 181, 255, 0.11), transparent 38%),
+    linear-gradient(180deg, #130f25, #080612);
+}
+
+body.cosmic-table-theme button,
+body.cosmic-table-theme .top-icon-button,
+body.cosmic-table-theme select,
+body.cosmic-table-theme input,
+body.cosmic-table-theme textarea {
+  border-color: rgba(217, 167, 255, 0.42);
+}
+
+body.cosmic-table-theme button,
+body.cosmic-table-theme .top-icon-button {
+  background: rgba(42, 31, 75, 0.92);
+  color: #f4eaff;
+}
+
+body.cosmic-table-theme button.secondary {
+  background: rgba(17, 13, 33, 0.88);
+  color: #d9a7ff;
+}
+
+body.cosmic-table-theme input,
+body.cosmic-table-theme select,
+body.cosmic-table-theme textarea {
+  background: #0d0a1a;
+  color: #f3edff;
+}
+
+body.cosmic-table-theme .deck-title-price,
+body.cosmic-table-theme .counter-badge.plus-counter {
+  border-color: rgba(217, 167, 255, 0.45);
+  background: rgba(146, 87, 218, 0.34);
+  color: #f4eaff !important;
 }
 
 @media (max-width: 900px) {

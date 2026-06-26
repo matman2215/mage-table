@@ -44,7 +44,7 @@
             <button id="joinGameButton" class="secondary" data-landing-action="join" type="button">Join Game</button>
             <button id="loginButton" class="secondary" data-landing-action="account" type="button">Log In</button>
           </div>
-          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.4.21</p>
+          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.4.22</p>
         </div>
         <section id="createModePanel" class="landing-subpanel create-mode-panel hidden">
           <header class="create-room-header">
@@ -203,8 +203,11 @@
                 <input id="savedDeckSearchInput" type="search" placeholder="Filter decks" aria-label="Filter saved decks">
                 <aside id="deckMaybeBoardRail" class="deck-maybe-board-rail hidden">
                   <header>
-                    <h3>Maybe Board</h3>
-                    <span>Planning space</span>
+                    <div>
+                      <h3>Maybe Board</h3>
+                      <span>Planning space</span>
+                    </div>
+                    <button id="closeMaybeBoardButton" class="popover-close" type="button" title="Close maybe board" aria-label="Close maybe board">x</button>
                   </header>
                   <textarea id="deckMaybeBoardInput" rows="8" maxlength="20000" placeholder="Cards to consider"></textarea>
                 </aside>
@@ -218,6 +221,12 @@
                       <div class="deck-heading-line">
                         <h2 id="deckBuilderTitle">New Deck</h2>
                         <span id="deckBuilderPrice" class="deck-title-price hidden">$0.00</span>
+                        <select id="deckHeaderPriceSourceSelect" class="deck-header-price-source" aria-label="Deck price source">
+                          <option value="scryfall" selected>Scryfall</option>
+                          <option value="tcgplayer">TCGplayer</option>
+                          <option value="cardkingdom">Card Kingdom</option>
+                          <option value="average">Average</option>
+                        </select>
                       </div>
                       <div class="deck-title-meta">
                         <span id="deckBuilderCount">0 cards</span>
@@ -225,6 +234,7 @@
                     </div>
                     <div class="deck-builder-header-actions">
                       <button id="bulkImportDeckButton" class="secondary" type="button">Bulk Import</button>
+                      <button id="deckBuilderSettingsButton" class="secondary compact-icon-button" type="button" title="Deck builder settings" aria-label="Deck builder settings">&#9881;</button>
                       <button id="deckContextButton" class="secondary deck-context-button" type="button" title="Deck actions" aria-label="Deck actions">⋯</button>
                       <button id="deckStatsButton" class="secondary" type="button">Stats</button>
                       <button id="saveBuilderDeckButton" type="button">Save Deck</button>
@@ -280,6 +290,7 @@
                       <select id="deckPriceSourceSelect">
                         <option value="scryfall" selected>Scryfall USD</option>
                         <option value="tcgplayer">TCGplayer USD</option>
+                        <option value="cardkingdom">Card Kingdom USD</option>
                         <option value="average">Average USD</option>
                       </select>
                     </label>
@@ -542,6 +553,7 @@
               <option value="dark" selected>Dark</option>
               <option value="light">Light</option>
               <option value="console">Console</option>
+              <option value="cosmic">Cosmic</option>
             </select>
           </label>
         </details>
@@ -677,6 +689,7 @@
             <select id="deckStatsPriceSourceSelect">
               <option value="scryfall" selected>Scryfall USD</option>
               <option value="tcgplayer">TCGplayer USD</option>
+              <option value="cardkingdom">Card Kingdom USD</option>
               <option value="average">Average USD</option>
             </select>
           </label>
@@ -856,6 +869,27 @@
           <button id="appendBulkImportButton" class="secondary" type="button">Add to Deck</button>
           <button id="replaceBulkImportButton" type="button">Replace Deck</button>
         </div>
+      </form>
+    </dialog>
+
+    <dialog id="deckBuilderSettingsDialog">
+      <form method="dialog" class="dialog-card deck-builder-settings-card">
+        <header class="popover-header">
+          <div>
+            <h2>Deck Builder Settings</h2>
+            <p class="dialog-note">Local display preferences for deck building.</p>
+          </div>
+          <button id="closeDeckBuilderSettingsButton" class="popover-close" type="button" title="Close" aria-label="Close deck builder settings">x</button>
+        </header>
+        <label>
+          Theme
+          <select id="deckBuilderThemeSelect">
+            <option value="dark" selected>Dark</option>
+            <option value="light">Light</option>
+            <option value="console">Console</option>
+            <option value="cosmic">Cosmic</option>
+          </select>
+        </label>
       </form>
     </dialog>
 

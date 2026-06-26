@@ -13,9 +13,14 @@ const gameStore = new GameStore();
 const scryfallCache = new Map();
 const scryfallTokenSearchCache = new Map();
 const scryfallCardSearchCache = new Map();
+let mtgjsonPriceIndex = null;
+let mtgjsonPriceIndexPromise = null;
 let lastScryfallRequestAt = 0;
 const scryfallRequestTimeoutMs = 25000;
 const scryfallMaxAttempts = 3;
+const mtgjsonPriceTimeoutMs = Number(process.env.MTGJSON_PRICE_TIMEOUT_MS || 45000);
+const mtgjsonPriceSoftTimeoutMs = Number(process.env.MTGJSON_PRICE_SOFT_TIMEOUT_MS || 3500);
+const mtgjsonBaseUrl = process.env.MTGJSON_BASE_URL || "https://mtgjson.com/api/v5";
 const presenceTimeoutMs = 30000;
 const residentRoomUnloadMs = 2 * 60 * 1000;
 const guestHostDormantMs = 10 * 60 * 1000;
@@ -841,6 +846,7 @@ function summarizeScryfallCard(card) {
   const frontFace = faces[0] || null;
   const summary = {
     scryfallId: card.id,
+    scryfallOracleId: card.oracle_id || "",
     name: card.name,
     displayName: frontFace?.name || card.name,
     typeLine: frontFace?.typeLine || card.type_line || "",
@@ -918,6 +924,127 @@ function averageUsdPrice(prices = {}) {
       return true;
     });
   return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+}
+
+async function enrichCardSummariesWithProviderPrices(cards) {
+  const summaries = [...cards].filter((card) => card?.scryfallId || card?.scryfallOracleId);
+  if (!summaries.length) return;
+  let index;
+  try {
+    index = await mtgjsonProviderPriceIndex({ softTimeoutMs: mtgjsonPriceSoftTimeoutMs });
+  } catch (error) {
+    console.warn("MTGJSON price providers unavailable:", error.message);
+    return;
+  }
+  if (!index) return;
+  for (const card of summaries) {
+    const providerPrices = index.byScryfallId.get(card.scryfallId) || index.byOracleId.get(card.scryfallOracleId);
+    if (!providerPrices) continue;
+    card.pricesUsd = mergeProviderPriceSources(card.pricesUsd, providerPrices);
+  }
+}
+
+async function mtgjsonProviderPriceIndex({ softTimeoutMs = 0 } = {}) {
+  if (process.env.MAGE_TABLE_DISABLE_MTGJSON_PRICES === "1") {
+    return { byScryfallId: new Map(), byOracleId: new Map() };
+  }
+  if (mtgjsonPriceIndex) return mtgjsonPriceIndex;
+  if (!mtgjsonPriceIndexPromise) {
+    mtgjsonPriceIndexPromise = buildMtgjsonProviderPriceIndex()
+      .then((index) => {
+        mtgjsonPriceIndex = index;
+        return index;
+      })
+      .catch((error) => {
+        mtgjsonPriceIndexPromise = null;
+        throw error;
+      });
+  }
+  if (softTimeoutMs > 0) {
+    return Promise.race([
+      mtgjsonPriceIndexPromise,
+      sleep(softTimeoutMs).then(() => null),
+    ]);
+  }
+  return mtgjsonPriceIndexPromise;
+}
+
+async function buildMtgjsonProviderPriceIndex() {
+  const [identifiersPayload, pricesPayload] = await Promise.all([
+    fetchJsonWithTimeout(`${mtgjsonBaseUrl}/AllIdentifiers.json`, mtgjsonPriceTimeoutMs),
+    fetchJsonWithTimeout(`${mtgjsonBaseUrl}/AllPricesToday.json`, mtgjsonPriceTimeoutMs),
+  ]);
+  const identifiers = identifiersPayload.data || identifiersPayload;
+  const prices = pricesPayload.data || pricesPayload;
+  const byScryfallId = new Map();
+  const byOracleId = new Map();
+  for (const [uuid, idData] of Object.entries(identifiers || {})) {
+    const priceData = prices?.[uuid];
+    if (!priceData) continue;
+    const providerPrices = mtgjsonProviderPrices(priceData);
+    if (!Object.keys(providerPrices).length) continue;
+    if (idData?.scryfallId) byScryfallId.set(String(idData.scryfallId), providerPrices);
+    if (idData?.scryfallOracleId) byOracleId.set(String(idData.scryfallOracleId), providerPrices);
+  }
+  return { byScryfallId, byOracleId, loadedAt: Date.now() };
+}
+
+async function fetchJsonWithTimeout(url, timeoutMs) {
+  const response = await fetch(url, {
+    headers: {
+      "Accept": "application/json",
+      "User-Agent": "MageTablePrototype/0.1",
+    },
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!response.ok) throw new Error(`${new URL(url).pathname} returned ${response.status}`);
+  return response.json();
+}
+
+function mtgjsonProviderPrices(priceData) {
+  const paper = priceData?.paper || {};
+  const providers = {};
+  const providerMap = {
+    cardkingdom: "cardkingdom",
+    tcgplayer: "tcgplayer",
+  };
+  for (const [sourceKey, provider] of Object.entries(providerMap)) {
+    const source = paper[sourceKey];
+    const prices = source ? mtgjsonPriceSource(source) : null;
+    if (prices && Object.values(prices).some((value) => value > 0)) providers[provider] = prices;
+  }
+  return providers;
+}
+
+function mtgjsonPriceSource(source) {
+  const retail = source.retail || {};
+  const buylist = source.buylist || {};
+  return {
+    normal: latestMtgjsonUsd(retail.normal) || latestMtgjsonUsd(buylist.normal),
+    foil: latestMtgjsonUsd(retail.foil) || latestMtgjsonUsd(buylist.foil),
+    etched: latestMtgjsonUsd(retail.etched) || latestMtgjsonUsd(buylist.etched),
+  };
+}
+
+function latestMtgjsonUsd(value) {
+  if (Number.isFinite(Number(value))) return Number(value);
+  if (!value || typeof value !== "object") return 0;
+  const entries = Object.entries(value)
+    .map(([date, price]) => [date, Number(price)])
+    .filter(([, price]) => price > 0)
+    .sort(([left], [right]) => left.localeCompare(right));
+  return entries.length ? entries[entries.length - 1][1] : 0;
+}
+
+function mergeProviderPriceSources(existing = {}, incoming = {}) {
+  const merged = { ...(existing || {}) };
+  for (const [provider, prices] of Object.entries(incoming)) {
+    merged[provider] = {
+      ...(merged[provider] && typeof merged[provider] === "object" ? merged[provider] : {}),
+      ...prices,
+    };
+  }
+  return merged;
 }
 
 function priceForDeckEntry(cardData, entry, source = "scryfall") {
@@ -1118,6 +1245,7 @@ async function buildDeck(text, ownerSeat) {
   const unique = [];
   const byName = new Map();
   const batchCards = await fetchScryfallCollection(parsed.entries);
+  await enrichCardSummariesWithProviderPrices(batchCards.values());
   let total = 0;
   let land = 0;
   let nonland = 0;
@@ -1127,6 +1255,7 @@ async function buildDeck(text, ownerSeat) {
     if (!cardData) {
       try {
         cardData = await fetchScryfallCard(entry.name);
+        await enrichCardSummariesWithProviderPrices([cardData]);
       } catch (error) {
         if (error.code === "SCRYFALL_UNAVAILABLE") throw error;
         cardData = null;
@@ -1219,6 +1348,7 @@ async function inspectDeck(text) {
     throw new Error(parsed.errors.slice(0, 5).join(" "));
   }
   const batchCards = await fetchScryfallCollection(parsed.entries);
+  await enrichCardSummariesWithProviderPrices(batchCards.values());
   const cards = [];
   const notFound = [];
   for (const entry of parsed.entries) {
@@ -1226,6 +1356,7 @@ async function inspectDeck(text) {
     if (!cardData) {
       try {
         cardData = await fetchScryfallCard(entry.name);
+        await enrichCardSummariesWithProviderPrices([cardData]);
       } catch (error) {
         if (error.code === "SCRYFALL_UNAVAILABLE") throw error;
         cardData = null;
@@ -2568,7 +2699,7 @@ async function applyAction(room, actor, body) {
     }
     case "updateSettings": {
       room.settings = room.settings || {};
-      const theme = ["light", "dark", "console"].includes(body.theme) ? body.theme : body.terminalTheme ? "console" : body.darkMode === false ? "light" : "dark";
+      const theme = ["light", "dark", "console", "cosmic"].includes(body.theme) ? body.theme : body.terminalTheme ? "console" : body.darkMode === false ? "light" : "dark";
       room.settings.friendlyMulligans = body.friendlyMulligans !== false;
       room.settings.theme = theme;
       room.settings.darkMode = theme !== "light";
