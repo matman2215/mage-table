@@ -64,6 +64,7 @@ const els = {
   deckViewModeSelect: document.querySelector("#deckViewModeSelect"),
   deckVisualSearchInput: document.querySelector("#deckVisualSearchInput"),
   deckViewScaleInput: document.querySelector("#deckViewScaleInput"),
+  deckViewScaleTicks: document.querySelector("#deckViewScaleTicks"),
   deckPriceSourceSelect: document.querySelector("#deckPriceSourceSelect"),
   deckHeaderPriceSourceSelect: document.querySelector("#deckHeaderPriceSourceSelect"),
   applyDeckViewButton: document.querySelector("#applyDeckViewButton"),
@@ -73,6 +74,7 @@ const els = {
   deckMaybeBoardInput: document.querySelector("#deckMaybeBoardInput"),
   deckCardSearchInput: document.querySelector("#deckCardSearchInput"),
   deckCardSearchButton: document.querySelector("#deckCardSearchButton"),
+  dismissDeckCardSearchButton: document.querySelector("#dismissDeckCardSearchButton"),
   deckCardSearchSummary: document.querySelector("#deckCardSearchSummary"),
   deckCardSearchResults: document.querySelector("#deckCardSearchResults"),
   activeGamesSummary: document.querySelector("#activeGamesSummary"),
@@ -1314,8 +1316,67 @@ function deckViewScale() {
   return Math.max(70, Math.min(300, Number(els.deckViewScaleInput?.value) || 100));
 }
 
+function deckScaleBounds() {
+  return {
+    min: Number(els.deckViewScaleInput?.min) || 70,
+    max: Number(els.deckViewScaleInput?.max) || 300,
+  };
+}
+
+function deckScaleSnapPoints() {
+  const { min, max } = deckScaleBounds();
+  const previewWidth = Math.max(
+    1,
+    Number(els.deckBuilderPreview?.clientWidth) || 0,
+    Number(els.deckBuilderPreview?.parentElement?.clientWidth) || 0,
+    typeof window !== "undefined" ? Number(window.innerWidth) || 0 : 0,
+  );
+  const cardWidth = 230;
+  const gap = 12;
+  const available = Math.max(1, previewWidth - 4);
+  const points = new Set([min, max]);
+  for (let lanes = 1; lanes <= 8; lanes += 1) {
+    const laneWidth = (available - (lanes - 1) * gap) / lanes;
+    if (laneWidth <= 0) continue;
+    const snap = Math.round((laneWidth / cardWidth) * 100);
+    if (snap >= min && snap <= max) points.add(snap);
+  }
+  return [...points].sort((a, b) => a - b);
+}
+
+function nearestDeckScaleSnap(value) {
+  const { min, max } = deckScaleBounds();
+  const raw = Math.max(min, Math.min(max, Number(value) || 100));
+  return deckScaleSnapPoints().reduce((best, point) => (
+    Math.abs(point - raw) < Math.abs(best - raw) ? point : best
+  ));
+}
+
+function updateDeckScaleTicks(points = deckScaleSnapPoints()) {
+  if (!els.deckViewScaleTicks || !els.deckViewScaleInput) return;
+  els.deckViewScaleTicks.innerHTML = "";
+  points.forEach((point) => {
+    const option = document.createElement("option");
+    option.value = String(point);
+    option.label = `${point}%`;
+    els.deckViewScaleTicks.append(option);
+  });
+  els.deckViewScaleInput.title = `Snap points: ${points.map((point) => `${point}%`).join(", ")}`;
+}
+
+function snapDeckViewScaleInput() {
+  if (!els.deckViewScaleInput) return deckViewScale();
+  const points = deckScaleSnapPoints();
+  updateDeckScaleTicks(points);
+  const snapped = nearestDeckScaleSnap(els.deckViewScaleInput.value);
+  els.deckViewScaleInput.value = String(snapped);
+  els.deckViewScaleInput.setAttribute("aria-valuetext", `${snapped}%`);
+  return snapped;
+}
+
 function applyDeckViewScale() {
   if (!els.deckBuilderPreview) return;
+  updateDeckScaleTicks();
   els.deckBuilderPreview.style.setProperty("--deck-view-scale", String(deckViewScale() / 100));
 }
 
@@ -1327,6 +1388,7 @@ function applyDeckViewSettings(event = null) {
     localStorage.setItem("mage-table-deck-price-source", deckPriceSource);
     syncDeckPriceControls();
   }
+  if (event?.target === els.deckViewScaleInput) snapDeckViewScaleInput();
   applyDeckViewScale();
   renderDeckBuilderPreview();
   renderDeckCardSearchResults();
@@ -2818,6 +2880,9 @@ async function joinRoomWithDeck() {
 
 function renderDeckCardSearchResults() {
   els.deckCardSearchResults.innerHTML = "";
+  const hasResults = deckCardSearchResults.length > 0;
+  els.deckCardSearchResults.classList.toggle("hidden", !hasResults);
+  setDeckCardSearchDismissable(hasResults);
   deckCardSearchResults.forEach((card) => {
     const item = document.createElement("article");
     item.className = "deck-search-result";
@@ -2838,6 +2903,19 @@ function renderDeckCardSearchResults() {
     attachDeckCardEditControls(item, card.name);
     els.deckCardSearchResults.append(item);
   });
+}
+
+function setDeckCardSearchDismissable(isVisible) {
+  if (!els.dismissDeckCardSearchButton) return;
+  els.dismissDeckCardSearchButton.classList.toggle("hidden", !isVisible);
+}
+
+function dismissDeckCardSearch() {
+  deckCardSearchResults = [];
+  els.deckCardSearchInput.value = "";
+  els.deckCardSearchSummary.textContent = "Search for cards to add to this deck.";
+  renderDeckCardSearchResults();
+  setDeckCardSearchDismissable(false);
 }
 
 function currentBuilderCardQuantity(cardName) {
@@ -3065,19 +3143,23 @@ async function searchDeckBuilderCards() {
   const query = els.deckCardSearchInput.value.trim();
   if (query.length < 2) {
     els.deckCardSearchSummary.textContent = "Enter at least two characters.";
+    setDeckCardSearchDismissable(Boolean(query));
     return;
   }
   setDisabled(els.deckCardSearchButton, true);
+  setDeckCardSearchDismissable(true);
   els.deckCardSearchSummary.textContent = "Searching Scryfall...";
   try {
     const result = await api(`/api/scryfall/cards?q=${encodeURIComponent(query)}`);
     deckCardSearchResults = result.cards || [];
     els.deckCardSearchSummary.textContent = `${deckCardSearchResults.length} result${deckCardSearchResults.length === 1 ? "" : "s"}`;
     renderDeckCardSearchResults();
+    setDeckCardSearchDismissable(true);
   } catch (error) {
     deckCardSearchResults = [];
     renderDeckCardSearchResults();
     els.deckCardSearchSummary.textContent = error.message;
+    setDeckCardSearchDismissable(true);
   } finally {
     setDisabled(els.deckCardSearchButton, false);
   }
@@ -7092,6 +7174,7 @@ if (els.applyDeckViewButton) {
 }
 els.deckMaybeBoardInput.addEventListener("input", saveMaybeBoard);
 els.deckCardSearchButton.addEventListener("click", searchDeckBuilderCards);
+if (els.dismissDeckCardSearchButton) els.dismissDeckCardSearchButton.addEventListener("click", dismissDeckCardSearch);
 els.deckCardSearchInput.addEventListener("keydown", (event) => {
   if (event.key !== "Enter") return;
   event.preventDefault();

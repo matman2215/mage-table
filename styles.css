@@ -987,7 +987,7 @@ body.landing-mode .account-workspace-shell label {
 
 .deck-card-search-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 7px;
 }
 
@@ -995,6 +995,12 @@ body.landing-mode .account-workspace-shell label {
 .deck-card-search-row button {
   min-height: 28px;
   font-size: 0.72rem;
+}
+
+.deck-search-dismiss {
+  width: 28px;
+  min-width: 28px;
+  padding: 0;
 }
 
 .workspace-note {
@@ -2562,13 +2568,26 @@ body.shift-cascade .deck-stack-card strong {
   width: min(430px, calc(100vw - 28px));
 }
 
+#gameLoadingDialog {
+  width: fit-content;
+  height: fit-content;
+  max-width: calc(100vw - 28px);
+  max-height: calc(100vh - 28px);
+  padding: 0;
+  overflow: hidden;
+}
+
 .game-loading-card {
   width: min(520px, calc(100vw - 28px));
-  min-height: 132px;
+  min-height: 0;
+  height: auto;
+  max-height: none;
   transform: none !important;
   zoom: 1;
   text-align: center;
   align-content: center;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .mana-loading-bar {

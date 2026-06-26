@@ -44,7 +44,7 @@
             <button id="joinGameButton" class="secondary" data-landing-action="join" type="button">Join Game</button>
             <button id="loginButton" class="secondary" data-landing-action="account" type="button">Log In</button>
           </div>
-          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.4.23</p>
+          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.4.24</p>
         </div>
         <section id="createModePanel" class="landing-subpanel create-mode-panel hidden">
           <header class="create-room-header">
@@ -286,7 +286,8 @@
                     </label>
                     <label class="deck-view-scale-control">
                       Scale
-                      <input id="deckViewScaleInput" type="range" min="70" max="300" step="5" value="100">
+                      <input id="deckViewScaleInput" type="range" min="70" max="300" step="1" value="100" list="deckViewScaleTicks">
+                      <datalist id="deckViewScaleTicks"></datalist>
                     </label>
                     <button id="toggleMaybeBoardButton" class="secondary compact-icon-button deck-toolbar-maybe-button" type="button" title="Maybe board" aria-label="Open maybe board"><span class="maybe-board-icon" aria-hidden="true"><i></i><b>?</b></span></button>
                     <section class="deck-card-search deck-toolbar-search" aria-label="Add cards from Scryfall">
@@ -294,11 +295,12 @@
                       <div class="deck-card-search-row">
                         <input id="deckCardSearchInput" type="search" maxlength="120" placeholder="Search Scryfall for a card" aria-label="Search Scryfall for a card">
                         <button id="deckCardSearchButton" type="button">Search</button>
+                        <button id="dismissDeckCardSearchButton" class="secondary deck-search-dismiss hidden" type="button" title="Dismiss search results" aria-label="Dismiss search results">x</button>
                       </div>
                       <p id="deckCardSearchSummary" class="workspace-note">Search for cards to add to this deck.</p>
                     </section>
                   </section>
-                  <div id="deckCardSearchResults" class="deck-card-search-results"></div>
+                  <div id="deckCardSearchResults" class="deck-card-search-results hidden"></div>
                   <div class="deck-builder-content">
                     <section class="deck-structured-list deck-viewer-panel">
                       <div id="deckBuilderPreview" class="deck-builder-preview"></div>
