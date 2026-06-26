@@ -714,6 +714,31 @@ body.landing-mode .landing-panel button:not(.landing-actions button) {
   font-size: 0.98rem;
 }
 
+.deck-heading-line {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.deck-heading-line h2 {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deck-title-price {
+  border: 1px solid rgba(142, 231, 214, 0.34);
+  border-radius: 999px;
+  background: rgba(142, 231, 214, 0.1);
+  color: #dffdf6 !important;
+  padding: 2px 7px;
+  font-size: 0.66rem !important;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
 .deck-library-heading span,
 .deck-builder-header span,
 .active-games-heading span {
@@ -1128,56 +1153,75 @@ body.landing-mode .account-workspace-shell label {
 }
 
 .deck-toolbar-maybe-button {
-  width: 34px;
-  min-width: 34px;
+  width: 36px;
+  min-width: 36px;
   justify-self: start;
   align-self: end;
-  font-size: 0.95rem;
+  padding: 0;
+  display: grid;
+  place-items: center;
 }
 
 .maybe-board-icon {
   position: relative;
-  width: 19px;
-  height: 20px;
+  width: 25px;
+  height: 24px;
   display: inline-block;
 }
 
-.maybe-board-icon,
 .maybe-board-icon::before,
-.maybe-board-icon::after {
+.maybe-board-icon::after,
+.maybe-board-icon i {
   border: 1px solid currentColor;
-  border-radius: 3px;
+  border-radius: 4px;
+  box-sizing: border-box;
 }
 
 .maybe-board-icon::before,
 .maybe-board-icon::after {
   content: "";
   position: absolute;
-  inset: 2px -4px -4px 4px;
-  opacity: 0.58;
+  width: 15px;
+  height: 19px;
+  background: rgba(142, 231, 214, 0.04);
+  opacity: 0.42;
+}
+
+.maybe-board-icon::before {
+  left: 7px;
+  top: 2px;
+  transform: rotate(6deg);
 }
 
 .maybe-board-icon::after {
-  inset: 5px -7px -7px 7px;
-  opacity: 0.36;
+  left: 3px;
+  top: 4px;
+  transform: rotate(-7deg);
 }
 
 .maybe-board-icon i {
   position: absolute;
-  inset: 0;
+  left: 5px;
+  top: 1px;
+  width: 15px;
+  height: 20px;
   display: block;
   background: linear-gradient(180deg, rgba(142, 231, 214, 0.14), rgba(142, 231, 214, 0.03));
+  z-index: 1;
 }
 
 .maybe-board-icon b {
   position: absolute;
-  inset: 0;
+  left: 5px;
+  top: 1px;
+  width: 15px;
+  height: 20px;
   display: grid;
   place-items: center;
   color: #dffdf6;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   line-height: 1;
-  z-index: 1;
+  z-index: 2;
 }
 
 .deck-view-toolbar label {
@@ -1289,12 +1333,8 @@ body.landing-mode .account-workspace-shell label {
 .deck-card-stack {
   position: relative;
   --cascade-card-height: calc(322px * var(--deck-view-scale, 1));
-  min-height: calc((var(--stack-count, 1) - 1) * var(--cascade-rest-step) * var(--deck-view-scale, 1) + var(--cascade-card-height));
+  min-height: calc((var(--stack-count, 1) - 1) * var(--cascade-rest-step) * var(--deck-view-scale, 1) + var(--cascade-card-height) + var(--local-cascade-extra, 0px));
   transition: min-height 0.16s ease;
-}
-
-.deck-card-stack:hover {
-  min-height: calc((var(--stack-count, 1) - 1) * var(--cascade-open-step) * var(--deck-view-scale, 1) + var(--cascade-card-height));
 }
 
 .deck-stack-card {
@@ -1311,8 +1351,8 @@ body.landing-mode .account-workspace-shell label {
   transition: top 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease, outline-color 0.16s ease;
 }
 
-.deck-card-stack:hover .deck-stack-card {
-  top: calc(var(--stack-index, 0) * var(--cascade-open-step) * var(--deck-view-scale, 1));
+.deck-stack-card.local-cascade-focus {
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.46);
 }
 
 .deck-stack-card:hover {

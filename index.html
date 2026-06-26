@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Mage Table</title>
-    <link rel="stylesheet" href="styles.css?v=0.4.8">
+    <link rel="stylesheet" href="styles.css?v=0.4.9">
   </head>
   <body class="dark-mode">
     <main class="app-shell">
@@ -44,7 +44,7 @@
             <button id="joinGameButton" class="secondary" data-landing-action="join" type="button">Join Game</button>
             <button id="loginButton" class="secondary" data-landing-action="account" type="button">Log In</button>
           </div>
-          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.4.18</p>
+          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.4.19</p>
         </div>
         <section id="createModePanel" class="landing-subpanel create-mode-panel hidden">
           <header class="create-room-header">
@@ -215,7 +215,10 @@
                 <section id="deckBuilderForm" class="deck-builder-form">
                   <header class="deck-builder-header">
                     <div>
-                      <h2 id="deckBuilderTitle">New Deck</h2>
+                      <div class="deck-heading-line">
+                        <h2 id="deckBuilderTitle">New Deck</h2>
+                        <span id="deckBuilderPrice" class="deck-title-price hidden">$0.00</span>
+                      </div>
                       <div class="deck-title-meta">
                         <span id="deckBuilderCount">0 cards</span>
                       </div>
@@ -967,6 +970,6 @@
       </form>
     </dialog>
 
-    <script src="app.js?v=0.4.18"></script>
+    <script src="app.js?v=0.4.19"></script>
   </body>
 </html>

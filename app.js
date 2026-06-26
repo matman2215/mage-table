@@ -47,6 +47,7 @@ const els = {
   savedDeckList: document.querySelector("#savedDeckList"),
   deckBuilderForm: document.querySelector("#deckBuilderForm"),
   deckBuilderTitle: document.querySelector("#deckBuilderTitle"),
+  deckBuilderPrice: document.querySelector("#deckBuilderPrice"),
   deckBuilderCount: document.querySelector("#deckBuilderCount"),
   deckBuilderNameInput: document.querySelector("#deckBuilderNameInput"),
   deckBuilderCommanderInput: document.querySelector("#deckBuilderCommanderInput"),
@@ -921,8 +922,7 @@ function renderSavedDecks() {
 
 function commanderColorIdentityForDeck(deck) {
   if (deck.id !== selectedBuilderDeckId || !deckBuilderMetadata?.cards?.length) return "Open";
-  const commanderName = String(deck.commander || "").trim().toLowerCase();
-  const commander = deckBuilderMetadata.cards.find((card) => card.name.toLowerCase() === commanderName || card.displayName?.toLowerCase() === commanderName);
+  const commander = deckBuilderMetadata.cards.find((card) => deckNameMatchesCommander(card.name, deck.commander) || deckNameMatchesCommander(card.displayName, deck.commander));
   return colorLabel(commander?.colorIdentity || commander?.colors || []);
 }
 
@@ -1005,13 +1005,50 @@ function cleanDeckBuilderCardName(rawName) {
     .trim();
 }
 
-function deckMetadataKey(decklist) {
-  return String(decklist || "").trim().toLowerCase();
+function normalizedDeckCardName(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function significantDeckNameTokens(value) {
+  return normalizedDeckCardName(value)
+    .split(/\s+/)
+    .filter((token) => token && !["a", "an", "of", "the"].includes(token));
+}
+
+function deckNameMatchesCommander(cardName, commanderName) {
+  const commander = normalizedDeckCardName(commanderName);
+  const candidate = normalizedDeckCardName(cardName);
+  if (!commander || !candidate) return false;
+  if (candidate === commander) return true;
+  const commanderTokens = significantDeckNameTokens(commanderName);
+  const candidateTokens = significantDeckNameTokens(cardName);
+  if (!commanderTokens.length || !candidateTokens.length) return false;
+  if (commanderTokens.join(" ") === candidateTokens.join(" ")) return true;
+  if (commanderTokens.length < 2 || commanderTokens[0] !== candidateTokens[0]) return false;
+  return commanderTokens.every((token) => candidateTokens.includes(token));
+}
+
+function deckMetadataRequestDecklist(decklist = els.deckBuilderListInput.value) {
+  const commander = els.deckBuilderCommanderInput.value.trim();
+  const text = String(decklist || "").trim();
+  if (!commander) return text;
+  const hasCommander = parseDeckBuilderEntries(text).some((entry) => deckNameMatchesCommander(entry.name, commander));
+  if (hasCommander) return text;
+  return [`1 ${commander}`, text].filter(Boolean).join("\n");
+}
+
+function deckMetadataKey(decklist = els.deckBuilderListInput.value) {
+  return deckMetadataRequestDecklist(decklist).trim().toLowerCase();
 }
 
 function scheduleDeckMetadataRefresh() {
   window.clearTimeout(deckBuilderMetadataTimer);
-  const key = deckMetadataKey(els.deckBuilderListInput.value);
+  const key = deckMetadataKey();
   if (!key) {
     deckBuilderMetadata = null;
     deckBuilderMetadataKey = "";
@@ -1023,6 +1060,7 @@ function scheduleDeckMetadataRefresh() {
 
 async function refreshDeckMetadata() {
   const decklist = els.deckBuilderListInput.value;
+  const requestDecklist = deckMetadataRequestDecklist(decklist);
   const key = deckMetadataKey(decklist);
   if (!key) {
     deckBuilderMetadata = null;
@@ -1034,7 +1072,7 @@ async function refreshDeckMetadata() {
   try {
     const result = await api("/api/decks/inspect", {
       method: "POST",
-      body: JSON.stringify({ decklist }),
+      body: JSON.stringify({ decklist: requestDecklist }),
     });
     if (deckBuilderMetadataKey !== key) return;
     deckBuilderMetadata = result;
@@ -1127,6 +1165,7 @@ function renderDeckBuilderPreview(options = {}) {
   const deckName = els.deckBuilderNameInput.value.trim() || selectedDeck?.name || "New Deck";
   const commander = els.deckBuilderCommanderInput.value.trim();
   els.deckBuilderTitle.textContent = deckName;
+  renderDeckBuilderPrice();
   els.deckBuilderCount.textContent = `${total} card${total === 1 ? "" : "s"}${commander ? ` - Commander: ${commander}` : ""}`;
   applyDeckViewScale();
   els.deckBuilderPreview.innerHTML = "";
@@ -1220,6 +1259,20 @@ function applyDeckViewSettings(event = null) {
   }
 }
 
+function renderDeckBuilderPrice() {
+  if (!els.deckBuilderPrice) return;
+  const price = deckBuilderTotalPrice();
+  els.deckBuilderPrice.classList.toggle("hidden", price === null);
+  if (price !== null) els.deckBuilderPrice.textContent = `$${price.toFixed(2)}`;
+}
+
+function deckBuilderTotalPrice() {
+  if (Number.isFinite(Number(deckBuilderMetadata?.stats?.priceUsd))) return Number(deckBuilderMetadata.stats.priceUsd);
+  const cards = deckBuilderMetadata?.cards;
+  if (!Array.isArray(cards) || !cards.length) return null;
+  return cards.reduce((sum, card) => sum + (Number(card.priceUsd) || 0) * (Number(card.quantity) || 1), 0);
+}
+
 function renderDeckVisualStacks(cards, settings = deckViewSettings()) {
   const { groupMode, sortMode, viewMode, query } = settings;
   const displayCards = deckViewerCardsWithCommander(cards);
@@ -1257,6 +1310,7 @@ function renderDeckVisualStacks(cards, settings = deckViewSettings()) {
         stack.className = "deck-card-stack";
         stack.style.setProperty("--stack-count", String(sorted.length));
         sorted.forEach((card, index) => stack.append(deckStackCard(card, index, query)));
+        attachLocalCascadeHandlers(stack);
         column.append(stack);
       }
       const lane = lanes.reduce((best, candidate) => {
@@ -1327,6 +1381,7 @@ function deckStackCard(card, index, query) {
   item.className = "deck-stack-card";
   if (query && card.name.toLowerCase().includes(query)) item.classList.add("highlight");
   item.style.setProperty("--stack-index", String(index));
+  item.dataset.stackIndex = String(index);
   item.title = `${card.quantity} ${card.name}`;
   if (card.imageUrl) {
     item.dataset.zoomImage = card.imageUrl;
@@ -1338,6 +1393,67 @@ function deckStackCard(card, index, query) {
   item.innerHTML = `${image}<span class="deck-stack-qty">${card.quantity}</span><strong>${escapeHtml(card.name)}</strong>`;
   attachCardZoomHandlers(item, "deck-viewer", index);
   return item;
+}
+
+function attachLocalCascadeHandlers(stack) {
+  const cards = [...stack.querySelectorAll(".deck-stack-card")];
+  if (cards.length <= 1) return;
+  stack.addEventListener("pointermove", (event) => {
+    const card = event.target.closest(".deck-stack-card");
+    const index = card && stack.contains(card)
+      ? Number(card.dataset.stackIndex)
+      : estimateCascadeIndexFromPointer(stack, event.clientY);
+    updateLocalCascade(stack, Number.isFinite(index) ? index : 0);
+  });
+  stack.addEventListener("pointerleave", () => clearLocalCascade(stack));
+}
+
+function estimateCascadeIndexFromPointer(stack, clientY) {
+  const restStep = cascadeStepSize(stack, "--cascade-rest-step", 44);
+  const offset = Math.max(0, clientY - stack.getBoundingClientRect().top);
+  const count = Number(stack.style.getPropertyValue("--stack-count")) || stack.querySelectorAll(".deck-stack-card").length || 1;
+  return Math.max(0, Math.min(count - 1, Math.round(offset / Math.max(1, restStep))));
+}
+
+function updateLocalCascade(stack, focusedIndex) {
+  const cards = [...stack.querySelectorAll(".deck-stack-card")];
+  const count = cards.length;
+  if (!count) return;
+  const visible = Math.min(6, count);
+  const start = Math.max(0, Math.min(count - visible, focusedIndex - Math.floor(visible / 2)));
+  const end = start + visible - 1;
+  if (stack.dataset.cascadeStart === String(start) && stack.dataset.cascadeEnd === String(end)) return;
+  const restStep = cascadeStepSize(stack, "--cascade-rest-step", 44);
+  const openStep = cascadeStepSize(stack, "--cascade-open-step", 112);
+  const extra = Math.max(0, (visible - 1) * (openStep - restStep));
+  stack.dataset.cascadeStart = String(start);
+  stack.dataset.cascadeEnd = String(end);
+  stack.classList.add("local-cascade-active");
+  stack.style.setProperty("--local-cascade-extra", `${extra}px`);
+  cards.forEach((card, index) => {
+    let top = index * restStep;
+    if (index >= start && index <= end) top = start * restStep + (index - start) * openStep;
+    else if (index > end) top = start * restStep + (end - start) * openStep + (index - end) * restStep;
+    card.style.top = `${top}px`;
+    card.classList.toggle("local-cascade-focus", index >= start && index <= end);
+  });
+}
+
+function clearLocalCascade(stack) {
+  delete stack.dataset.cascadeStart;
+  delete stack.dataset.cascadeEnd;
+  stack.classList.remove("local-cascade-active");
+  stack.style.removeProperty("--local-cascade-extra");
+  stack.querySelectorAll(".deck-stack-card").forEach((card) => {
+    card.style.removeProperty("top");
+    card.classList.remove("local-cascade-focus");
+  });
+}
+
+function cascadeStepSize(stack, property, fallback) {
+  const raw = getComputedStyle(stack).getPropertyValue(property);
+  const base = Number.parseFloat(raw);
+  return (Number.isFinite(base) ? base : fallback) * (deckViewScale() / 100);
 }
 
 function deckImageGrid(cards, query) {
@@ -2054,8 +2170,15 @@ function deckCategory(card) {
 }
 
 function isDeckCommanderCard(card) {
-  const commander = els.deckBuilderCommanderInput.value.trim().toLowerCase();
-  return !!commander && card.name.toLowerCase() === commander;
+  const commander = els.deckBuilderCommanderInput.value.trim();
+  if (!commander) return false;
+  if (card.isCommanderPlaceholder) return true;
+  const candidates = [
+    card.name,
+    card.displayName,
+    ...(Array.isArray(card.faces) ? card.faces.map((face) => face.name) : []),
+  ];
+  return candidates.some((candidate) => deckNameMatchesCommander(candidate, commander));
 }
 
 function primarySubtype(card) {
@@ -6366,6 +6489,7 @@ els.deckDetailsForm.addEventListener("submit", (event) => {
   els.deckBuilderCommanderInput.value = els.deckDetailsCommanderInput.value.trim();
   els.deckBuilderStatus.textContent = "Unsaved changes";
   els.deckDetailsDialog.close();
+  invalidateDeckMetadata();
   renderDeckBuilderPreview();
 });
 els.closeDeckActionButton.addEventListener("click", () => els.deckActionDialog.close());
@@ -6395,6 +6519,7 @@ els.deckBuilderNameInput.addEventListener("input", () => {
 });
 els.deckBuilderCommanderInput.addEventListener("input", () => {
   els.deckBuilderStatus.textContent = "Unsaved changes";
+  invalidateDeckMetadata();
   renderDeckBuilderPreview();
 });
 els.deckBuilderForm.addEventListener("submit", handleDeckBuilderFormSubmit);
