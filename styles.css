@@ -1285,7 +1285,7 @@ body.landing-mode .account-workspace-shell label {
   border-radius: 8px;
   background: rgba(12, 20, 17, 0.64);
   box-shadow: inset 4px 0 0 rgba(142, 231, 214, 0.28);
-  padding: 8px;
+  padding: 8px 8px 3px;
 }
 
 .deck-stack-column > header {
@@ -1333,8 +1333,9 @@ body.landing-mode .account-workspace-shell label {
 .deck-card-stack {
   position: relative;
   --cascade-card-height: calc(322px * var(--deck-view-scale, 1));
-  min-height: calc((var(--stack-count, 1) - 1) * var(--cascade-rest-step) * var(--deck-view-scale, 1) + var(--cascade-card-height) + var(--local-cascade-extra, 0px));
-  transition: min-height 0.16s ease;
+  height: calc((var(--stack-count, 1) - 1) * var(--cascade-rest-step) * var(--deck-view-scale, 1) + var(--cascade-card-height) + var(--local-cascade-extra, 0px));
+  min-height: 0;
+  transition: height 0.16s ease;
 }
 
 .deck-stack-card {
