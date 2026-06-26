@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Mage Table</title>
-    <link rel="stylesheet" href="styles.css?v=0.4.4">
+    <link rel="stylesheet" href="styles.css?v=0.4.7">
   </head>
   <body class="dark-mode">
     <main class="app-shell">
@@ -44,7 +44,7 @@
             <button id="joinGameButton" class="secondary" data-landing-action="join" type="button">Join Game</button>
             <button id="loginButton" class="secondary" data-landing-action="account" type="button">Log In</button>
           </div>
-          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.4.14</p>
+          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.4.17</p>
         </div>
         <section id="createModePanel" class="landing-subpanel create-mode-panel hidden">
           <header class="create-room-header">
@@ -198,7 +198,6 @@
                     <span id="savedDeckSummary">0 decks</span>
                   </div>
                   <button id="collapseDeckRailButton" class="secondary compact-icon-button" type="button" title="Collapse deck library" aria-label="Collapse deck library">☰</button>
-                  <button id="toggleMaybeBoardButton" class="secondary compact-icon-button" type="button" title="Maybe board" aria-label="Open maybe board">☆</button>
                   <button id="newSavedDeckButton" type="button">New Deck</button>
                 </header>
                 <input id="savedDeckSearchInput" type="search" placeholder="Filter decks" aria-label="Filter saved decks">
@@ -230,14 +229,6 @@
                   </header>
                   <input id="deckBuilderNameInput" type="hidden" maxlength="80">
                   <input id="deckBuilderCommanderInput" type="hidden" maxlength="120">
-                  <section class="deck-card-search">
-                    <div class="deck-card-search-row">
-                      <input id="deckCardSearchInput" type="search" maxlength="120" placeholder="Search Scryfall for a card" aria-label="Search Scryfall for a card">
-                      <button id="deckCardSearchButton" type="button">Search</button>
-                    </div>
-                    <p id="deckCardSearchSummary" class="workspace-note">Search for cards to add to this deck.</p>
-                    <div id="deckCardSearchResults" class="deck-card-search-results"></div>
-                  </section>
                   <section class="deck-view-toolbar">
                     <label>
                       Group
@@ -281,8 +272,17 @@
                       Scale
                       <input id="deckViewScaleInput" type="range" min="70" max="300" step="5" value="100">
                     </label>
-                    <button id="applyDeckViewButton" type="button">Apply</button>
+                    <button id="toggleMaybeBoardButton" class="secondary compact-icon-button deck-toolbar-maybe-button" type="button" title="Maybe board" aria-label="Open maybe board">☆</button>
+                    <section class="deck-card-search deck-toolbar-search" aria-label="Add cards from Scryfall">
+                      <span class="deck-toolbar-label">Add card</span>
+                      <div class="deck-card-search-row">
+                        <input id="deckCardSearchInput" type="search" maxlength="120" placeholder="Search Scryfall for a card" aria-label="Search Scryfall for a card">
+                        <button id="deckCardSearchButton" type="button">Search</button>
+                      </div>
+                      <p id="deckCardSearchSummary" class="workspace-note">Search for cards to add to this deck.</p>
+                    </section>
                   </section>
+                  <div id="deckCardSearchResults" class="deck-card-search-results"></div>
                   <div class="deck-builder-content">
                     <section class="deck-structured-list deck-viewer-panel">
                       <h3>Deck View</h3>
@@ -968,6 +968,6 @@
       </form>
     </dialog>
 
-    <script src="app.js?v=0.4.14"></script>
+    <script src="app.js?v=0.4.17"></script>
   </body>
 </html>

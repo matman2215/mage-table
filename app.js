@@ -1233,6 +1233,14 @@ function renderDeckVisualStacks(cards, settings = deckViewSettings()) {
   wrap.dataset.groupMode = groupMode;
   wrap.dataset.sortMode = sortMode;
   wrap.dataset.viewMode = viewMode;
+  const laneCount = deckVisualColumnCount(viewMode);
+  wrap.style.setProperty("--masonry-columns", String(laneCount));
+  const lanes = Array.from({ length: laneCount }, () => {
+    const lane = document.createElement("div");
+    lane.className = "deck-visual-masonry-column";
+    wrap.append(lane);
+    return { node: lane, height: 0, count: 0 };
+  });
   [...grouped.entries()]
     .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
     .forEach(([group, groupCards]) => {
@@ -1250,9 +1258,31 @@ function renderDeckVisualStacks(cards, settings = deckViewSettings()) {
         sorted.forEach((card, index) => stack.append(deckStackCard(card, index, query)));
         column.append(stack);
       }
-      wrap.append(column);
+      const lane = lanes.reduce((best, candidate) => {
+        if (candidate.height < best.height) return candidate;
+        if (candidate.height === best.height && candidate.count < best.count) return candidate;
+        return best;
+      }, lanes[0]);
+      lane.node.append(column);
+      lane.height += estimateDeckGroupHeight(sorted.length, viewMode);
+      lane.count += 1;
     });
   els.deckBuilderPreview.append(wrap);
+}
+
+function deckVisualColumnCount(viewMode = "cascade") {
+  const width = Math.max(1, els.deckBuilderPreview?.clientWidth || 1);
+  const scale = deckViewScale() / 100;
+  const baseWidth = viewMode === "table" ? 310 : viewMode === "grid" ? 270 : 230;
+  const columnWidth = Math.min(390, Math.max(190, baseWidth * scale));
+  return Math.max(1, Math.min(8, Math.floor((width + 12) / (columnWidth + 12))));
+}
+
+function estimateDeckGroupHeight(cardCount, viewMode = "cascade") {
+  const scale = deckViewScale() / 100;
+  if (viewMode === "table") return 52 + cardCount * 36 * scale;
+  if (viewMode === "grid") return 58 + cardCount * 186 * scale;
+  return 72 + Math.max(0, cardCount - 1) * 44 * scale + 322 * scale;
 }
 
 function deckStackCard(card, index, query) {
@@ -1332,10 +1362,9 @@ function renderDeckStatsContent() {
     return;
   }
   const total = cards.reduce((sum, card) => sum + (Number(card.quantity) || 1), 0);
+  syncDeckStatsColorOptions(cards);
   els.deckStatsContent.append(
-    statSection("Mana Curve", manaCurveData(cards), "mana"),
     productionSection(cards, els.deckStatsProductionSelect.value),
-    statSection("Deck Composition", compositionData(cards), "composition"),
     probabilitySection(cards, total),
   );
 }
@@ -1420,9 +1449,9 @@ function productionCurveData(cards, color = "all") {
 
 function productionSection(cards, selectedColor = "all") {
   const section = document.createElement("section");
-  section.className = "deck-stat-section deck-production-section";
-  section.innerHTML = "<h3>Production</h3>";
-  const colors = selectedColor === "all" ? ["W", "U", "B", "R", "G", "C"] : [selectedColor];
+  section.className = "deck-stat-section deck-production-section deck-stats-overview-section";
+  section.innerHTML = "<h3>Deck stats</h3>";
+  const colors = productionColorsForStats(cards, selectedColor);
   section.append(
     productionStrip("Cost", costPipTotals(cards), colors),
     productionStrip("Production", productionTotals(cards), colors),
@@ -1430,11 +1459,57 @@ function productionSection(cards, selectedColor = "all") {
   const rows = document.createElement("div");
   rows.className = "deck-production-rows";
   colors.forEach((color) => {
-    if (color === "C" && selectedColor === "all") return;
     rows.append(productionColorRow(color, cards));
   });
-  section.append(rows);
+  section.append(rows, manaSummaryBlock(cards), manaCurveChartBlock(cards), colorCurveBlock(cards, colors));
   return section;
+}
+
+function syncDeckStatsColorOptions(cards) {
+  if (!els.deckStatsProductionSelect) return;
+  const legal = deckStatsLegalColors(cards);
+  [...els.deckStatsProductionSelect.options].forEach((option) => {
+    if (option.value === "all") return;
+    const enabled = legal.includes(option.value);
+    option.hidden = !enabled;
+    option.disabled = !enabled;
+  });
+  if (els.deckStatsProductionSelect.value !== "all" && !legal.includes(els.deckStatsProductionSelect.value)) {
+    els.deckStatsProductionSelect.value = "all";
+  }
+}
+
+function productionColorsForStats(cards, selectedColor = "all") {
+  const legal = deckStatsLegalColors(cards);
+  if (selectedColor !== "all" && legal.includes(selectedColor)) return [selectedColor];
+  return legal;
+}
+
+function deckStatsLegalColors(cards) {
+  const order = ["W", "U", "B", "R", "G"];
+  const commander = commanderCardForStats(cards);
+  const identity = (commander?.colorIdentity?.length ? commander.colorIdentity : commander?.colors || [])
+    .map((color) => String(color).toUpperCase())
+    .filter((color) => order.includes(color));
+  const colors = identity.length ? order.filter((color) => identity.includes(color)) : colorsUsedInDeckCosts(cards);
+  return [...colors, "C"];
+}
+
+function commanderCardForStats(cards) {
+  const commanderName = els.deckBuilderCommanderInput.value.trim().toLowerCase();
+  if (commanderName) {
+    const exact = cards.find((card) => card.name.toLowerCase() === commanderName);
+    if (exact) return exact;
+  }
+  return cards.find((card) => deckCategory(card) === "Commander") || null;
+}
+
+function colorsUsedInDeckCosts(cards) {
+  const used = new Set();
+  cards.forEach((card) => manaSymbolsInCost(card).forEach((symbol) => {
+    if (["W", "U", "B", "R", "G"].includes(symbol)) used.add(symbol);
+  }));
+  return ["W", "U", "B", "R", "G"].filter((color) => used.has(color));
 }
 
 function productionStrip(label, totals, colors) {
@@ -1473,6 +1548,98 @@ function productionColorRow(color, cards) {
     </div>
   `;
   return row;
+}
+
+function manaSummaryBlock(cards) {
+  const stats = manaCurveSummary(cards);
+  const wrap = document.createElement("div");
+  wrap.className = "deck-mana-summary";
+  wrap.innerHTML = `
+    <strong>Avg Mana Value: ${stats.average.toFixed(2)}</strong>
+    <span>Total Mana Value: ${stats.total.toFixed(2)}</span>
+  `;
+  return wrap;
+}
+
+function manaCurveSummary(cards) {
+  let total = 0;
+  let count = 0;
+  cards.forEach((card) => {
+    if (!consumesMana(card)) return;
+    const quantity = Number(card.quantity) || 1;
+    total += (Number(card.manaValue) || 0) * quantity;
+    count += quantity;
+  });
+  return { total, count, average: count ? total / count : 0 };
+}
+
+function manaCurveChartBlock(cards) {
+  const rows = manaCurveRows(cards);
+  const max = Math.max(1, ...rows.map((row) => row.value));
+  const wrap = document.createElement("section");
+  wrap.className = "deck-mana-curve-chart";
+  wrap.innerHTML = `<h4>Mana curve</h4>`;
+  const chart = document.createElement("div");
+  chart.className = "mana-curve-bars";
+  rows.forEach((row) => chart.append(manaCurveColumn(row, max, "#ff8a12")));
+  wrap.append(chart);
+  return wrap;
+}
+
+function colorCurveBlock(cards, colors) {
+  const wrap = document.createElement("section");
+  wrap.className = "deck-color-curves";
+  wrap.innerHTML = `<h4>Mana curve by color</h4>`;
+  const grid = document.createElement("div");
+  grid.className = "deck-color-curve-grid";
+  colors.forEach((color) => {
+    const rows = manaCurveRows(cards, color);
+    const max = Math.max(1, ...rows.map((row) => row.value));
+    const card = document.createElement("article");
+    card.className = "deck-color-curve-card";
+    card.style.setProperty("--mana-color", colorSwatch(color));
+    card.innerHTML = `<h5><span>${escapeHtml(manaSymbol(color))}</span>${escapeHtml(colorCurveTitle(color))}</h5>`;
+    const chart = document.createElement("div");
+    chart.className = "mana-curve-bars small";
+    rows.forEach((row) => chart.append(manaCurveColumn(row, max, colorSwatch(color))));
+    card.append(chart);
+    grid.append(card);
+  });
+  wrap.append(grid);
+  return wrap;
+}
+
+function colorCurveTitle(color) {
+  if (color === "C") return "Colorless Spells";
+  return `${colorLabel([color])} Spells`;
+}
+
+function manaCurveRows(cards, color = "all") {
+  const curve = new Map();
+  cards.forEach((card) => {
+    if (!consumesMana(card) || !cardMatchesCurveColor(card, color)) return;
+    const quantity = Number(card.quantity) || 1;
+    const mv = Math.max(0, Math.min(8, Math.floor(Number(card.manaValue) || 0)));
+    const label = mv >= 8 ? "8+" : String(mv);
+    curve.set(label, (curve.get(label) || 0) + quantity);
+  });
+  return ["0", "1", "2", "3", "4", "5", "6", "7", "8+"].map((label) => ({ label, value: curve.get(label) || 0 }));
+}
+
+function cardMatchesCurveColor(card, color = "all") {
+  if (color === "all") return true;
+  const costSymbols = manaSymbolsInCost(card);
+  if (color === "C") return !costSymbols.some((symbol) => ["W", "U", "B", "R", "G"].includes(symbol));
+  return costSymbols.includes(color);
+}
+
+function manaCurveColumn(row, max, color) {
+  const column = document.createElement("div");
+  column.className = "mana-curve-column";
+  column.style.setProperty("--curve-height", `${Math.max(row.value ? 8 : 0, (row.value / Math.max(1, max)) * 100)}%`);
+  column.style.setProperty("--curve-color", color);
+  column.innerHTML = `<span>${row.value || ""}</span><i></i><strong>${escapeHtml(row.label)}</strong>`;
+  return column;
 }
 
 function productionMetric(label, percent, detail, max) {
@@ -6167,12 +6334,12 @@ els.closeDeckStatsButton.addEventListener("click", (event) => {
 if (els.deckStatsApplyButton) els.deckStatsApplyButton.addEventListener("click", applyDeckStatsFilters);
 if (els.deckStatsOddsJumpButton) els.deckStatsOddsJumpButton.addEventListener("click", scrollDeckStatsToProbability);
 els.deckStatsProductionSelect.addEventListener("change", () => {
-  if (els.deckStatsApplyButton) els.deckStatsApplyButton.textContent = "Apply";
+  applyDeckStatsFilters();
 });
 if (els.deckStatsOddsSortSelect) {
   els.deckStatsOddsSortSelect.addEventListener("change", () => {
     probabilitySettings.groupBy = els.deckStatsOddsSortSelect.value || "category";
-    if (els.deckStatsApplyButton) els.deckStatsApplyButton.textContent = "Apply";
+    applyDeckStatsFilters();
   });
 }
 els.savedDeckSearchInput.addEventListener("input", renderSavedDecks);

@@ -853,8 +853,8 @@ body.landing-mode .account-workspace-shell label {
 
 .deck-builder-form {
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
-  gap: 8px;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  gap: 7px;
   height: 100%;
   min-height: 0;
   padding: 14px;
@@ -926,7 +926,7 @@ body.landing-mode .account-workspace-shell label {
 
 .deck-card-search {
   display: grid;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
 }
 
@@ -938,8 +938,8 @@ body.landing-mode .account-workspace-shell label {
 
 .deck-card-search-row input,
 .deck-card-search-row button {
-  min-height: 34px;
-  font-size: 0.76rem;
+  min-height: 28px;
+  font-size: 0.72rem;
 }
 
 .workspace-note {
@@ -1081,12 +1081,58 @@ body.landing-mode .account-workspace-shell label {
 
 .deck-view-toolbar {
   display: grid;
-  grid-template-columns: minmax(82px, 108px) minmax(96px, 122px) minmax(104px, 132px) minmax(122px, 168px) minmax(120px, 160px) auto;
+  grid-template-columns: minmax(76px, 100px) minmax(88px, 116px) minmax(96px, 126px) minmax(116px, 150px) minmax(116px, 150px) auto minmax(280px, 1fr);
   gap: 6px;
   align-items: end;
-  justify-content: start;
+  justify-content: stretch;
   padding-bottom: 6px;
   border-bottom: 1px solid #34433e;
+}
+
+.deck-toolbar-search {
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    "label status"
+    "control control";
+  column-gap: 8px;
+  row-gap: 4px;
+  width: min(100%, 440px);
+  justify-self: end;
+}
+
+.deck-toolbar-label {
+  grid-area: label;
+  color: #a6b4ae;
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.deck-toolbar-search .deck-card-search-row {
+  grid-area: control;
+}
+
+.deck-toolbar-search .workspace-note {
+  grid-area: status;
+  justify-self: end;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.58rem;
+  line-height: 1;
+  text-align: right;
+}
+
+.deck-toolbar-maybe-button {
+  width: 34px;
+  min-width: 34px;
+  justify-self: start;
+  align-self: end;
+  font-size: 0.95rem;
 }
 
 .deck-view-toolbar label {
@@ -1118,7 +1164,7 @@ body.landing-mode .account-workspace-shell label {
   --cascade-rest-step: 44px;
   --cascade-open-step: 112px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(clamp(190px, calc(230px * var(--deck-view-scale, 1)), 390px), 1fr));
+  grid-template-columns: repeat(var(--masonry-columns, 1), minmax(0, 1fr));
   gap: 12px;
   align-content: start;
   align-items: start;
@@ -1129,10 +1175,15 @@ body.landing-mode .account-workspace-shell label {
 }
 
 .deck-visual-columns::after {
-  content: "";
-  display: block;
-  grid-column: 1 / -1;
-  height: calc(3200px * var(--deck-view-scale, 1));
+  display: none;
+}
+
+.deck-visual-masonry-column {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  align-items: start;
+  min-width: 0;
 }
 
 .deck-stack-column {
@@ -1246,12 +1297,9 @@ body.shift-cascade .deck-stack-card strong {
   transform: translateY(0);
 }
 
-.deck-view-table {
-  grid-template-columns: 1fr;
-}
-
-.deck-view-grid {
-  grid-template-columns: repeat(auto-fill, minmax(clamp(230px, calc(290px * var(--deck-view-scale, 1)), 420px), 1fr));
+.deck-visual-columns.deck-view-table,
+.deck-visual-columns.deck-view-grid {
+  grid-template-columns: repeat(var(--masonry-columns, 1), minmax(0, 1fr));
   align-items: start;
 }
 
@@ -1469,8 +1517,17 @@ body.shift-cascade .deck-stack-card strong {
   font-size: 0.68rem;
 }
 
-.deck-production-section {
-  gap: 14px;
+.deck-stats-overview-section {
+  gap: 18px;
+  border: 0;
+  background: transparent;
+  padding: 0 6px 8px 0;
+}
+
+.deck-stats-overview-section h3 {
+  font-size: 1.42rem;
+  margin: 0;
+  color: #edf4f0;
 }
 
 .production-strip {
@@ -1484,9 +1541,9 @@ body.shift-cascade .deck-stack-card strong {
 
 .production-strip-bar {
   display: flex;
-  gap: 8px;
+  gap: 7px;
   min-width: 0;
-  min-height: 44px;
+  min-height: 48px;
   align-items: stretch;
 }
 
@@ -1502,30 +1559,39 @@ body.shift-cascade .deck-stack-card strong {
   color: #10211d;
   font-weight: 900;
   font-size: 1.12rem;
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 100%, 0 100%);
 }
 
 .deck-production-rows {
   display: grid;
-  gap: 18px;
+  grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+  gap: 12px;
 }
 
 .production-color-row {
   display: grid;
-  grid-template-columns: 82px minmax(0, 1fr);
-  gap: 14px;
-  align-items: center;
+  grid-template-rows: 96px minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
   min-width: 0;
+  min-height: 270px;
+  border: 1px solid #3e4844;
+  border-radius: 6px;
+  background: #151918;
+  padding: 12px;
 }
 
 .mana-disc {
-  width: 62px;
-  height: 62px;
+  width: 78px;
+  height: 78px;
   display: grid;
   place-items: center;
+  justify-self: center;
+  align-self: end;
   border-radius: 999px;
   background: var(--mana-color);
   color: #10211d;
-  font-size: 1.4rem;
+  font-size: 1.8rem;
   font-weight: 900;
 }
 
@@ -1537,9 +1603,10 @@ body.shift-cascade .deck-stack-card strong {
 
 .production-meter {
   position: relative;
-  height: 42px;
+  height: 46px;
   border-radius: 6px;
   overflow: hidden;
+  background: #303030;
 }
 
 .production-meter i {
@@ -1565,6 +1632,113 @@ body.shift-cascade .deck-stack-card strong {
   color: #7f8985;
   font-size: 0.78rem;
   font-weight: 800;
+  text-align: center;
+}
+
+.deck-mana-summary {
+  display: grid;
+  gap: 4px;
+  color: #edf4f0;
+  font-size: 0.9rem;
+}
+
+.deck-mana-summary span {
+  color: #c8d2ce;
+  font-weight: 800;
+}
+
+.deck-mana-curve-chart,
+.deck-color-curves {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.deck-mana-curve-chart h4,
+.deck-color-curves h4 {
+  margin: 0;
+  color: #edf4f0;
+  font-size: 0.9rem;
+}
+
+.mana-curve-bars {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 10px;
+  align-items: end;
+  min-height: 170px;
+  border-bottom: 2px solid #5f6764;
+  padding: 0 0 4px;
+}
+
+.mana-curve-bars.small {
+  min-height: 122px;
+  gap: 5px;
+}
+
+.mana-curve-column {
+  display: grid;
+  grid-template-rows: 18px minmax(48px, 1fr) 22px;
+  gap: 4px;
+  align-items: end;
+  min-width: 0;
+  color: #d9e3df;
+  font-weight: 900;
+  text-align: center;
+}
+
+.mana-curve-column span {
+  min-height: 18px;
+  color: #aeb9b5;
+  font-size: 0.68rem;
+}
+
+.mana-curve-column i {
+  width: min(68px, 72%);
+  height: var(--curve-height);
+  min-height: 0;
+  justify-self: center;
+  border-radius: 4px 4px 0 0;
+  background: var(--curve-color);
+}
+
+.mana-curve-column strong {
+  font-size: 0.8rem;
+}
+
+.deck-color-curve-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+.deck-color-curve-card {
+  display: grid;
+  gap: 8px;
+  min-height: 220px;
+  border: 1px solid #3e4844;
+  border-radius: 6px;
+  background: #151918;
+  padding: 10px;
+}
+
+.deck-color-curve-card h5 {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 0;
+  color: #edf4f0;
+  font-size: 0.84rem;
+}
+
+.deck-color-curve-card h5 span {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--mana-color);
+  color: #10211d;
 }
 
 .sr-only {
@@ -1580,11 +1754,11 @@ body.shift-cascade .deck-stack-card strong {
 }
 
 .deck-probability-section {
-  width: min(540px, 100%);
+  width: 100%;
   padding: 0;
   overflow: visible;
   min-width: 0;
-  justify-self: start;
+  justify-self: stretch;
   align-self: start;
   border-color: #5a5a5a;
   background: #343434;
@@ -1714,6 +1888,27 @@ body.shift-cascade .deck-stack-card strong {
 .probability-table td:nth-child(3) {
   font-weight: 900;
   color: #ededed;
+}
+
+@media (min-width: 980px) {
+  .probability-builder {
+    grid-template-columns: minmax(150px, 0.8fr) minmax(230px, 1fr) auto minmax(220px, 1fr) auto minmax(230px, 1fr) auto;
+    align-items: end;
+  }
+
+  .probability-builder h3 {
+    grid-column: 1 / -1;
+  }
+
+  .probability-stepper {
+    grid-template-columns: minmax(80px, 1fr) 132px;
+  }
+
+  .probability-copy {
+    align-self: end;
+    padding-bottom: 17px;
+    white-space: nowrap;
+  }
 }
 
 .active-games-workspace {
