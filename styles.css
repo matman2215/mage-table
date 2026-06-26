@@ -1032,7 +1032,7 @@ body.landing-mode .account-workspace-shell label {
   overflow-x: hidden;
   border-top: 1px solid #34433e;
   scrollbar-gutter: stable;
-  padding-bottom: calc(1500px * var(--deck-view-scale, 1));
+  padding-bottom: calc(3600px * var(--deck-view-scale, 1));
   overscroll-behavior: contain;
 }
 
@@ -1111,8 +1111,15 @@ body.landing-mode .account-workspace-shell label {
   align-items: start;
   min-width: 0;
   min-height: calc(100% + (420px * var(--deck-view-scale, 1)));
-  padding: 10px 2px calc(1800px * var(--deck-view-scale, 1));
+  padding: 10px 2px calc(4200px * var(--deck-view-scale, 1));
   overflow: visible;
+}
+
+.deck-visual-columns::after {
+  content: "";
+  display: block;
+  grid-column: 1 / -1;
+  height: calc(3200px * var(--deck-view-scale, 1));
 }
 
 .deck-stack-column {
@@ -1161,7 +1168,7 @@ body.landing-mode .account-workspace-shell label {
 
 .deck-card-stack {
   position: relative;
-  min-height: max(calc(980px * var(--deck-view-scale, 1)), calc((var(--stack-count, 1) - 1) * var(--cascade-open-step) * var(--deck-view-scale, 1) + 2080px * var(--deck-view-scale, 1)));
+  min-height: max(calc(2600px * var(--deck-view-scale, 1)), calc((var(--stack-count, 1) - 1) * var(--cascade-open-step) * var(--deck-view-scale, 1) + 4600px * var(--deck-view-scale, 1)));
 }
 
 .deck-stack-card {
@@ -1372,6 +1379,31 @@ body.shift-cascade .deck-stack-card strong {
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 4px;
+}
+
+.deck-stats-controls {
+  display: grid;
+  grid-template-columns: minmax(150px, 220px) minmax(150px, 220px) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.deck-stats-controls label {
+  gap: 4px;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
+.deck-stats-controls select {
+  min-height: 30px;
+  padding: 5px 8px;
+  font-size: 0.74rem;
+}
+
+.deck-stats-controls button {
+  min-height: 30px;
+  padding: 0 12px;
+  font-size: 0.72rem;
 }
 
 .deck-stat-section {

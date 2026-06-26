@@ -271,6 +271,7 @@ const els = {
   deckStatsDialogSummary: document.querySelector("#deckStatsDialogSummary"),
   deckStatsProductionSelect: document.querySelector("#deckStatsProductionSelect"),
   deckStatsOddsSortSelect: document.querySelector("#deckStatsOddsSortSelect"),
+  deckStatsApplyButton: document.querySelector("#deckStatsApplyButton"),
   deckStatsContent: document.querySelector("#deckStatsContent"),
   deckPlayChoiceDialog: document.querySelector("#deckPlayChoiceDialog"),
   deckPlayChoiceForm: document.querySelector("#deckPlayChoiceForm"),
@@ -1330,6 +1331,16 @@ function renderDeckStatsContent() {
   );
 }
 
+function applyDeckStatsFilters() {
+  renderDeckStatsContent();
+  if (!els.deckStatsApplyButton) return;
+  const original = els.deckStatsApplyButton.textContent;
+  els.deckStatsApplyButton.textContent = "Applied";
+  window.setTimeout(() => {
+    if (els.deckStatsApplyButton) els.deckStatsApplyButton.textContent = original || "Apply";
+  }, 700);
+}
+
 function statSection(title, rows, mode) {
   const section = document.createElement("section");
   section.className = "deck-stat-section";
@@ -1548,7 +1559,7 @@ function probabilitySection(cards, total, sortMode) {
   const section = document.createElement("section");
   section.className = "deck-stat-section deck-probability-section";
   section.innerHTML = `
-    <h3>Probability of Drawing</h3>
+    <h3>Draw Odds / Probability of Drawing</h3>
     <div class="probability-summary">
       <span>Exactly</span><strong>1</strong><span>card by</span><strong>${escapeHtml(probabilitySortLabel(sortMode))}</strong><span>having drawn</span><strong>7 cards</strong>
     </div>
@@ -1995,6 +2006,24 @@ async function duplicateSavedDeck(deck) {
   }
 }
 
+async function persistAccountDeck(deck, preferredDeckId = "") {
+  const deckId = String(preferredDeckId || "").trim();
+  const path = deckId ? `/api/account/decks/${encodeURIComponent(deckId)}` : "/api/account/decks";
+  return accountApi(path, {
+    method: deckId ? "PUT" : "POST",
+    body: JSON.stringify(deck),
+  });
+}
+
+async function reloadSavedDeckSidebar(selectedDeckId = "") {
+  const result = await accountApi("/api/account/decks");
+  savedDecks = result.decks || [];
+  if (els.savedDeckSearchInput) els.savedDeckSearchInput.value = "";
+  if (selectedDeckId) selectedBuilderDeckId = selectedDeckId;
+  renderSavedDecks();
+  return savedDecks.find((deck) => deck.id === selectedDeckId) || null;
+}
+
 async function saveBuilderDeck() {
   const deck = currentBuilderDeck();
   if (!account) throw new Error("Sign in again before saving this deck.");
@@ -2006,30 +2035,19 @@ async function saveBuilderDeck() {
   if (!deck.name) els.deckBuilderNameInput.value = deckToSave.name;
   let result;
   try {
-    const path = deck.id ? `/api/account/decks/${encodeURIComponent(deck.id)}` : "/api/account/decks";
-    result = await accountApi(path, {
-      method: deck.id ? "PUT" : "POST",
-      body: JSON.stringify(deckToSave),
-    });
+    result = await persistAccountDeck(deckToSave, deck.id);
   } catch (error) {
     if (!deck.id || error.status === 401) throw error;
-    result = await accountApi("/api/account/decks", {
-      method: "POST",
-      body: JSON.stringify({ ...deckToSave, id: "" }),
-    });
+    result = await persistAccountDeck({ ...deckToSave, id: "" }, "");
   }
   const savedDeck = result.deck;
-  upsertSavedDeck(savedDeck);
   selectedBuilderDeckId = savedDeck.id;
   els.deckBuilderNameInput.value = savedDeck.name || deckToSave.name;
   els.deckBuilderCommanderInput.value = savedDeck.commander || deckToSave.commander || "";
   els.deckBuilderListInput.value = savedDeck.decklist || deckToSave.decklist;
-  if (els.savedDeckSearchInput) els.savedDeckSearchInput.value = "";
+  upsertSavedDeck(savedDeck);
   renderSavedDecks();
-  const refreshed = await accountApi("/api/account/decks");
-  savedDecks = refreshed.decks || [];
-  const reloadedDeck = savedDecks.find((candidate) => candidate.id === savedDeck.id) || savedDeck;
-  upsertSavedDeck(reloadedDeck);
+  const reloadedDeck = await reloadSavedDeckSidebar(savedDeck.id) || savedDeck;
   selectedBuilderDeckId = reloadedDeck.id;
   els.deckBuilderNameInput.value = reloadedDeck.name || savedDeck.name || deckToSave.name;
   els.deckBuilderCommanderInput.value = reloadedDeck.commander || savedDeck.commander || deckToSave.commander || "";
@@ -2050,6 +2068,12 @@ async function handleDeckBuilderSave() {
   } finally {
     setDisabled(els.saveBuilderDeckButton, false);
   }
+}
+
+async function handleDeckBuilderFormSubmit(event) {
+  event.preventDefault();
+  if (event.submitter && event.submitter !== els.saveBuilderDeckButton) return;
+  await handleDeckBuilderSave();
 }
 
 async function searchDeckBuilderCards() {
@@ -5952,8 +5976,15 @@ els.closeDeckStatsButton.addEventListener("click", (event) => {
   event.preventDefault();
   els.deckStatsDialog.close();
 });
-["change", "input", "click"].forEach((eventName) => els.deckStatsProductionSelect.addEventListener(eventName, renderDeckStatsContent));
-if (els.deckStatsOddsSortSelect) els.deckStatsOddsSortSelect.addEventListener("change", renderDeckStatsContent);
+if (els.deckStatsApplyButton) els.deckStatsApplyButton.addEventListener("click", applyDeckStatsFilters);
+els.deckStatsProductionSelect.addEventListener("change", () => {
+  if (els.deckStatsApplyButton) els.deckStatsApplyButton.textContent = "Apply";
+});
+if (els.deckStatsOddsSortSelect) {
+  els.deckStatsOddsSortSelect.addEventListener("change", () => {
+    if (els.deckStatsApplyButton) els.deckStatsApplyButton.textContent = "Apply";
+  });
+}
 els.savedDeckSearchInput.addEventListener("input", renderSavedDecks);
 els.deckBuilderListInput.addEventListener("input", () => {
   els.deckBuilderStatus.textContent = "Unsaved changes";
@@ -5967,16 +5998,13 @@ els.deckBuilderCommanderInput.addEventListener("input", () => {
   els.deckBuilderStatus.textContent = "Unsaved changes";
   renderDeckBuilderPreview();
 });
-els.deckBuilderForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-});
+els.deckBuilderForm.addEventListener("submit", handleDeckBuilderFormSubmit);
 els.deckBuilderForm.addEventListener("change", (event) => {
   if (event.target.closest(".deck-view-toolbar")) applyDeckViewSettings(event);
 });
 els.deckBuilderForm.addEventListener("input", (event) => {
   if (event.target.closest(".deck-view-toolbar")) applyDeckViewSettings(event);
 });
-els.saveBuilderDeckButton.addEventListener("click", handleDeckBuilderSave);
 els.deckGroupSelect.addEventListener("change", applyDeckViewSettings);
 els.deckSortSelect.addEventListener("change", applyDeckViewSettings);
 els.deckViewModeSelect.addEventListener("change", applyDeckViewSettings);
