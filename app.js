@@ -367,6 +367,7 @@ let deckBuilderPreviewCollapsed = false;
 let deckBuilderMetadata = null;
 let deckBuilderMetadataKey = "";
 let deckBuilderMetadataTimer = null;
+let deckBuilderSaveInFlight = false;
 let deckRailCollapsed = localStorage.getItem("mage-table-deck-rail-collapsed") === "1";
 let deckMaybeBoardOpen = localStorage.getItem("mage-table-maybeboard-open") === "1";
 let pendingDeckActionDeck = null;
@@ -2058,16 +2059,30 @@ async function saveBuilderDeck() {
   setAccountStatus("Deck saved to library.");
 }
 
-async function handleDeckBuilderSave() {
+async function handleDeckBuilderSave(event = null) {
+  event?.preventDefault();
+  event?.stopPropagation();
+  if (deckBuilderSaveInFlight) return;
+  deckBuilderSaveInFlight = true;
   setDisabled(els.saveBuilderDeckButton, true);
   try {
+    els.deckBuilderStatus.textContent = "Saving deck...";
     await saveBuilderDeck();
   } catch (error) {
     els.deckBuilderStatus.textContent = error.message;
     setAccountStatus(error.message, true);
   } finally {
+    deckBuilderSaveInFlight = false;
     setDisabled(els.saveBuilderDeckButton, false);
   }
+}
+
+function triggerDeckBuilderSave(event = null) {
+  event?.preventDefault();
+  event?.stopPropagation();
+  event?.stopImmediatePropagation?.();
+  handleDeckBuilderSave(event);
+  return false;
 }
 
 function openDeckBuilderSaveDialog(event = null) {
@@ -2093,7 +2108,7 @@ function openDeckBuilderSaveDialog(event = null) {
 
 function handleDeckBuilderFormSubmit(event) {
   event.preventDefault();
-  if (!event.submitter || event.submitter === els.saveBuilderDeckButton) openDeckBuilderSaveDialog(event);
+  if (event.submitter === els.saveBuilderDeckButton) triggerDeckBuilderSave(event);
 }
 
 async function searchDeckBuilderCards() {
@@ -6025,10 +6040,11 @@ els.deckBuilderForm.addEventListener("change", (event) => {
 els.deckBuilderForm.addEventListener("input", (event) => {
   if (event.target.closest(".deck-view-toolbar")) applyDeckViewSettings(event);
 });
-els.saveBuilderDeckButton.addEventListener("click", openDeckBuilderSaveDialog);
+window.mageTableSaveDeck = triggerDeckBuilderSave;
+els.saveBuilderDeckButton.addEventListener("click", triggerDeckBuilderSave);
 document.addEventListener("click", (event) => {
   if (!event.target.closest("#saveBuilderDeckButton")) return;
-  openDeckBuilderSaveDialog(event);
+  triggerDeckBuilderSave(event);
 }, true);
 els.deckGroupSelect.addEventListener("change", applyDeckViewSettings);
 els.deckSortSelect.addEventListener("change", applyDeckViewSettings);

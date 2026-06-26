@@ -44,7 +44,7 @@
             <button id="joinGameButton" class="secondary" type="button">Join Game</button>
             <button id="loginButton" class="secondary" type="button">Log In</button>
           </div>
-          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.4.8</p>
+          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.4.9</p>
         </div>
         <section id="createModePanel" class="landing-subpanel create-mode-panel hidden">
           <header class="create-room-header">
@@ -225,7 +225,7 @@
                       <button id="bulkImportDeckButton" class="secondary" type="button">Bulk Import</button>
                       <button id="deckContextButton" class="secondary deck-context-button" type="button" title="Deck actions" aria-label="Deck actions">⋯</button>
                       <button id="deckStatsButton" class="secondary" type="button">Stats</button>
-                      <button id="saveBuilderDeckButton" type="button">Save Deck</button>
+                      <button id="saveBuilderDeckButton" type="button" onclick="return window.mageTableSaveDeck ? window.mageTableSaveDeck(event) : false">Save Deck</button>
                     </div>
                   </header>
                   <input id="deckBuilderNameInput" type="hidden" maxlength="80">
@@ -965,6 +965,6 @@
       </form>
     </dialog>
 
-    <script src="app.js?v=0.4.2"></script>
+    <script src="app.js?v=0.4.9"></script>
   </body>
 </html>
