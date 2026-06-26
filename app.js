@@ -6040,12 +6040,8 @@ els.deckBuilderForm.addEventListener("change", (event) => {
 els.deckBuilderForm.addEventListener("input", (event) => {
   if (event.target.closest(".deck-view-toolbar")) applyDeckViewSettings(event);
 });
-window.mageTableSaveDeck = triggerDeckBuilderSave;
 els.saveBuilderDeckButton.addEventListener("click", triggerDeckBuilderSave);
-document.addEventListener("click", (event) => {
-  if (!event.target.closest("#saveBuilderDeckButton")) return;
-  triggerDeckBuilderSave(event);
-}, true);
+window.mageTableSaveDeck = triggerDeckBuilderSave;
 els.deckGroupSelect.addEventListener("change", applyDeckViewSettings);
 els.deckSortSelect.addEventListener("change", applyDeckViewSettings);
 els.deckViewModeSelect.addEventListener("change", applyDeckViewSettings);
@@ -6132,9 +6128,11 @@ els.endGameForm.addEventListener("submit", async (event) => {
   }
 });
 
-els.roomForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const submitButton = els.roomForm.querySelector('button[type="submit"]');
+async function handleCreateRoomSubmit(event = null) {
+  event?.preventDefault();
+  event?.stopPropagation();
+  const submitButton = els.createRoomSubmitButton;
+  if (isDisabled(submitButton)) return;
   setDisabled(submitButton, true);
   try {
     await createGameFromSetup({ solo: els.singlePlayerInput.checked, deck: pendingCreateDeck });
@@ -6143,7 +6141,10 @@ els.roomForm.addEventListener("submit", async (event) => {
   } finally {
     setDisabled(submitButton, false);
   }
-});
+}
+
+els.roomForm.addEventListener("submit", handleCreateRoomSubmit);
+els.createRoomSubmitButton.addEventListener("click", handleCreateRoomSubmit);
 
 els.joinRoomForm.addEventListener("submit", async (event) => {
   event.preventDefault();
