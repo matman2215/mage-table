@@ -44,7 +44,7 @@
             <button id="joinGameButton" class="secondary" data-landing-action="join" type="button">Join Game</button>
             <button id="loginButton" class="secondary" data-landing-action="account" type="button">Log In</button>
           </div>
-          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.4.22</p>
+          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.4.23</p>
         </div>
         <section id="createModePanel" class="landing-subpanel create-mode-panel hidden">
           <header class="create-room-header">
@@ -184,7 +184,10 @@
                 <button id="accountGamesTab" class="account-workspace-tab secondary" type="button">Active Games</button>
               </nav>
               <div class="account-workspace-actions">
-                <span>Signed in as <strong id="accountUsername"></strong></span>
+                <div class="account-status-stack">
+                  <span>Signed in as <strong id="accountUsername"></strong></span>
+                  <span id="deckBuilderStatus" class="workspace-note deck-builder-status-line" role="status"></span>
+                </div>
                 <button id="accountStartGameButton" type="button">Start Game</button>
                 <button id="logoutButton" class="secondary" type="button">Log Out</button>
               </div>
@@ -285,15 +288,6 @@
                       Scale
                       <input id="deckViewScaleInput" type="range" min="70" max="300" step="5" value="100">
                     </label>
-                    <label>
-                      Price
-                      <select id="deckPriceSourceSelect">
-                        <option value="scryfall" selected>Scryfall USD</option>
-                        <option value="tcgplayer">TCGplayer USD</option>
-                        <option value="cardkingdom">Card Kingdom USD</option>
-                        <option value="average">Average USD</option>
-                      </select>
-                    </label>
                     <button id="toggleMaybeBoardButton" class="secondary compact-icon-button deck-toolbar-maybe-button" type="button" title="Maybe board" aria-label="Open maybe board"><span class="maybe-board-icon" aria-hidden="true"><i></i><b>?</b></span></button>
                     <section class="deck-card-search deck-toolbar-search" aria-label="Add cards from Scryfall">
                       <span class="deck-toolbar-label">Add card</span>
@@ -317,9 +311,6 @@
                       <textarea id="deckBuilderListInput" rows="10" maxlength="100000" placeholder="1 Sol Ring&#10;1 Command Tower"></textarea>
                     </label>
                   </details>
-                  <footer class="deck-builder-footer">
-                    <span id="deckBuilderStatus" class="workspace-note" role="status"></span>
-                  </footer>
                 </section>
               </main>
             </section>

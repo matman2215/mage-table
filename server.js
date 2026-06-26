@@ -1188,6 +1188,7 @@ async function searchScryfallCards(query) {
   }
   const payload = await response.json();
   const cards = (payload.data || []).slice(0, 24).map(summarizeScryfallCard);
+  await enrichCardSummariesWithProviderPrices(cards);
   scryfallCardSearchCache.set(cacheKey, cards);
   return cards;
 }
