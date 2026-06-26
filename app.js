@@ -1222,9 +1222,10 @@ function applyDeckViewSettings(event = null) {
 
 function renderDeckVisualStacks(cards, settings = deckViewSettings()) {
   const { groupMode, sortMode, viewMode, query } = settings;
+  const displayCards = deckViewerCardsWithCommander(cards);
   const grouped = new Map();
-  cards.forEach((card) => {
-    const group = deckGroupLabel(card, groupMode);
+  displayCards.forEach((card) => {
+    const group = deckViewerGroupLabel(card, groupMode);
     if (!grouped.has(group)) grouped.set(group, []);
     grouped.get(group).push(card);
   });
@@ -1242,7 +1243,7 @@ function renderDeckVisualStacks(cards, settings = deckViewSettings()) {
     return { node: lane, height: 0, count: 0 };
   });
   [...grouped.entries()]
-    .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
+    .sort(([a], [b]) => compareDeckGroupNames(a, b))
     .forEach(([group, groupCards]) => {
       const sorted = [...groupCards].sort((a, b) => compareDeckCards(a, b, sortMode));
       const column = document.createElement("section");
@@ -1270,6 +1271,37 @@ function renderDeckVisualStacks(cards, settings = deckViewSettings()) {
   els.deckBuilderPreview.append(wrap);
 }
 
+function deckViewerCardsWithCommander(cards) {
+  const commander = els.deckBuilderCommanderInput.value.trim();
+  if (!commander) return cards;
+  const existing = cards.find((card) => isDeckCommanderCard(card));
+  if (existing) return cards;
+  return [deckViewerCommanderPlaceholder(commander), ...cards];
+}
+
+function deckViewerCommanderPlaceholder(name) {
+  return {
+    name,
+    quantity: 1,
+    typeLine: "Commander",
+    manaCost: "",
+    manaValue: 0,
+    priceUsd: 0,
+    category: "Commander",
+    imageUrl: "",
+    colorIdentity: [],
+    colors: [],
+    oracleText: "",
+    isCommanderPlaceholder: true,
+  };
+}
+
+function compareDeckGroupNames(a, b) {
+  if (a === "Commander" && b !== "Commander") return -1;
+  if (b === "Commander" && a !== "Commander") return 1;
+  return a.localeCompare(b, undefined, { numeric: true });
+}
+
 function deckVisualColumnCount(viewMode = "cascade") {
   const width = Math.max(1, els.deckBuilderPreview?.clientWidth || 1);
   const scale = deckViewScale() / 100;
@@ -1283,6 +1315,11 @@ function estimateDeckGroupHeight(cardCount, viewMode = "cascade") {
   if (viewMode === "table") return 52 + cardCount * 36 * scale;
   if (viewMode === "grid") return 58 + cardCount * 186 * scale;
   return 72 + Math.max(0, cardCount - 1) * 44 * scale + 322 * scale;
+}
+
+function deckViewerGroupLabel(card, mode) {
+  if (isDeckCommanderCard(card)) return "Commander";
+  return deckGroupLabel(card, mode);
 }
 
 function deckStackCard(card, index, query) {
@@ -2010,10 +2047,15 @@ function primaryType(card) {
 }
 
 function deckCategory(card) {
+  if (isDeckCommanderCard(card)) return "Commander";
   if (card.category) return card.category;
-  if (card.name.toLowerCase() === els.deckBuilderCommanderInput.value.trim().toLowerCase()) return "Commander";
   if (card.isLand || /\bLand\b/i.test(card.typeLine || "")) return "Land";
   return primaryType(card);
+}
+
+function isDeckCommanderCard(card) {
+  const commander = els.deckBuilderCommanderInput.value.trim().toLowerCase();
+  return !!commander && card.name.toLowerCase() === commander;
 }
 
 function primarySubtype(card) {

@@ -1019,14 +1019,14 @@ body.landing-mode .account-workspace-shell label {
 
 .deck-structured-list {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 7px;
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
   overflow: hidden;
 }
 
 .deck-viewer-panel {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -1135,6 +1135,51 @@ body.landing-mode .account-workspace-shell label {
   font-size: 0.95rem;
 }
 
+.maybe-board-icon {
+  position: relative;
+  width: 19px;
+  height: 20px;
+  display: inline-block;
+}
+
+.maybe-board-icon,
+.maybe-board-icon::before,
+.maybe-board-icon::after {
+  border: 1px solid currentColor;
+  border-radius: 3px;
+}
+
+.maybe-board-icon::before,
+.maybe-board-icon::after {
+  content: "";
+  position: absolute;
+  inset: 2px -4px -4px 4px;
+  opacity: 0.58;
+}
+
+.maybe-board-icon::after {
+  inset: 5px -7px -7px 7px;
+  opacity: 0.36;
+}
+
+.maybe-board-icon i {
+  position: absolute;
+  inset: 0;
+  display: block;
+  background: linear-gradient(180deg, rgba(142, 231, 214, 0.14), rgba(142, 231, 214, 0.03));
+}
+
+.maybe-board-icon b {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #dffdf6;
+  font-size: 0.78rem;
+  line-height: 1;
+  z-index: 1;
+}
+
 .deck-view-toolbar label {
   gap: 4px;
   font-size: 0.62rem;
@@ -1180,7 +1225,7 @@ body.landing-mode .account-workspace-shell label {
 
 .deck-visual-masonry-column {
   display: grid;
-  gap: 12px;
+  gap: 18px;
   align-content: start;
   align-items: start;
   min-width: 0;
@@ -1189,18 +1234,23 @@ body.landing-mode .account-workspace-shell label {
 .deck-stack-column {
   display: grid;
   grid-template-rows: auto auto;
-  gap: 7px;
+  gap: 9px;
   min-width: 0;
   align-self: start;
-  border-right: 1px solid rgba(52, 67, 62, 0.64);
-  padding-right: 10px;
+  border: 1px solid rgba(73, 92, 86, 0.82);
+  border-radius: 8px;
+  background: rgba(12, 20, 17, 0.64);
+  box-shadow: inset 4px 0 0 rgba(142, 231, 214, 0.28);
+  padding: 8px;
 }
 
 .deck-stack-column > header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px;
-  align-items: end;
+  gap: 8px;
+  align-items: center;
+  border-bottom: 1px solid rgba(142, 231, 214, 0.24);
+  padding-bottom: 7px;
 }
 
 .deck-stack-column > header strong,
@@ -1213,6 +1263,12 @@ body.landing-mode .account-workspace-shell label {
 .deck-stack-column > header span {
   color: #a6b4ae;
   font-size: 0.68rem;
+}
+
+.deck-stack-column > header strong {
+  color: #dffdf6;
+  font-size: 1rem;
+  letter-spacing: 0.02em;
 }
 
 .deck-stack-heading {
@@ -1232,7 +1288,13 @@ body.landing-mode .account-workspace-shell label {
 
 .deck-card-stack {
   position: relative;
-  min-height: max(calc(2600px * var(--deck-view-scale, 1)), calc((var(--stack-count, 1) - 1) * var(--cascade-open-step) * var(--deck-view-scale, 1) + 4600px * var(--deck-view-scale, 1)));
+  --cascade-card-height: calc(322px * var(--deck-view-scale, 1));
+  min-height: calc((var(--stack-count, 1) - 1) * var(--cascade-rest-step) * var(--deck-view-scale, 1) + var(--cascade-card-height));
+  transition: min-height 0.16s ease;
+}
+
+.deck-card-stack:hover {
+  min-height: calc((var(--stack-count, 1) - 1) * var(--cascade-open-step) * var(--deck-view-scale, 1) + var(--cascade-card-height));
 }
 
 .deck-stack-card {
