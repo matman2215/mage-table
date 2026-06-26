@@ -880,7 +880,6 @@ function scryfallUsdPriceSources(prices = {}) {
   const scryfall = { normal, foil, etched };
   return {
     scryfall,
-    tcgplayer: { ...scryfall },
   };
 }
 
@@ -899,7 +898,6 @@ function deckEntryPriceMap(cardData, entry) {
       ? Number(cardData?.priceUsdFoil || cardData?.priceUsd || 0) || 0
       : Number(cardData?.priceUsd || 0) || 0;
   }
-  if (!prices.tcgplayer && prices.scryfall) prices.tcgplayer = prices.scryfall;
   prices.average = averageUsdPrice(prices);
   return prices;
 }
@@ -928,25 +926,44 @@ function averageUsdPrice(prices = {}) {
 
 async function enrichCardSummariesWithProviderPrices(cards) {
   const summaries = [...cards].filter((card) => card?.scryfallId || card?.scryfallOracleId);
-  if (!summaries.length) return;
+  if (!summaries.length) {
+    return {
+      available: Boolean(mtgjsonPriceIndex && !mtgjsonPriceIndex.disabled),
+      pending: Boolean(mtgjsonPriceIndexPromise && !mtgjsonPriceIndex),
+      applied: 0,
+    };
+  }
   let index;
   try {
     index = await mtgjsonProviderPriceIndex({ softTimeoutMs: mtgjsonPriceSoftTimeoutMs });
   } catch (error) {
     console.warn("MTGJSON price providers unavailable:", error.message);
-    return;
+    return { available: false, pending: false, applied: 0, error: error.message };
   }
-  if (!index) return;
+  if (!index) return { available: false, pending: Boolean(mtgjsonPriceIndexPromise), applied: 0 };
+  if (index.disabled) return { available: false, pending: false, applied: 0 };
+  let applied = 0;
   for (const card of summaries) {
     const providerPrices = index.byScryfallId.get(card.scryfallId) || index.byOracleId.get(card.scryfallOracleId);
     if (!providerPrices) continue;
     card.pricesUsd = mergeProviderPriceSources(card.pricesUsd, providerPrices);
+    applied += 1;
   }
+  return { available: true, pending: false, applied };
+}
+
+function mergePriceProviderStatus(...statuses) {
+  return statuses.filter(Boolean).reduce((merged, status) => ({
+    available: merged.available || Boolean(status.available),
+    pending: merged.pending || Boolean(status.pending),
+    applied: merged.applied + (Number(status.applied) || 0),
+    error: merged.error || status.error || "",
+  }), { available: false, pending: false, applied: 0, error: "" });
 }
 
 async function mtgjsonProviderPriceIndex({ softTimeoutMs = 0 } = {}) {
   if (process.env.MAGE_TABLE_DISABLE_MTGJSON_PRICES === "1") {
-    return { byScryfallId: new Map(), byOracleId: new Map() };
+    return { byScryfallId: new Map(), byOracleId: new Map(), disabled: true };
   }
   if (mtgjsonPriceIndex) return mtgjsonPriceIndex;
   if (!mtgjsonPriceIndexPromise) {
@@ -1349,7 +1366,7 @@ async function inspectDeck(text) {
     throw new Error(parsed.errors.slice(0, 5).join(" "));
   }
   const batchCards = await fetchScryfallCollection(parsed.entries);
-  await enrichCardSummariesWithProviderPrices(batchCards.values());
+  let priceProviderStatus = await enrichCardSummariesWithProviderPrices(batchCards.values());
   const cards = [];
   const notFound = [];
   for (const entry of parsed.entries) {
@@ -1357,7 +1374,10 @@ async function inspectDeck(text) {
     if (!cardData) {
       try {
         cardData = await fetchScryfallCard(entry.name);
-        await enrichCardSummariesWithProviderPrices([cardData]);
+        priceProviderStatus = mergePriceProviderStatus(
+          priceProviderStatus,
+          await enrichCardSummariesWithProviderPrices([cardData]),
+        );
       } catch (error) {
         if (error.code === "SCRYFALL_UNAVAILABLE") throw error;
         cardData = null;
@@ -1418,6 +1438,7 @@ async function inspectDeck(text) {
       notFound,
       priceUsd: cards.reduce((sum, card) => sum + (Number(card.priceUsd) || 0) * card.quantity, 0),
       totalsUsd: deckPriceTotals(cards),
+      priceProviders: priceProviderStatus,
     },
   };
 }

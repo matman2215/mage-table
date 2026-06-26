@@ -2568,6 +2568,58 @@ body.shift-cascade .deck-stack-card strong {
   width: min(430px, calc(100vw - 28px));
 }
 
+.account-start-game-card {
+  width: min(560px, calc(100vw - 28px));
+  max-height: min(680px, calc(100vh - 28px));
+}
+
+.account-start-decks {
+  min-height: 0;
+}
+
+.account-start-saved-deck-list {
+  display: grid;
+  gap: 7px;
+  max-height: min(360px, calc(100vh - 260px));
+  overflow: auto;
+  padding-right: 3px;
+}
+
+.account-start-deck-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(142, 231, 214, 0.06);
+  padding: 9px;
+}
+
+.account-start-deck-row > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.account-start-deck-row strong,
+.account-start-deck-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-start-deck-row span {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.account-start-deck-row button {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 0.72rem;
+}
+
 #gameLoadingDialog {
   width: fit-content;
   height: fit-content;

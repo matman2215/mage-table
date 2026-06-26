@@ -290,6 +290,12 @@ const els = {
   closeDeckPlayChoiceButton: document.querySelector("#closeDeckPlayChoiceButton"),
   deckPlayJoinButton: document.querySelector("#deckPlayJoinButton"),
   deckPlayCreateButton: document.querySelector("#deckPlayCreateButton"),
+  accountStartGameDialog: document.querySelector("#accountStartGameDialog"),
+  accountStartGameForm: document.querySelector("#accountStartGameForm"),
+  accountStartGameSummary: document.querySelector("#accountStartGameSummary"),
+  accountStartSavedDeckList: document.querySelector("#accountStartSavedDeckList"),
+  accountStartOwnDecklistButton: document.querySelector("#accountStartOwnDecklistButton"),
+  closeAccountStartGameButton: document.querySelector("#closeAccountStartGameButton"),
   joinWithDeckDialog: document.querySelector("#joinWithDeckDialog"),
   joinWithDeckForm: document.querySelector("#joinWithDeckForm"),
   joinWithDeckTitle: document.querySelector("#joinWithDeckTitle"),
@@ -381,6 +387,7 @@ let deckBuilderPreviewCollapsed = false;
 let deckBuilderMetadata = null;
 let deckBuilderMetadataKey = "";
 let deckBuilderMetadataTimer = null;
+let deckPriceProviderRefreshTimer = null;
 let deckBuilderSaveInFlight = false;
 let deckMetadataLoadingKey = "";
 let deckMetadataLoadingTimer = null;
@@ -631,6 +638,12 @@ function renderLanding() {
   if (landingView === "account") renderAccountPanel();
 }
 
+function clearLandingModeClasses() {
+  document.body.classList.remove("landing-mode");
+  document.body.classList.remove("account-workspace-mode");
+  els.setupPanel.classList.remove("account-view", "account-workspace-shell", "lobbies-view");
+}
+
 function selectedInviteMode() {
   return els.inviteMethodInputs.find((input) => input.checked)?.value === "code" ? "code" : "links";
 }
@@ -696,7 +709,8 @@ async function createGameFromSetup({ solo = false, deck = null } = {}) {
     history.replaceState(null, "", sameOriginRoomUrl(room.selfUrl));
     forceInviteDialog = !solo && !room.currentPlayer.deckLoaded;
     setAccountStatus();
-    await refreshState();
+    enterRoomView(room);
+    await refreshState({ quiet: true });
   } finally {
     hideGameLoading();
   }
@@ -722,7 +736,8 @@ async function performJoinRoomByCode(code, password = "") {
   storeRoomPassword(room.id, password);
   history.replaceState(null, "", sameOriginRoomUrl(room.selfUrl));
   forceInviteDialog = false;
-  await refreshState();
+  enterRoomView(room);
+  await refreshState({ quiet: true });
 }
 
 function activeLobbies() {
@@ -1098,6 +1113,7 @@ function deckMetadataKey(decklist = els.deckBuilderListInput.value) {
 
 function scheduleDeckMetadataRefresh() {
   window.clearTimeout(deckBuilderMetadataTimer);
+  window.clearTimeout(deckPriceProviderRefreshTimer);
   const key = deckMetadataKey();
   if (!key) {
     if (deckMetadataLoadingKey) hideDeckMetadataLoading(deckMetadataLoadingKey);
@@ -1107,6 +1123,18 @@ function scheduleDeckMetadataRefresh() {
   }
   if (deckBuilderMetadataKey === key && deckBuilderMetadata) return;
   deckBuilderMetadataTimer = window.setTimeout(() => refreshDeckMetadata(), 450);
+}
+
+function deckPriceProvidersPending(metadata = deckBuilderMetadata) {
+  return Boolean(metadata?.stats?.priceProviders?.pending);
+}
+
+function scheduleDeckPriceProviderRefresh(key) {
+  window.clearTimeout(deckPriceProviderRefreshTimer);
+  deckPriceProviderRefreshTimer = window.setTimeout(() => {
+    if (deckMetadataKey() !== key) return;
+    refreshDeckMetadata({ quiet: true });
+  }, 2500);
 }
 
 function showDeckMetadataLoading(key, title = "Loading Deck Data", summary = "Resolving card images, printings, and price providers.") {
@@ -1126,7 +1154,21 @@ function hideDeckMetadataLoading(key) {
   hideGameLoading(`deck:${key}`);
 }
 
-async function refreshDeckMetadata() {
+function cancelDeckBuilderBackgroundWork() {
+  window.clearTimeout(deckBuilderMetadataTimer);
+  window.clearTimeout(deckPriceProviderRefreshTimer);
+  window.clearTimeout(deckMetadataLoadingTimer);
+  deckBuilderMetadataTimer = null;
+  deckPriceProviderRefreshTimer = null;
+  deckMetadataLoadingTimer = null;
+  const loadingKey = deckMetadataLoadingKey;
+  deckMetadataLoadingKey = "";
+  deckMetadataLoadingTitle = "";
+  deckMetadataLoadingSummary = "";
+  if (loadingKey) hideGameLoading(`deck:${loadingKey}`);
+}
+
+async function refreshDeckMetadata({ quiet = false } = {}) {
   const decklist = els.deckBuilderListInput.value;
   const requestDecklist = deckMetadataRequestDecklist(decklist);
   const key = deckMetadataKey(decklist);
@@ -1141,7 +1183,7 @@ async function refreshDeckMetadata() {
   const loadingSummary = deckMetadataLoadingSummary || "Resolving card images, printings, and price providers.";
   deckMetadataLoadingTitle = "";
   deckMetadataLoadingSummary = "";
-  showDeckMetadataLoading(key, loadingTitle, loadingSummary);
+  if (!quiet) showDeckMetadataLoading(key, loadingTitle, loadingSummary);
   try {
     const result = await api("/api/decks/inspect", {
       method: "POST",
@@ -1151,13 +1193,15 @@ async function refreshDeckMetadata() {
     deckBuilderMetadata = result;
     renderSavedDecks();
     renderDeckBuilderPreview();
+    if (deckPriceProvidersPending(result)) scheduleDeckPriceProviderRefresh(key);
+    else window.clearTimeout(deckPriceProviderRefreshTimer);
   } catch (error) {
     if (deckBuilderMetadataKey !== key) return;
     deckBuilderMetadata = { cards: [], error: error.message };
     renderSavedDecks();
     renderDeckBuilderPreview();
   } finally {
-    hideDeckMetadataLoading(key);
+    if (!quiet) hideDeckMetadataLoading(key);
   }
 }
 
@@ -1443,14 +1487,14 @@ function priceFromSource(prices, source = deckPriceSource) {
   if (!prices || typeof prices !== "object") return null;
   const normalized = normalizePriceSource(source);
   if (Number.isFinite(Number(prices[normalized]))) return Number(prices[normalized]);
-  if (normalized !== "scryfall" && Number.isFinite(Number(prices.scryfall))) return Number(prices.scryfall);
   return null;
 }
 
 function deckCardUnitPrice(card, source = deckPriceSource) {
+  const normalized = normalizePriceSource(source);
   const selected = priceFromSource(card?.pricesUsd, source);
   if (selected !== null) return selected;
-  return Number(card?.priceUsd) || 0;
+  return normalized === "scryfall" ? Number(card?.priceUsd) || 0 : 0;
 }
 
 function deckCardTotalPrice(card, source = deckPriceSource) {
@@ -1951,7 +1995,7 @@ function deckPriceHistoryPoints(history) {
   return history.map((snapshot) => ({
     at: Number(snapshot.capturedAt) || Date.now(),
     label: compactDateLabel(snapshot.capturedAt),
-    value: priceFromSource(snapshot.totalsUsd, deckPriceSource) ?? (Number(snapshot.totalUsd) || 0),
+    value: priceFromSource(snapshot.totalsUsd, deckPriceSource) ?? (normalizePriceSource(deckPriceSource) === "scryfall" ? Number(snapshot.totalUsd) || 0 : 0),
   }));
 }
 
@@ -2838,7 +2882,8 @@ async function performJoinRoomWithDeck(code, password = "") {
   pendingJoinDeck = null;
   pendingPasswordJoin = null;
   els.joinWithDeckDialog.close();
-  await refreshState();
+  enterRoomView(room);
+  await refreshState({ quiet: true });
 }
 
 async function joinRoomWithDeck() {
@@ -2925,9 +2970,10 @@ function currentBuilderCardQuantity(cardName) {
 }
 
 function searchCardUnitPrice(card) {
+  const normalized = normalizePriceSource(deckPriceSource);
   const selected = searchPriceFromSource(card?.pricesUsd, deckPriceSource);
   if (selected !== null) return selected;
-  return Number(card?.priceUsd) || 0;
+  return normalized === "scryfall" ? Number(card?.priceUsd) || 0 : 0;
 }
 
 function searchPriceFromSource(prices, source = deckPriceSource) {
@@ -2941,7 +2987,6 @@ function searchPriceFromSource(prices, source = deckPriceSource) {
   }
   const direct = searchProviderPrice(prices[normalized]);
   if (direct !== null) return direct;
-  if (normalized !== "scryfall") return searchPriceFromSource(prices, "scryfall");
   return null;
 }
 
@@ -3180,6 +3225,46 @@ async function startGameWithDeck(deck) {
   if (playable) openCreateMode(playable);
 }
 
+function renderAccountStartGameChoices() {
+  if (!els.accountStartSavedDeckList) return;
+  els.accountStartSavedDeckList.innerHTML = "";
+  const playableDecks = savedDecks
+    .filter((deck) => String(deck.decklist || "").trim())
+    .sort((left, right) => String(left.name || "").localeCompare(String(right.name || "")));
+  els.accountStartGameSummary.textContent = playableDecks.length
+    ? "Choose a saved deck or use a decklist for this game."
+    : "No saved decks are ready yet. Use a decklist to start this game.";
+  if (!playableDecks.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-list-message";
+    empty.textContent = "Saved decks with cards will appear here.";
+    els.accountStartSavedDeckList.append(empty);
+    return;
+  }
+  playableDecks.forEach((deck) => {
+    const row = document.createElement("article");
+    row.className = "account-start-deck-row";
+    const count = deckListCardCount(deck.decklist);
+    row.innerHTML = `
+      <div>
+        <strong>${escapeHtml(deck.name || "Untitled Deck")}</strong>
+        <span>${count} cards - ${escapeHtml(deck.commander || "No commander")}</span>
+      </div>
+      <button type="button">Use Deck</button>
+    `;
+    row.querySelector("button").addEventListener("click", () => {
+      els.accountStartGameDialog.close();
+      openDeckPlayChoice(deck);
+    });
+    els.accountStartSavedDeckList.append(row);
+  });
+}
+
+function openAccountStartGameDialog() {
+  renderAccountStartGameChoices();
+  if (!els.accountStartGameDialog.open) els.accountStartGameDialog.showModal();
+}
+
 function startGameWithoutDeck() {
   pendingGameDeck = null;
   pendingCreateDeck = null;
@@ -3288,6 +3373,22 @@ async function restoreAccountSession() {
     landingView = "account";
     renderLanding();
   }
+}
+
+function enterRoomView(room) {
+  if (!room) return;
+  currentToken = tokenFromUrl();
+  cancelDeckBuilderBackgroundWork();
+  clearLandingModeClasses();
+  els.setupPanel.classList.add("hidden");
+  els.tablePanel.classList.remove("hidden");
+  state = room;
+  stateSnapshot = JSON.stringify(room);
+  queuedRoomUpdateSeq = 0;
+  rememberActiveLobby(state);
+  connectRoomEvents();
+  render();
+  scheduleRoomLayoutStabilization();
 }
 
 function closeActionPopovers(except = null) {
@@ -3522,8 +3623,7 @@ function render() {
     return;
   }
 
-  document.body.classList.remove("landing-mode");
-  document.body.classList.remove("account-workspace-mode");
+  clearLandingModeClasses();
   applyTheme();
   els.setupPanel.classList.add("hidden");
   els.tablePanel.classList.remove("hidden");
@@ -7064,7 +7164,7 @@ els.logoutButton.addEventListener("click", async () => {
 
 els.accountDecksTab.addEventListener("click", () => setAccountWorkspaceTab("decks"));
 els.accountGamesTab.addEventListener("click", () => setAccountWorkspaceTab("games"));
-els.accountStartGameButton.addEventListener("click", startGameWithoutDeck);
+els.accountStartGameButton.addEventListener("click", openAccountStartGameDialog);
 els.collapseDeckRailButton.addEventListener("click", () => {
   deckRailCollapsed = !deckRailCollapsed;
   localStorage.setItem("mage-table-deck-rail-collapsed", deckRailCollapsed ? "1" : "0");
@@ -7306,6 +7406,16 @@ els.joinCodePasswordInput.addEventListener("input", () => setJoinRoomStatus());
 
 els.closeJoinWithDeckButton.addEventListener("click", () => els.joinWithDeckDialog.close());
 els.closeDeckPlayChoiceButton.addEventListener("click", () => els.deckPlayChoiceDialog.close());
+els.closeAccountStartGameButton.addEventListener("click", () => els.accountStartGameDialog.close());
+els.accountStartGameForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (event.submitter?.value === "decklist") {
+    els.accountStartGameDialog.close();
+    startGameWithoutDeck();
+    return;
+  }
+  els.accountStartGameDialog.close();
+});
 els.deckPlayChoiceForm.addEventListener("submit", (event) => {
   event.preventDefault();
   if (event.submitter?.value === "create") {

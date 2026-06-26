@@ -44,7 +44,7 @@
             <button id="joinGameButton" class="secondary" data-landing-action="join" type="button">Join Game</button>
             <button id="loginButton" class="secondary" data-landing-action="account" type="button">Log In</button>
           </div>
-          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.4.24</p>
+          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.4.25</p>
         </div>
         <section id="createModePanel" class="landing-subpanel create-mode-panel hidden">
           <header class="create-room-header">
@@ -705,6 +705,24 @@
         <div class="dialog-actions">
           <button id="deckPlayJoinButton" class="secondary" value="join" type="submit">Join Game Code</button>
           <button id="deckPlayCreateButton" value="create" type="submit">Create New Game</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="accountStartGameDialog">
+      <form id="accountStartGameForm" method="dialog" class="dialog-card account-start-game-card">
+        <header class="popover-header">
+          <div>
+            <h2>Start Game</h2>
+            <p id="accountStartGameSummary" class="dialog-note">Choose a saved deck or use a decklist for this game.</p>
+          </div>
+          <button id="closeAccountStartGameButton" class="popover-close" type="button" title="Dismiss" aria-label="Dismiss start game">x</button>
+        </header>
+        <section class="account-start-decks" aria-label="Saved decks">
+          <div id="accountStartSavedDeckList" class="account-start-saved-deck-list"></div>
+        </section>
+        <div class="dialog-actions">
+          <button id="accountStartOwnDecklistButton" class="secondary" value="decklist" type="submit">Use Decklist</button>
         </div>
       </form>
     </dialog>
