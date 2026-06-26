@@ -71,6 +71,14 @@ function safeEqualHex(left, right) {
   return a.length === b.length && a.length > 0 && crypto.timingSafeEqual(a, b);
 }
 
+function safeJson(value, fallback) {
+  try {
+    return value ? JSON.parse(value) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 class AccountStore {
   constructor(databasePath = process.env.MAGE_TABLE_DB_PATH || path.join(__dirname, "data", "mage-table.db")) {
     this.databasePath = databasePath;
@@ -106,8 +114,21 @@ class AccountStore {
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS deck_price_snapshots (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        deck_id TEXT NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+        captured_at INTEGER NOT NULL,
+        captured_day TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'all',
+        total_usd REAL NOT NULL DEFAULT 0,
+        totals_json TEXT NOT NULL DEFAULT '{}',
+        cards_json TEXT NOT NULL DEFAULT '[]',
+        UNIQUE(deck_id, account_id, source, captured_day)
+      );
       CREATE INDEX IF NOT EXISTS decks_account_updated_idx ON decks(account_id, updated_at DESC);
       CREATE INDEX IF NOT EXISTS sessions_account_idx ON sessions(account_id);
+      CREATE INDEX IF NOT EXISTS deck_price_snapshots_deck_idx ON deck_price_snapshots(account_id, deck_id, captured_at DESC);
     `);
     this.ensureColumn("accounts", "first_name", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("accounts", "last_name", "TEXT NOT NULL DEFAULT ''");
@@ -231,6 +252,44 @@ class AccountStore {
     return Number(result.changes) > 0;
   }
 
+  saveDeckPriceSnapshot(accountId, deckId, snapshot) {
+    const deck = this.db.prepare("SELECT id FROM decks WHERE id = ? AND account_id = ?").get(deckId, accountId);
+    if (!deck) throw new Error("Saved deck was not found.");
+    const capturedAt = Number(snapshot?.capturedAt) || Date.now();
+    const capturedDay = new Date(capturedAt).toISOString().slice(0, 10);
+    const source = String(snapshot?.source || "all").slice(0, 40);
+    const totalUsd = Number(snapshot?.totalUsd) || 0;
+    const totalsJson = JSON.stringify(snapshot?.totalsUsd || {});
+    const cardsJson = JSON.stringify(Array.isArray(snapshot?.cards) ? snapshot.cards : []);
+    const existing = this.db.prepare(`
+      SELECT id FROM deck_price_snapshots
+      WHERE deck_id = ? AND account_id = ? AND source = ? AND captured_day = ?
+    `).get(deckId, accountId, source, capturedDay);
+    if (existing) {
+      this.db.prepare(`
+        UPDATE deck_price_snapshots
+        SET captured_at = ?, total_usd = ?, totals_json = ?, cards_json = ?
+        WHERE id = ?
+      `).run(capturedAt, totalUsd, totalsJson, cardsJson, existing.id);
+      return this.priceSnapshotFromRow(this.db.prepare("SELECT * FROM deck_price_snapshots WHERE id = ?").get(existing.id));
+    }
+    const id = newId("price");
+    this.db.prepare(`
+      INSERT INTO deck_price_snapshots (id, account_id, deck_id, captured_at, captured_day, source, total_usd, totals_json, cards_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, accountId, deckId, capturedAt, capturedDay, source, totalUsd, totalsJson, cardsJson);
+    return this.priceSnapshotFromRow(this.db.prepare("SELECT * FROM deck_price_snapshots WHERE id = ?").get(id));
+  }
+
+  listDeckPriceHistory(accountId, deckId, limit = 180) {
+    return this.db.prepare(`
+      SELECT * FROM deck_price_snapshots
+      WHERE account_id = ? AND deck_id = ?
+      ORDER BY captured_at ASC
+      LIMIT ?
+    `).all(accountId, deckId, Math.max(1, Math.min(365, Number(limit) || 180))).map(this.priceSnapshotFromRow);
+  }
+
   deckFromRow(row) {
     return {
       id: row.id,
@@ -239,6 +298,19 @@ class AccountStore {
       decklist: row.decklist,
       createdAt: Number(row.created_at),
       updatedAt: Number(row.updated_at),
+    };
+  }
+
+  priceSnapshotFromRow(row) {
+    return {
+      id: row.id,
+      deckId: row.deck_id,
+      capturedAt: Number(row.captured_at),
+      capturedDay: row.captured_day,
+      source: row.source,
+      totalUsd: Number(row.total_usd) || 0,
+      totalsUsd: safeJson(row.totals_json, {}),
+      cards: safeJson(row.cards_json, []),
     };
   }
 

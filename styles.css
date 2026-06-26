@@ -1106,7 +1106,7 @@ body.landing-mode .account-workspace-shell label {
 
 .deck-view-toolbar {
   display: grid;
-  grid-template-columns: minmax(76px, 100px) minmax(88px, 116px) minmax(96px, 126px) minmax(116px, 150px) minmax(116px, 150px) auto minmax(280px, 1fr);
+  grid-template-columns: minmax(72px, 96px) minmax(82px, 110px) minmax(88px, 118px) minmax(110px, 140px) minmax(104px, 136px) minmax(112px, 140px) auto minmax(240px, 1fr);
   gap: 6px;
   align-items: end;
   justify-content: stretch;
@@ -1547,7 +1547,7 @@ body.shift-cascade .deck-stack-card strong {
 
 .deck-stats-controls {
   display: grid;
-  grid-template-columns: minmax(150px, 220px) minmax(150px, 220px) auto auto;
+  grid-template-columns: minmax(140px, 210px) minmax(140px, 210px) minmax(140px, 210px) auto auto;
   gap: 8px;
   align-items: end;
 }
@@ -1582,6 +1582,126 @@ body.shift-cascade .deck-stack-card strong {
 .deck-stat-section h3 {
   margin: 0 0 3px;
   font-size: 0.84rem;
+}
+
+.deck-price-history-section {
+  gap: 10px;
+  background: rgba(10, 16, 14, 0.48);
+}
+
+.price-history-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+
+.price-history-heading h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.price-history-heading span,
+.price-history-note {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.price-history-heading strong {
+  color: #dffdf6;
+  font-size: 1.08rem;
+  white-space: nowrap;
+}
+
+.price-history-chart {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.price-history-chart h4 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.8rem;
+}
+
+.price-history-bars {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(34px, 1fr));
+  gap: 6px;
+  align-items: end;
+  min-height: 170px;
+  border-bottom: 1px solid rgba(142, 231, 214, 0.32);
+  padding-top: 10px;
+}
+
+.price-history-bars span {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto auto;
+  gap: 4px;
+  min-width: 0;
+  height: 170px;
+  align-items: end;
+}
+
+.price-history-bars i {
+  display: block;
+  width: 100%;
+  height: var(--price-height, 2%);
+  min-height: 3px;
+  border-radius: 4px 4px 0 0;
+  background: linear-gradient(180deg, #8ee7d6, #2a9d8f);
+  box-shadow: 0 0 14px rgba(142, 231, 214, 0.24);
+}
+
+.price-history-bars b,
+.price-history-bars small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.price-history-bars b {
+  color: #dffdf6;
+  font-size: 0.62rem;
+}
+
+.price-history-bars small {
+  color: var(--muted);
+  font-size: 0.58rem;
+}
+
+.price-card-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 0.72rem;
+}
+
+.price-card-table th,
+.price-card-table td {
+  padding: 6px 7px;
+  border-bottom: 1px solid rgba(73, 92, 86, 0.55);
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.price-card-table th:nth-child(n+2),
+.price-card-table td:nth-child(n+2) {
+  width: 76px;
+  text-align: right;
+}
+
+.price-card-table tbody tr {
+  cursor: pointer;
+}
+
+.price-card-table tbody tr:hover,
+.price-card-table tbody tr.selected {
+  background: rgba(142, 231, 214, 0.12);
 }
 
 .deck-stat-bar {

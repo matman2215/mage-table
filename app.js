@@ -63,6 +63,7 @@ const els = {
   deckViewModeSelect: document.querySelector("#deckViewModeSelect"),
   deckVisualSearchInput: document.querySelector("#deckVisualSearchInput"),
   deckViewScaleInput: document.querySelector("#deckViewScaleInput"),
+  deckPriceSourceSelect: document.querySelector("#deckPriceSourceSelect"),
   applyDeckViewButton: document.querySelector("#applyDeckViewButton"),
   toggleMaybeBoardButton: document.querySelector("#toggleMaybeBoardButton"),
   deckMaybeBoardRail: document.querySelector("#deckMaybeBoardRail"),
@@ -272,6 +273,7 @@ const els = {
   deckStatsDialogSummary: document.querySelector("#deckStatsDialogSummary"),
   deckStatsProductionSelect: document.querySelector("#deckStatsProductionSelect"),
   deckStatsOddsSortSelect: document.querySelector("#deckStatsOddsSortSelect"),
+  deckStatsPriceSourceSelect: document.querySelector("#deckStatsPriceSourceSelect"),
   closeDeckStatsButton: document.querySelector("#closeDeckStatsButton"),
   deckStatsApplyButton: document.querySelector("#deckStatsApplyButton"),
   deckStatsOddsJumpButton: document.querySelector("#deckStatsOddsJumpButton"),
@@ -371,6 +373,9 @@ let deckBuilderMetadata = null;
 let deckBuilderMetadataKey = "";
 let deckBuilderMetadataTimer = null;
 let deckBuilderSaveInFlight = false;
+let deckPriceSource = localStorage.getItem("mage-table-deck-price-source") || "scryfall";
+let selectedPriceHistoryCardKey = "";
+const deckPriceHistoryCache = new Map();
 const probabilitySettings = {
   mode: "atLeast",
   targetCount: 1,
@@ -1096,6 +1101,7 @@ function selectBuilderDeck(deck) {
   deckBuilderPreviewCollapsed = false;
   deckBuilderMetadata = null;
   deckBuilderMetadataKey = "";
+  selectedPriceHistoryCardKey = "";
   selectedBuilderDeckId = deck.id;
   els.deckBuilderNameInput.value = deck.name;
   els.deckBuilderCommanderInput.value = deck.commander || "";
@@ -1111,6 +1117,7 @@ function newBuilderDeck() {
   deckBuilderPreviewCollapsed = false;
   deckBuilderMetadata = null;
   deckBuilderMetadataKey = "";
+  selectedPriceHistoryCardKey = "";
   selectedBuilderDeckId = "";
   els.deckBuilderNameInput.value = "";
   els.deckBuilderCommanderInput.value = "";
@@ -1247,6 +1254,11 @@ function applyDeckViewScale() {
 function applyDeckViewSettings(event = null) {
   if (event?.type === "click" || event?.type === "pointerup" || event?.type === "submit") event.preventDefault();
   deckBuilderPreviewCollapsed = false;
+  if (event?.target === els.deckPriceSourceSelect || event?.target === els.deckStatsPriceSourceSelect) {
+    deckPriceSource = normalizePriceSource(event.target.value);
+    localStorage.setItem("mage-table-deck-price-source", deckPriceSource);
+    syncDeckPriceControls();
+  }
   applyDeckViewScale();
   renderDeckBuilderPreview();
   if (els.deckBuilderPreview) {
@@ -1261,16 +1273,60 @@ function applyDeckViewSettings(event = null) {
 
 function renderDeckBuilderPrice() {
   if (!els.deckBuilderPrice) return;
+  syncDeckPriceControls();
   const price = deckBuilderTotalPrice();
   els.deckBuilderPrice.classList.toggle("hidden", price === null);
-  if (price !== null) els.deckBuilderPrice.textContent = `$${price.toFixed(2)}`;
+  if (price !== null) els.deckBuilderPrice.textContent = `${formatUsd(price)} ${priceSourceShortLabel(deckPriceSource)}`;
 }
 
 function deckBuilderTotalPrice() {
-  if (Number.isFinite(Number(deckBuilderMetadata?.stats?.priceUsd))) return Number(deckBuilderMetadata.stats.priceUsd);
+  const totals = deckBuilderMetadata?.stats?.totalsUsd;
+  const selected = priceFromSource(totals, deckPriceSource);
+  if (selected !== null) return selected;
+  if (deckPriceSource === "scryfall" && Number.isFinite(Number(deckBuilderMetadata?.stats?.priceUsd))) return Number(deckBuilderMetadata.stats.priceUsd);
   const cards = deckBuilderMetadata?.cards;
   if (!Array.isArray(cards) || !cards.length) return null;
-  return cards.reduce((sum, card) => sum + (Number(card.priceUsd) || 0) * (Number(card.quantity) || 1), 0);
+  return cards.reduce((sum, card) => sum + deckCardUnitPrice(card) * (Number(card.quantity) || 1), 0);
+}
+
+function syncDeckPriceControls() {
+  deckPriceSource = normalizePriceSource(deckPriceSource);
+  if (els.deckPriceSourceSelect && els.deckPriceSourceSelect.value !== deckPriceSource) els.deckPriceSourceSelect.value = deckPriceSource;
+  if (els.deckStatsPriceSourceSelect && els.deckStatsPriceSourceSelect.value !== deckPriceSource) els.deckStatsPriceSourceSelect.value = deckPriceSource;
+}
+
+function normalizePriceSource(value) {
+  return ["scryfall", "tcgplayer", "average"].includes(value) ? value : "scryfall";
+}
+
+function priceSourceLabel(source = deckPriceSource) {
+  return ({ scryfall: "Scryfall USD", tcgplayer: "TCGplayer USD", average: "Average USD" })[normalizePriceSource(source)] || "Scryfall USD";
+}
+
+function priceSourceShortLabel(source = deckPriceSource) {
+  return ({ scryfall: "SF", tcgplayer: "TCG", average: "AVG" })[normalizePriceSource(source)] || "SF";
+}
+
+function priceFromSource(prices, source = deckPriceSource) {
+  if (!prices || typeof prices !== "object") return null;
+  const normalized = normalizePriceSource(source);
+  if (Number.isFinite(Number(prices[normalized]))) return Number(prices[normalized]);
+  if (normalized !== "scryfall" && Number.isFinite(Number(prices.scryfall))) return Number(prices.scryfall);
+  return null;
+}
+
+function deckCardUnitPrice(card, source = deckPriceSource) {
+  const selected = priceFromSource(card?.pricesUsd, source);
+  if (selected !== null) return selected;
+  return Number(card?.priceUsd) || 0;
+}
+
+function deckCardTotalPrice(card, source = deckPriceSource) {
+  return deckCardUnitPrice(card, source) * (Number(card?.quantity) || 1);
+}
+
+function formatUsd(value) {
+  return `$${(Number(value) || 0).toFixed(2)}`;
 }
 
 function renderDeckVisualStacks(cards, settings = deckViewSettings()) {
@@ -1301,8 +1357,8 @@ function renderDeckVisualStacks(cards, settings = deckViewSettings()) {
       const sorted = [...groupCards].sort((a, b) => compareDeckCards(a, b, sortMode));
       const column = document.createElement("section");
       column.className = "deck-stack-column";
-      const price = sorted.reduce((sum, card) => sum + (Number(card.priceUsd) || 0) * card.quantity, 0);
-      column.innerHTML = `<header><strong>${escapeHtml(group)}</strong><span>Qty: ${sorted.reduce((sum, card) => sum + card.quantity, 0)} · $${price.toFixed(2)}</span></header>`;
+      const price = sorted.reduce((sum, card) => sum + deckCardTotalPrice(card), 0);
+      column.innerHTML = `<header><strong>${escapeHtml(group)}</strong><span>Qty: ${sorted.reduce((sum, card) => sum + card.quantity, 0)} · ${formatUsd(price)}</span></header>`;
       if (viewMode === "table") column.append(deckTextTable(sorted, query));
       else if (viewMode === "grid") column.append(deckImageGrid(sorted, query));
       else {
@@ -1341,6 +1397,7 @@ function deckViewerCommanderPlaceholder(name) {
     manaCost: "",
     manaValue: 0,
     priceUsd: 0,
+    pricesUsd: { scryfall: 0, tcgplayer: 0, average: 0 },
     category: "Commander",
     imageUrl: "",
     colorIdentity: [],
@@ -1486,7 +1543,7 @@ function deckTextTable(cards, query) {
       <td>${Number(card.manaValue) || 0}</td>
       <td>${escapeHtml(primaryType(card))}</td>
       <td>${escapeHtml(colorLabel(card.colorIdentity || card.colors || []))}</td>
-      <td>$${((Number(card.priceUsd) || 0) * (Number(card.quantity) || 1)).toFixed(2)}</td>
+      <td>${formatUsd(deckCardTotalPrice(card))}</td>
     `;
     body.append(row);
   });
@@ -1496,17 +1553,23 @@ function deckTextTable(cards, query) {
 
 function openDeckStatsDialog(deck = currentBuilderDeck()) {
   const name = deck.name || els.deckBuilderNameInput.value || "Deck";
+  syncDeckPriceControls();
   els.deckStatsDialogTitle.textContent = `${name} Stats`;
   els.deckStatsDialogSummary.textContent = deckBuilderMetadata?.cards?.length
-    ? `${deckBuilderMetadata.stats?.total || deckListCardCount(deck.decklist)} cards analyzed`
+    ? `${deckBuilderMetadata.stats?.total || deckListCardCount(deck.decklist)} cards analyzed · ${priceSourceLabel(deckPriceSource)}`
     : "Stats are available after Scryfall card data resolves.";
   renderDeckStatsContent();
   if (!els.deckStatsDialog.open) els.deckStatsDialog.showModal();
+  loadDeckPriceHistory(deck.id);
 }
 
 function renderDeckStatsContent() {
   els.deckStatsContent.innerHTML = "";
   const cards = deckBuilderMetadata?.cards || [];
+  syncDeckPriceControls();
+  if (els.deckStatsDialogSummary && cards.length) {
+    els.deckStatsDialogSummary.textContent = `${deckBuilderMetadata.stats?.total || deckListCardCount(currentBuilderDeck().decklist)} cards analyzed · ${priceSourceLabel(deckPriceSource)}`;
+  }
   if (!cards.length) {
     const empty = document.createElement("p");
     empty.className = "empty-list-message";
@@ -1518,6 +1581,7 @@ function renderDeckStatsContent() {
   syncDeckStatsColorOptions(cards);
   els.deckStatsContent.append(
     productionSection(cards, els.deckStatsProductionSelect.value),
+    priceHistorySection(cards),
     probabilitySection(cards, total),
   );
 }
@@ -1538,6 +1602,184 @@ function scrollDeckStatsToProbability() {
   const containerTop = els.deckStatsContent.getBoundingClientRect().top;
   const targetTop = target.getBoundingClientRect().top;
   els.deckStatsContent.scrollTop = Math.max(0, els.deckStatsContent.scrollTop + targetTop - containerTop);
+}
+
+async function loadDeckPriceHistory(deckId = selectedBuilderDeckId) {
+  if (!account || !deckId) return;
+  if (deckPriceHistoryCache.has(deckId)) {
+    if (els.deckStatsDialog?.open) renderDeckStatsContent();
+    return;
+  }
+  deckPriceHistoryCache.set(deckId, []);
+  try {
+    const result = await accountApi(`/api/account/decks/${encodeURIComponent(deckId)}/price-history`);
+    deckPriceHistoryCache.set(deckId, result.history || []);
+  } catch (error) {
+    deckPriceHistoryCache.set(deckId, [{ error: error.message, capturedAt: Date.now(), cards: [], totalsUsd: {} }]);
+  }
+  if (els.deckStatsDialog?.open && deckId === selectedBuilderDeckId) renderDeckStatsContent();
+}
+
+function priceHistorySection(cards) {
+  const section = document.createElement("section");
+  section.className = "deck-stat-section deck-price-history-section";
+  const deck = currentBuilderDeck();
+  const history = priceHistoryWithCurrent(cards, deck.id);
+  const selectedCard = selectedPriceHistoryCardKey
+    ? cards.find((card) => deckPriceCardKey(card) === selectedPriceHistoryCardKey)
+    : null;
+  const points = selectedCard
+    ? cardPriceHistoryPoints(history, selectedCard)
+    : deckPriceHistoryPoints(history);
+  const latest = points[points.length - 1]?.value || deckBuilderTotalPrice() || 0;
+  section.innerHTML = `
+    <header class="price-history-heading">
+      <div>
+        <h3>Price history</h3>
+        <span>${escapeHtml(priceSourceLabel(deckPriceSource))} · ${selectedCard ? escapeHtml(selectedCard.name) : "Whole deck"}</span>
+      </div>
+      <strong>${formatUsd(latest)}</strong>
+    </header>
+  `;
+  section.append(priceHistoryChart(selectedCard ? selectedCard.name : "Deck value", points));
+  const note = document.createElement("p");
+  note.className = "workspace-note price-history-note";
+  note.textContent = deck.id
+    ? "A daily snapshot is saved when this deck is saved. Click a card row to graph that card instead of the whole deck."
+    : "Save this deck to begin storing daily price snapshots.";
+  section.append(note, priceCardTable(cards));
+  return section;
+}
+
+function priceHistoryWithCurrent(cards, deckId = selectedBuilderDeckId) {
+  const saved = deckId ? [...(deckPriceHistoryCache.get(deckId) || [])].filter((snapshot) => !snapshot.error) : [];
+  const current = currentPriceSnapshot(cards);
+  const last = saved[saved.length - 1];
+  if (!last || new Date(last.capturedAt).toISOString().slice(0, 10) !== new Date(current.capturedAt).toISOString().slice(0, 10)) {
+    saved.push(current);
+  } else {
+    saved[saved.length - 1] = { ...last, ...current, id: last.id || current.id };
+  }
+  return saved;
+}
+
+function currentPriceSnapshot(cards) {
+  const snapshotCards = cards.map((card) => ({
+    key: deckPriceCardKey(card),
+    name: card.name,
+    displayName: card.displayName || card.name,
+    quantity: Number(card.quantity) || 1,
+    set: card.set || "",
+    collectorNumber: card.collectorNumber || "",
+    finish: card.finish || "",
+    pricesUsd: card.pricesUsd || { scryfall: Number(card.priceUsd) || 0 },
+  }));
+  return {
+    id: "current",
+    capturedAt: Date.now(),
+    capturedDay: new Date().toISOString().slice(0, 10),
+    totalsUsd: deckPriceTotalsFromCards(cards),
+    cards: snapshotCards,
+  };
+}
+
+function deckPriceTotalsFromCards(cards) {
+  return cards.reduce((totals, card) => {
+    const quantity = Number(card.quantity) || 1;
+    const prices = card.pricesUsd && typeof card.pricesUsd === "object" ? card.pricesUsd : { scryfall: Number(card.priceUsd) || 0 };
+    Object.entries(prices).forEach(([source, value]) => {
+      totals[source] = (totals[source] || 0) + (Number(value) || 0) * quantity;
+    });
+    return totals;
+  }, {});
+}
+
+function deckPriceHistoryPoints(history) {
+  return history.map((snapshot) => ({
+    at: Number(snapshot.capturedAt) || Date.now(),
+    label: compactDateLabel(snapshot.capturedAt),
+    value: priceFromSource(snapshot.totalsUsd, deckPriceSource) ?? (Number(snapshot.totalUsd) || 0),
+  }));
+}
+
+function cardPriceHistoryPoints(history, card) {
+  const key = deckPriceCardKey(card);
+  const name = String(card.name || "").toLowerCase();
+  return history.map((snapshot) => {
+    const entry = (snapshot.cards || []).find((candidate) => candidate.key === key || String(candidate.name || "").toLowerCase() === name);
+    return {
+      at: Number(snapshot.capturedAt) || Date.now(),
+      label: compactDateLabel(snapshot.capturedAt),
+      value: entry ? priceFromSource(entry.pricesUsd, deckPriceSource) ?? 0 : 0,
+    };
+  });
+}
+
+function priceHistoryChart(title, points) {
+  const wrap = document.createElement("div");
+  wrap.className = "price-history-chart";
+  const cleanPoints = points.length ? points : [{ label: "Now", value: 0, at: Date.now() }];
+  const max = Math.max(1, ...cleanPoints.map((point) => Number(point.value) || 0));
+  wrap.innerHTML = `<h4>${escapeHtml(title)}</h4>`;
+  const bars = document.createElement("div");
+  bars.className = "price-history-bars";
+  cleanPoints.slice(-24).forEach((point) => {
+    const bar = document.createElement("span");
+    const value = Number(point.value) || 0;
+    bar.style.setProperty("--price-height", `${Math.max(value ? 7 : 2, (value / max) * 100)}%`);
+    bar.title = `${point.label}: ${formatUsd(value)}`;
+    bar.innerHTML = `<i></i><b>${escapeHtml(formatUsd(value))}</b><small>${escapeHtml(point.label)}</small>`;
+    bars.append(bar);
+  });
+  wrap.append(bars);
+  return wrap;
+}
+
+function priceCardTable(cards) {
+  const table = document.createElement("table");
+  table.className = "price-card-table";
+  table.innerHTML = "<thead><tr><th>Card</th><th>Qty</th><th>Unit</th><th>Total</th></tr></thead>";
+  const body = document.createElement("tbody");
+  cards
+    .slice()
+    .sort((a, b) => deckCardTotalPrice(b) - deckCardTotalPrice(a) || a.name.localeCompare(b.name))
+    .forEach((card) => {
+      const key = deckPriceCardKey(card);
+      const row = document.createElement("tr");
+      if (key === selectedPriceHistoryCardKey) row.classList.add("selected");
+      row.tabIndex = 0;
+      row.innerHTML = `
+        <td>${escapeHtml(card.name)}</td>
+        <td>${Number(card.quantity) || 1}</td>
+        <td>${formatUsd(deckCardUnitPrice(card))}</td>
+        <td>${formatUsd(deckCardTotalPrice(card))}</td>
+      `;
+      const selectRow = () => {
+        selectedPriceHistoryCardKey = selectedPriceHistoryCardKey === key ? "" : key;
+        renderDeckStatsContent();
+      };
+      row.addEventListener("click", selectRow);
+      row.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        selectRow();
+      });
+      body.append(row);
+    });
+  table.append(body);
+  return table;
+}
+
+function deckPriceCardKey(card) {
+  const set = String(card?.set || "").toLowerCase();
+  const collector = String(card?.collectorNumber || "").toLowerCase();
+  if (set && collector) return `${set}:${collector}:${String(card?.finish || "").toLowerCase()}`;
+  return `${String(card?.name || "").toLowerCase()}:${String(card?.finish || "").toLowerCase()}`;
+}
+
+function compactDateLabel(timestamp) {
+  const date = new Date(Number(timestamp) || Date.now());
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
 function statSection(title, rows, mode) {
@@ -2131,7 +2373,7 @@ function clampPercent(value) {
 function deckGroupLabel(card, mode) {
   if (mode === "rarity") return titleCase(card.rarity || "unknown");
   if (mode === "price") {
-    const price = Number(card.priceUsd) || 0;
+    const price = deckCardUnitPrice(card);
     if (price >= 20) return "$20+";
     if (price >= 5) return "$5-$19.99";
     if (price >= 1) return "$1-$4.99";
@@ -2150,7 +2392,7 @@ function compareDeckCards(a, b, mode) {
   if (mode === "manaValue") return (Number(a.manaValue) || 0) - (Number(b.manaValue) || 0) || a.name.localeCompare(b.name);
   if (mode === "type") return primaryType(a).localeCompare(primaryType(b)) || a.name.localeCompare(b.name);
   if (mode === "subtype") return primarySubtype(a).localeCompare(primarySubtype(b)) || a.name.localeCompare(b.name);
-  if (mode === "price") return (Number(b.priceUsd) || 0) - (Number(a.priceUsd) || 0) || a.name.localeCompare(b.name);
+  if (mode === "price") return deckCardUnitPrice(b) - deckCardUnitPrice(a) || a.name.localeCompare(b.name);
   if (mode === "color") return colorLabel(a.colorIdentity || a.colors || []).localeCompare(colorLabel(b.colorIdentity || b.colors || [])) || a.name.localeCompare(b.name);
   if (mode === "rarity") return rarityRank(a.rarity) - rarityRank(b.rarity) || a.name.localeCompare(b.name);
   if (mode === "keyword") return primaryKeyword(a).localeCompare(primaryKeyword(b)) || a.name.localeCompare(b.name);
@@ -2503,6 +2745,9 @@ async function saveBuilderDeck() {
     ...deck,
     name: deck.name || fallbackBuilderDeckName(deck),
   };
+  if (Array.isArray(deckBuilderMetadata?.cards) && deckBuilderMetadata.cards.length) {
+    deckToSave.priceSnapshot = currentPriceSnapshot(deckBuilderMetadata.cards);
+  }
   if (!deck.name) els.deckBuilderNameInput.value = deckToSave.name;
   let result;
   try {
@@ -2512,6 +2757,7 @@ async function saveBuilderDeck() {
     result = await persistAccountDeck({ ...deckToSave, id: "" }, "");
   }
   const savedDeck = result.deck;
+  if (result.priceHistory && savedDeck?.id) deckPriceHistoryCache.set(savedDeck.id, result.priceHistory);
   selectedBuilderDeckId = savedDeck.id;
   els.deckBuilderNameInput.value = savedDeck.name || deckToSave.name;
   els.deckBuilderCommanderInput.value = savedDeck.commander || deckToSave.commander || "";
@@ -6508,6 +6754,15 @@ if (els.deckStatsOddsSortSelect) {
     applyDeckStatsFilters();
   });
 }
+if (els.deckStatsPriceSourceSelect) {
+  els.deckStatsPriceSourceSelect.addEventListener("change", (event) => {
+    deckPriceSource = normalizePriceSource(event.target.value);
+    localStorage.setItem("mage-table-deck-price-source", deckPriceSource);
+    syncDeckPriceControls();
+    renderDeckBuilderPreview({ preserveScroll: true });
+    applyDeckStatsFilters();
+  });
+}
 els.savedDeckSearchInput.addEventListener("input", renderSavedDecks);
 els.deckBuilderListInput.addEventListener("input", () => {
   els.deckBuilderStatus.textContent = "Unsaved changes";
@@ -6535,6 +6790,7 @@ els.deckGroupSelect.addEventListener("change", applyDeckViewSettings);
 els.deckSortSelect.addEventListener("change", applyDeckViewSettings);
 els.deckViewModeSelect.addEventListener("change", applyDeckViewSettings);
 els.deckVisualSearchInput.addEventListener("input", applyDeckViewSettings);
+if (els.deckPriceSourceSelect) els.deckPriceSourceSelect.addEventListener("change", applyDeckViewSettings);
 if (els.deckViewScaleInput) {
   els.deckViewScaleInput.addEventListener("input", applyDeckViewSettings);
   els.deckViewScaleInput.addEventListener("change", applyDeckViewSettings);

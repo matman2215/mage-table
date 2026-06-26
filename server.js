@@ -818,6 +818,7 @@ function summarizeScryfallCard(card) {
   const colors = Array.isArray(card.colors) ? card.colors : colorIdentity;
   const priceUsd = Number(card.prices?.usd || card.prices?.usd_foil || 0) || 0;
   const priceUsdFoil = Number(card.prices?.usd_foil || card.prices?.usd || 0) || 0;
+  const pricesUsd = scryfallUsdPriceSources(card.prices || {});
   const faces = (card.card_faces || [])
     .map((face) => {
       const images = cardImages(face);
@@ -855,6 +856,7 @@ function summarizeScryfallCard(card) {
     rarity: card.rarity || "unknown",
     priceUsd,
     priceUsdFoil,
+    pricesUsd,
     set: card.set || "",
     setName: card.set_name || "",
     collectorNumber: card.collector_number || "",
@@ -865,7 +867,63 @@ function summarizeScryfallCard(card) {
   return summary;
 }
 
-function priceForDeckEntry(cardData, entry) {
+function scryfallUsdPriceSources(prices = {}) {
+  const normal = Number(prices.usd || 0) || 0;
+  const foil = Number(prices.usd_foil || prices.usd || 0) || 0;
+  const etched = Number(prices.usd_etched || prices.usd_foil || prices.usd || 0) || 0;
+  const scryfall = { normal, foil, etched };
+  return {
+    scryfall,
+    tcgplayer: { ...scryfall },
+  };
+}
+
+function deckEntryPriceMap(cardData, entry) {
+  const providers = cardData?.pricesUsd && typeof cardData.pricesUsd === "object"
+    ? cardData.pricesUsd
+    : { scryfall: { normal: Number(cardData?.priceUsd) || 0, foil: Number(cardData?.priceUsdFoil || cardData?.priceUsd) || 0 } };
+  const prices = {};
+  for (const [provider, values] of Object.entries(providers)) {
+    const price = providerPriceForEntry(values, entry);
+    if (price > 0) prices[provider] = price;
+  }
+  if (!prices.scryfall) {
+    const finish = String(entry?.finish || "").toUpperCase();
+    prices.scryfall = finish.includes("F")
+      ? Number(cardData?.priceUsdFoil || cardData?.priceUsd || 0) || 0
+      : Number(cardData?.priceUsd || 0) || 0;
+  }
+  if (!prices.tcgplayer && prices.scryfall) prices.tcgplayer = prices.scryfall;
+  prices.average = averageUsdPrice(prices);
+  return prices;
+}
+
+function providerPriceForEntry(values = {}, entry = {}) {
+  const finish = String(entry?.finish || "").toUpperCase();
+  if (finish.includes("E")) return Number(values.etched || values.foil || values.normal || 0) || 0;
+  if (finish.includes("F")) return Number(values.foil || values.normal || 0) || 0;
+  return Number(values.normal || values.usd || 0) || 0;
+}
+
+function averageUsdPrice(prices = {}) {
+  const seen = new Set();
+  const values = Object.entries(prices)
+    .filter(([provider]) => provider !== "average")
+    .map(([, value]) => Number(value) || 0)
+    .filter((value) => value > 0)
+    .filter((value) => {
+      const key = value.toFixed(4);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+}
+
+function priceForDeckEntry(cardData, entry, source = "scryfall") {
+  if (source === "average") return averageUsdPrice(deckEntryPriceMap(cardData, entry));
+  const providerPrices = deckEntryPriceMap(cardData, entry);
+  if (providerPrices[source]) return providerPrices[source];
   const finish = String(entry?.finish || "").toUpperCase();
   if (finish.includes("F")) return Number(cardData.priceUsdFoil || cardData.priceUsd || 0) || 0;
   return Number(cardData.priceUsd || 0) || 0;
@@ -1090,6 +1148,7 @@ async function buildDeck(text, ownerSeat) {
         setName: "",
         collectorNumber: entry.collectorNumber || "",
         priceUsdFoil: 0,
+        pricesUsd: {},
         isLand: false,
         power: "",
         toughness: "",
@@ -1104,6 +1163,7 @@ async function buildDeck(text, ownerSeat) {
 
     for (let i = 0; i < entry.count; i += 1) {
       const frontFace = cardData.faces?.[0] || null;
+      const pricesUsd = deckEntryPriceMap(cardData, entry);
       cards.push({
         id: id("card"),
         name: cardData.name,
@@ -1124,7 +1184,8 @@ async function buildDeck(text, ownerSeat) {
         finish: entry.finish || "",
         category: entry.category || "",
         tags: entry.tags || [],
-        priceUsd: priceForDeckEntry(cardData, entry),
+        priceUsd: pricesUsd.scryfall || 0,
+        pricesUsd,
         isLand: cardData.isLand,
         power: cardData.power || "",
         toughness: cardData.toughness || "",
@@ -1185,13 +1246,15 @@ async function inspectDeck(text) {
         rarity: "unknown",
         priceUsd: 0,
         priceUsdFoil: 0,
+        pricesUsd: {},
         set: entry.set || "",
         setName: "",
         collectorNumber: entry.collectorNumber || "",
         isLand: false,
       };
     }
-    const priceUsd = priceForDeckEntry(cardData, entry);
+    const pricesUsd = deckEntryPriceMap(cardData, entry);
+    const priceUsd = pricesUsd.scryfall || 0;
     cards.push({
       quantity: entry.count,
       name: cardData.name,
@@ -1205,6 +1268,7 @@ async function inspectDeck(text) {
       colorIdentity: cardData.colorIdentity || [],
       rarity: cardData.rarity || "unknown",
       priceUsd,
+      pricesUsd,
       set: cardData.set || entry.set || "",
       setName: cardData.setName || "",
       collectorNumber: cardData.collectorNumber || entry.collectorNumber || "",
@@ -1221,8 +1285,119 @@ async function inspectDeck(text) {
       unique: cards.length,
       notFound,
       priceUsd: cards.reduce((sum, card) => sum + (Number(card.priceUsd) || 0) * card.quantity, 0),
+      totalsUsd: deckPriceTotals(cards),
     },
   };
+}
+
+function deckTextWithCommander(decklist, commander) {
+  const text = String(decklist || "").trim();
+  const commanderName = String(commander || "").trim();
+  if (!commanderName) return text;
+  const parsed = parseDeckList(text);
+  const existing = parsed.entries.some((entry) => normalizedDeckName(entry.name) === normalizedDeckName(commanderName));
+  return existing ? text : [`1 ${commanderName}`, text].filter(Boolean).join("\n");
+}
+
+function normalizedDeckName(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function priceSnapshotFromInspect(deck, inspected) {
+  const cards = (inspected.cards || []).map((card) => ({
+    key: deckPriceCardKey(card),
+    name: card.name,
+    displayName: card.displayName || card.name,
+    quantity: Number(card.quantity) || 1,
+    set: card.set || "",
+    collectorNumber: card.collectorNumber || "",
+    finish: card.finish || "",
+    pricesUsd: card.pricesUsd || { scryfall: Number(card.priceUsd) || 0 },
+  }));
+  const totalsUsd = inspected.stats?.totalsUsd || deckPriceTotals(inspected.cards || []);
+  return {
+    source: "all",
+    capturedAt: Date.now(),
+    totalUsd: Number(totalsUsd.scryfall || inspected.stats?.priceUsd || 0) || 0,
+    totalsUsd,
+    cards,
+  };
+}
+
+function priceSnapshotFromClient(value) {
+  if (!value || typeof value !== "object") return null;
+  const cards = Array.isArray(value.cards)
+    ? value.cards.slice(0, 500).map((card) => ({
+      key: String(card?.key || "").slice(0, 180),
+      name: String(card?.name || "").slice(0, 180),
+      displayName: String(card?.displayName || card?.name || "").slice(0, 220),
+      quantity: Math.max(1, Math.min(999, Number(card?.quantity) || 1)),
+      set: String(card?.set || "").slice(0, 24),
+      collectorNumber: String(card?.collectorNumber || "").slice(0, 32),
+      finish: String(card?.finish || "").slice(0, 12),
+      pricesUsd: sanitizePriceMap(card?.pricesUsd),
+    })).filter((card) => card.name)
+    : [];
+  const totalsUsd = Object.keys(sanitizePriceMap(value.totalsUsd)).length
+    ? sanitizePriceMap(value.totalsUsd)
+    : deckPriceTotals(cards);
+  const hasPrice = Object.values(totalsUsd).some((price) => Number(price) > 0);
+  if (!cards.length && !hasPrice) return null;
+  return {
+    source: "all",
+    capturedAt: Number(value.capturedAt) || Date.now(),
+    totalUsd: Number(totalsUsd.scryfall || value.totalUsd || 0) || 0,
+    totalsUsd,
+    cards,
+  };
+}
+
+function sanitizePriceMap(prices) {
+  if (!prices || typeof prices !== "object") return {};
+  return Object.fromEntries(Object.entries(prices)
+    .filter(([source]) => /^[a-z0-9_-]{1,40}$/i.test(String(source)))
+    .map(([source, price]) => [source, Math.max(0, Math.min(1000000, Number(price) || 0))]));
+}
+
+function deckPriceCardKey(card) {
+  const set = String(card?.set || "").toLowerCase();
+  const collector = String(card?.collectorNumber || "").toLowerCase();
+  if (set && collector) return `${set}:${collector}:${String(card?.finish || "").toLowerCase()}`;
+  return `${String(card?.name || "").toLowerCase()}:${String(card?.finish || "").toLowerCase()}`;
+}
+
+async function recordDeckPriceSnapshot(accountId, deck) {
+  const inspected = await inspectDeck(deckTextWithCommander(deck.decklist, deck.commander));
+  return accountStore.saveDeckPriceSnapshot(accountId, deck.id, priceSnapshotFromInspect(deck, inspected));
+}
+
+async function recordBestDeckPriceSnapshot(accountId, deck, body = {}) {
+  const clientSnapshot = priceSnapshotFromClient(body.priceSnapshot);
+  if (clientSnapshot) return accountStore.saveDeckPriceSnapshot(accountId, deck.id, clientSnapshot);
+  try {
+    return await recordDeckPriceSnapshot(accountId, deck);
+  } catch (error) {
+    console.error(`Could not record price snapshot for ${deck.id}:`, error);
+    return null;
+  }
+}
+
+function deckPriceTotals(cards) {
+  const totals = {};
+  for (const card of cards) {
+    const quantity = Number(card.quantity) || 1;
+    const prices = card.pricesUsd && typeof card.pricesUsd === "object" ? card.pricesUsd : { scryfall: Number(card.priceUsd) || 0 };
+    for (const [source, price] of Object.entries(prices)) {
+      totals[source] = (totals[source] || 0) + (Number(price) || 0) * quantity;
+    }
+  }
+  if (!totals.average) totals.average = averageUsdPrice(totals);
+  return totals;
 }
 
 function shuffle(cards) {
@@ -2824,13 +2999,32 @@ const server = http.createServer(async (req, res) => {
       if (req.method === "GET") return sendJson(res, 200, { decks: accountStore.listDecks(account.id) });
       if (req.method === "POST") {
         const body = await readBody(req);
-        return sendJson(res, 201, { deck: accountStore.saveDeck(account.id, body) });
+        const deck = accountStore.saveDeck(account.id, body);
+        await recordBestDeckPriceSnapshot(account.id, deck, body);
+        return sendJson(res, 201, { deck, priceHistory: accountStore.listDeckPriceHistory(account.id, deck.id) });
       }
     }
 
     if (req.method === "POST" && requestUrl.pathname === "/api/decks/inspect") {
       const body = await readBody(req);
       return sendJson(res, 200, await inspectDeck(body.decklist || body.text || ""));
+    }
+
+    const accountDeckPriceHistoryMatch = requestUrl.pathname.match(/^\/api\/account\/decks\/([^/]+)\/price-history$/);
+    if (accountDeckPriceHistoryMatch && ["GET", "POST"].includes(req.method)) {
+      const account = authenticatedAccount(req, res);
+      if (!account) return;
+      const deckId = decodeURIComponent(accountDeckPriceHistoryMatch[1]);
+      const deck = accountStore.listDecks(account.id).find((candidate) => candidate.id === deckId);
+      if (!deck) return sendJson(res, 404, { error: "Saved deck was not found." });
+      if (req.method === "POST") {
+        try {
+          await recordDeckPriceSnapshot(account.id, deck);
+        } catch (error) {
+          return sendJson(res, error.code === "SCRYFALL_UNAVAILABLE" ? 503 : 500, { error: error.message });
+        }
+      }
+      return sendJson(res, 200, { history: accountStore.listDeckPriceHistory(account.id, deckId) });
     }
 
     const accountDeckMatch = requestUrl.pathname.match(/^\/api\/account\/decks\/([^/]+)$/);
@@ -2844,7 +3038,9 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, { ok: true });
       }
       const body = await readBody(req);
-      return sendJson(res, 200, { deck: accountStore.saveDeck(account.id, body, deckId) });
+      const deck = accountStore.saveDeck(account.id, body, deckId);
+      await recordBestDeckPriceSnapshot(account.id, deck, body);
+      return sendJson(res, 200, { deck, priceHistory: accountStore.listDeckPriceHistory(account.id, deck.id) });
     }
 
     if (req.method === "POST" && requestUrl.pathname === "/api/rooms") {
