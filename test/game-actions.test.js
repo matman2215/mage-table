@@ -216,6 +216,14 @@ test("combat damage can be taken per creature without double counting", async ()
 
 test("tapping a land records produced mana at the next checkpoint", async () => {
   const state = room();
+  const { account } = accountStore.createAccount("mana_stats_user", "testing123", "Mana", "Stats", "mana-stats@example.test", "testing123");
+  const deck = accountStore.saveDeck(account.id, {
+    name: "Mana Stats",
+    commander: "Mana Commander",
+    decklist: "1 Mana Commander\n1 Dual Land",
+  });
+  state.players[0].accountId = account.id;
+  state.players[0].deckId = deck.id;
   state.players[0].battlefield.push(card("land", "Dual Land", {
     typeLine: "Land",
     isLand: true,
@@ -229,4 +237,8 @@ test("tapping a land records produced mana at the next checkpoint", async () => 
   assert.equal(commit.manaProduced, 1);
   assert.equal(commit.manaByColor["Flexible (U/R)"], 1);
   assert.equal(commit.turnElapsedMs, 12000);
+  const savedStats = accountStore.deckPlayStats(account.id, deck.id);
+  assert.equal(savedStats.commits, 1);
+  assert.equal(savedStats.manaProduced, 1);
+  assert.equal(savedStats.manaByColor["Flexible (U/R)"], 1);
 });

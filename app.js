@@ -740,6 +740,7 @@ async function createGameFromSetup({ solo = false, deck = null } = {}) {
         deck: selectedDeck ? {
           decklist: selectedDeck.decklist,
           commander: selectedDeck.commander || "",
+          deckId: selectedDeck.id || "",
           playerName: accountDisplayName("Player 1"),
         } : null,
       }),
@@ -3290,6 +3291,7 @@ async function performJoinRoomWithDeck(code, password = "") {
       deck: {
         decklist: pendingJoinDeck.decklist,
         commander: pendingJoinDeck.commander || "",
+        deckId: pendingJoinDeck.id || "",
         playerName: accountDisplayName("Player"),
       },
     }),

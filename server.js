@@ -567,6 +567,7 @@ function createRoomState(name, playerCount, password = "", inviteMode = "links",
       isHost: seat === 0,
       claimed: seat === 0,
       accountId: seat === 0 ? hostAccountId : "",
+      deckId: "",
       deckLoaded: false,
       deckStats: null,
       libraryPreview: null,
@@ -627,6 +628,7 @@ function viewRoom(room, token, origin) {
       commander: currentPlayer.commander,
       isHost: currentPlayer.isHost,
       isGuest: !currentPlayer.accountId,
+      deckId: currentPlayer.deckId || "",
       deckLoaded: currentPlayer.deckLoaded,
       deckStats: currentPlayer.deckStats,
       libraryPreview: currentPlayer.libraryPreview,
@@ -663,6 +665,7 @@ function viewRoom(room, token, origin) {
       seat: player.seat,
       name: player.name,
       commander: player.commander,
+      deckId: Number(player.seat) === Number(currentPlayer.seat) ? player.deckId || "" : "",
       deckLoaded: player.deckLoaded,
       deckStats: player.deckStats,
       isGuest: !player.accountId,
@@ -2180,6 +2183,13 @@ function mulliganPlayer(room, actor) {
 async function loadDeckIntoPlayer(room, actor, values = {}) {
   const playerName = String(values.name || "").trim();
   const commander = String(values.commander || "").trim();
+  const deckId = String(values.deckId || "").trim();
+  let resolvedDeckId = "";
+  if (deckId && actor.accountId) {
+    const savedDeck = accountStore.deckById(actor.accountId, deckId);
+    if (!savedDeck) throw new Error("Saved deck was not found.");
+    resolvedDeckId = savedDeck.id;
+  }
   if (playerName) actor.name = playerName.slice(0, 32);
   actor.commander = commander.slice(0, 80);
   const deck = await buildDeck(values.text || values.decklist || "", actor.seat);
@@ -2197,6 +2207,7 @@ async function loadDeckIntoPlayer(room, actor, values = {}) {
   drawOpeningHand(actor, 7);
   actor.libraryPreview = null;
   actor.deckStats = deck.stats;
+  actor.deckId = resolvedDeckId;
   actor.deckLoaded = true;
   const commanderText = actor.commanderZone.length ? " Commander moved to command zone." : "";
   addLog(room, `${actor.name} loaded ${deck.stats.total} cards, shuffled, and reviewed an opening hand of ${actor.hand.length}.${commanderText}`, actor);
@@ -2516,6 +2527,8 @@ function stageSpellStatistic(room, actor, card, destination) {
     manaUsed: Number.isFinite(Number(card.manaValue)) ? Number(card.manaValue) : manaValueFromCost(card.manaCost),
     actorSeat: actor.seat,
     actorName: actor.name,
+    accountId: actor.accountId || "",
+    deckId: actor.deckId || "",
     activeSeat: Number(room.activePlayer) || 0,
     turn: Number(room.turnNumber) || 1,
     destination,
@@ -2563,10 +2576,84 @@ function stageManaStatistic(room, actor, card) {
     color,
     actorSeat: actor.seat,
     actorName: actor.name,
+    accountId: actor.accountId || "",
+    deckId: actor.deckId || "",
     activeSeat: Number(room.activePlayer) || 0,
     turn: Number(room.turnNumber) || 1,
   });
   room.statistics.pending = room.statistics.pending.slice(-120);
+}
+
+function statisticsSummaryForEvents(events = []) {
+  const spellsByType = {};
+  const manaByColor = {};
+  let spellsCast = 0;
+  let manaUsed = 0;
+  let manaProduced = 0;
+  events.forEach((event) => {
+    if (event?.kind === "mana") {
+      const amount = Math.max(0, Number(event.amount) || 0);
+      manaProduced += amount;
+      const color = event.color || "Unknown";
+      manaByColor[color] = (Number(manaByColor[color]) || 0) + amount;
+      return;
+    }
+    if (event?.kind === "spell") {
+      spellsCast += 1;
+      const type = event.type || "Other";
+      spellsByType[type] = (Number(spellsByType[type]) || 0) + 1;
+      manaUsed += Number(event.manaUsed) || 0;
+    }
+  });
+  return { spellsCast, manaUsed, manaProduced, spellsByType, manaByColor };
+}
+
+function eventSeat(value) {
+  return Number.isFinite(Number(value)) ? Number(value) : -1;
+}
+
+function persistDeckStatisticCommit(room, commit) {
+  const seats = new Set();
+  (commit.events || []).forEach((event) => {
+    const seat = eventSeat(event.actorSeat);
+    if (seat >= 0) seats.add(seat);
+  });
+  (commit.logEvents || []).forEach((event) => {
+    const seat = eventSeat(event.actorSeat);
+    if (seat >= 0) seats.add(seat);
+  });
+  seats.forEach((seat) => {
+    const player = room.players.find((candidate) => Number(candidate.seat) === seat);
+    if (!player?.accountId || !player.deckId) return;
+    const events = (commit.events || []).filter((event) => eventSeat(event.actorSeat) === seat);
+    const logEvents = (commit.logEvents || []).filter((event) => eventSeat(event.actorSeat) === seat);
+    if (!events.length && !logEvents.length) return;
+    const summary = statisticsSummaryForEvents(events);
+    accountStore.saveDeckPlayStatCommit(player.accountId, player.deckId, {
+      roomId: room.id,
+      roomName: room.name,
+      commitId: commit.id,
+      reason: commit.reason,
+      turn: commit.turn,
+      activeSeat: commit.activeSeat,
+      actorSeat: seat,
+      committedAt: commit.committedAt,
+      spellsCast: summary.spellsCast,
+      manaUsed: summary.manaUsed,
+      manaProduced: summary.manaProduced,
+      summary,
+      events,
+      logEvents,
+    });
+  });
+}
+
+function persistDeckStatisticCommitQuietly(room, commit) {
+  try {
+    persistDeckStatisticCommit(room, commit);
+  } catch (error) {
+    console.error(`Could not persist deck statistics for ${room?.id || "unknown"}:`, error);
+  }
 }
 
 function commitStatistics(room, reason) {
@@ -2600,7 +2687,7 @@ function commitStatistics(room, reason) {
     manaProduced += amount;
     manaByColor[event.color || "Unknown"] = (Number(manaByColor[event.color || "Unknown"]) || 0) + amount;
   });
-  room.statistics.commits.push({
+  const commit = {
     id: id("stats"),
     turn: Number(room.turnNumber) || 1,
     activeSeat: Number(room.activePlayer) || 0,
@@ -2615,8 +2702,10 @@ function commitStatistics(room, reason) {
     turnElapsedMs: Math.max(0, Number(room.clock?.currentTurnMs) || 0),
     committedAt: Date.now(),
     at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-  });
+  };
+  room.statistics.commits.push(commit);
   room.statistics.commits = room.statistics.commits.slice(-240);
+  persistDeckStatisticCommitQuietly(room, commit);
 }
 
 function compactCardSnapshot(card) {
@@ -3473,7 +3562,7 @@ const server = http.createServer(async (req, res) => {
       const account = authenticatedAccount(req, res);
       if (!account) return;
       const deckId = decodeURIComponent(accountDeckPriceHistoryMatch[1]);
-      const deck = accountStore.listDecks(account.id).find((candidate) => candidate.id === deckId);
+      const deck = accountStore.deckById(account.id, deckId);
       if (!deck) return sendJson(res, 404, { error: "Saved deck was not found." });
       if (req.method === "POST") {
         try {
@@ -3483,6 +3572,18 @@ const server = http.createServer(async (req, res) => {
         }
       }
       return sendJson(res, 200, { history: accountStore.listDeckPriceHistory(account.id, deckId) });
+    }
+
+    const accountDeckPlayStatsMatch = requestUrl.pathname.match(/^\/api\/account\/decks\/([^/]+)\/play-stats$/);
+    if (req.method === "GET" && accountDeckPlayStatsMatch) {
+      const account = authenticatedAccount(req, res);
+      if (!account) return;
+      const deckId = decodeURIComponent(accountDeckPlayStatsMatch[1]);
+      try {
+        return sendJson(res, 200, { stats: accountStore.deckPlayStats(account.id, deckId) });
+      } catch (error) {
+        return sendJson(res, 404, { error: error.message });
+      }
     }
 
     const accountDeckMatch = requestUrl.pathname.match(/^\/api\/account\/decks\/([^/]+)$/);
@@ -3513,6 +3614,7 @@ const server = http.createServer(async (req, res) => {
         await loadDeckIntoPlayer(room, room.players[0], {
           text: deck.decklist || deck.text,
           commander: deck.commander || "",
+          deckId: deck.deckId || deck.id || "",
           name: deck.playerName || accountDisplayName(account, room.players[0].name),
         });
       }
@@ -3558,6 +3660,7 @@ const server = http.createServer(async (req, res) => {
           await loadDeckIntoPlayer(room, existingPlayer, {
             text: deck.decklist || deck.text,
             commander: deck.commander || "",
+            deckId: deck.deckId || deck.id || "",
             name: deck.playerName || accountDisplayName(account, existingPlayer.name),
           });
           room.updatedAt = Date.now();
@@ -3576,6 +3679,7 @@ const server = http.createServer(async (req, res) => {
         await loadDeckIntoPlayer(room, player, {
           text: deck.decklist || deck.text,
           commander: deck.commander || "",
+          deckId: deck.deckId || deck.id || "",
           name: deck.playerName || accountDisplayName(account, player.name),
         });
       } else if (account) {

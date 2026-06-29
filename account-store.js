@@ -127,6 +127,26 @@ class AccountStore {
         cards_json TEXT NOT NULL DEFAULT '[]',
         UNIQUE(deck_id, account_id, source, captured_day)
       );
+      CREATE TABLE IF NOT EXISTS deck_play_stat_commits (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        deck_id TEXT NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+        room_id TEXT NOT NULL,
+        room_name TEXT NOT NULL DEFAULT '',
+        commit_id TEXT NOT NULL,
+        reason TEXT NOT NULL DEFAULT '',
+        turn INTEGER NOT NULL DEFAULT 1,
+        active_seat INTEGER NOT NULL DEFAULT 0,
+        actor_seat INTEGER NOT NULL DEFAULT -1,
+        committed_at INTEGER NOT NULL,
+        spells_cast INTEGER NOT NULL DEFAULT 0,
+        mana_used REAL NOT NULL DEFAULT 0,
+        mana_produced REAL NOT NULL DEFAULT 0,
+        summary_json TEXT NOT NULL DEFAULT '{}',
+        events_json TEXT NOT NULL DEFAULT '[]',
+        log_events_json TEXT NOT NULL DEFAULT '[]',
+        UNIQUE(account_id, deck_id, room_id, commit_id, actor_seat)
+      );
       CREATE TABLE IF NOT EXISTS friendships (
         id TEXT PRIMARY KEY,
         requester_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
@@ -149,6 +169,8 @@ class AccountStore {
       CREATE INDEX IF NOT EXISTS decks_account_updated_idx ON decks(account_id, updated_at DESC);
       CREATE INDEX IF NOT EXISTS sessions_account_idx ON sessions(account_id);
       CREATE INDEX IF NOT EXISTS deck_price_snapshots_deck_idx ON deck_price_snapshots(account_id, deck_id, captured_at DESC);
+      CREATE INDEX IF NOT EXISTS deck_play_stats_deck_idx ON deck_play_stat_commits(account_id, deck_id, committed_at DESC);
+      CREATE INDEX IF NOT EXISTS deck_play_stats_room_idx ON deck_play_stat_commits(room_id, commit_id);
       CREATE INDEX IF NOT EXISTS friendships_requester_idx ON friendships(requester_id, status);
       CREATE INDEX IF NOT EXISTS friendships_addressee_idx ON friendships(addressee_id, status);
       CREATE UNIQUE INDEX IF NOT EXISTS friendships_pair_unique ON friendships(requester_id, addressee_id);
@@ -161,6 +183,7 @@ class AccountStore {
     this.ensureColumn("accounts", "email", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("accounts", "email_normalized", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("accounts", "last_seen_at", "INTEGER NOT NULL DEFAULT 0");
+    this.ensureColumn("deck_play_stat_commits", "log_events_json", "TEXT NOT NULL DEFAULT '[]'");
     this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS accounts_email_normalized_unique ON accounts(email_normalized) WHERE email_normalized <> '';");
   }
 
@@ -503,6 +526,14 @@ class AccountStore {
     `).all(accountId).map(this.deckFromRow);
   }
 
+  deckById(accountId, deckId) {
+    const row = this.db.prepare(`
+      SELECT id, name, commander, decklist, created_at, updated_at
+      FROM decks WHERE id = ? AND account_id = ?
+    `).get(deckId, accountId);
+    return row ? this.deckFromRow(row) : null;
+  }
+
   saveDeck(accountId, values, deckId = "") {
     const name = String(values.name || "").trim().slice(0, 80);
     const commander = String(values.commander || "").trim().slice(0, 120);
@@ -569,6 +600,111 @@ class AccountStore {
     `).all(accountId, deckId, Math.max(1, Math.min(365, Number(limit) || 180))).map(this.priceSnapshotFromRow);
   }
 
+  saveDeckPlayStatCommit(accountId, deckId, record = {}) {
+    const deck = this.deckById(accountId, deckId);
+    if (!deck) throw new Error("Saved deck was not found.");
+    const roomId = String(record.roomId || "").slice(0, 80);
+    const commitId = String(record.commitId || "").slice(0, 80);
+    if (!roomId || !commitId) throw new Error("A room id and statistics commit id are required.");
+    const events = Array.isArray(record.events) ? record.events : [];
+    const logEvents = Array.isArray(record.logEvents) ? record.logEvents : [];
+    const summary = record.summary && typeof record.summary === "object" ? record.summary : {};
+    const spellsCast = Number.isFinite(Number(record.spellsCast))
+      ? Number(record.spellsCast)
+      : events.filter((event) => event?.kind === "spell").length;
+    const manaUsed = Number.isFinite(Number(record.manaUsed))
+      ? Number(record.manaUsed)
+      : events.reduce((total, event) => total + (event?.kind === "spell" ? Number(event.manaUsed) || 0 : 0), 0);
+    const manaProduced = Number.isFinite(Number(record.manaProduced))
+      ? Number(record.manaProduced)
+      : events.reduce((total, event) => total + (event?.kind === "mana" ? Number(event.amount) || 0 : 0), 0);
+    const actorSeat = Number.isFinite(Number(record.actorSeat)) ? Number(record.actorSeat) : -1;
+    const id = newId("deckstat");
+    this.db.prepare(`
+      INSERT OR IGNORE INTO deck_play_stat_commits (
+        id, account_id, deck_id, room_id, room_name, commit_id, reason, turn, active_seat,
+        actor_seat, committed_at, spells_cast, mana_used, mana_produced, summary_json,
+        events_json, log_events_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      accountId,
+      deckId,
+      roomId,
+      String(record.roomName || "").slice(0, 80),
+      commitId,
+      String(record.reason || "").slice(0, 80),
+      Math.max(1, Number(record.turn) || 1),
+      Number.isFinite(Number(record.activeSeat)) ? Number(record.activeSeat) : 0,
+      actorSeat,
+      Number(record.committedAt) || Date.now(),
+      Math.max(0, Math.round(spellsCast)),
+      Math.max(0, Number(manaUsed) || 0),
+      Math.max(0, Number(manaProduced) || 0),
+      JSON.stringify(summary),
+      JSON.stringify(events),
+      JSON.stringify(logEvents),
+    );
+    return this.deckPlayStatCommitFromRow(this.db.prepare(`
+      SELECT * FROM deck_play_stat_commits
+      WHERE account_id = ? AND deck_id = ? AND room_id = ? AND commit_id = ? AND actor_seat = ?
+    `).get(accountId, deckId, roomId, commitId, actorSeat));
+  }
+
+  deckPlayStats(accountId, deckId, limit = 120) {
+    const deck = this.deckById(accountId, deckId);
+    if (!deck) throw new Error("Saved deck was not found.");
+    const safeLimit = Math.max(1, Math.min(500, Number(limit) || 120));
+    const totals = this.db.prepare(`
+      SELECT
+        COUNT(*) AS commits,
+        COUNT(DISTINCT room_id) AS games,
+        COALESCE(SUM(spells_cast), 0) AS spells_cast,
+        COALESCE(SUM(mana_used), 0) AS mana_used,
+        COALESCE(SUM(mana_produced), 0) AS mana_produced,
+        COALESCE(MIN(committed_at), 0) AS first_played_at,
+        COALESCE(MAX(committed_at), 0) AS last_played_at
+      FROM deck_play_stat_commits
+      WHERE account_id = ? AND deck_id = ?
+    `).get(accountId, deckId);
+    const aggregateRows = this.db.prepare(`
+      SELECT summary_json FROM deck_play_stat_commits
+      WHERE account_id = ? AND deck_id = ?
+      ORDER BY committed_at DESC
+      LIMIT 5000
+    `).all(accountId, deckId);
+    const spellsByType = {};
+    const manaByColor = {};
+    aggregateRows.forEach((row) => {
+      const summary = safeJson(row.summary_json, {});
+      Object.entries(summary.spellsByType || {}).forEach(([type, count]) => {
+        spellsByType[type] = (Number(spellsByType[type]) || 0) + (Number(count) || 0);
+      });
+      Object.entries(summary.manaByColor || {}).forEach(([color, amount]) => {
+        manaByColor[color] = (Number(manaByColor[color]) || 0) + (Number(amount) || 0);
+      });
+    });
+    const recent = this.db.prepare(`
+      SELECT * FROM deck_play_stat_commits
+      WHERE account_id = ? AND deck_id = ?
+      ORDER BY committed_at DESC
+      LIMIT ?
+    `).all(accountId, deckId, safeLimit).map(this.deckPlayStatCommitFromRow);
+    return {
+      deckId,
+      games: Number(totals.games) || 0,
+      commits: Number(totals.commits) || 0,
+      spellsCast: Number(totals.spells_cast) || 0,
+      manaUsed: Number(totals.mana_used) || 0,
+      manaProduced: Number(totals.mana_produced) || 0,
+      firstPlayedAt: Number(totals.first_played_at) || 0,
+      lastPlayedAt: Number(totals.last_played_at) || 0,
+      spellsByType,
+      manaByColor,
+      recent,
+    };
+  }
+
   deckFromRow(row) {
     return {
       id: row.id,
@@ -590,6 +726,27 @@ class AccountStore {
       totalUsd: Number(row.total_usd) || 0,
       totalsUsd: safeJson(row.totals_json, {}),
       cards: safeJson(row.cards_json, []),
+    };
+  }
+
+  deckPlayStatCommitFromRow(row) {
+    return {
+      id: row.id,
+      deckId: row.deck_id,
+      roomId: row.room_id,
+      roomName: row.room_name,
+      commitId: row.commit_id,
+      reason: row.reason,
+      turn: Number(row.turn) || 1,
+      activeSeat: Number(row.active_seat) || 0,
+      actorSeat: Number(row.actor_seat),
+      committedAt: Number(row.committed_at) || 0,
+      spellsCast: Number(row.spells_cast) || 0,
+      manaUsed: Number(row.mana_used) || 0,
+      manaProduced: Number(row.mana_produced) || 0,
+      summary: safeJson(row.summary_json, {}),
+      events: safeJson(row.events_json, []),
+      logEvents: safeJson(row.log_events_json, []),
     };
   }
 
