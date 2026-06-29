@@ -921,6 +921,10 @@ function renderAccountPanel() {
   els.accountGamesTab.classList.toggle("secondary", accountWorkspaceTab !== "games");
   els.accountDecksView.classList.toggle("hidden", accountWorkspaceTab !== "decks");
   els.accountGamesView.classList.toggle("hidden", accountWorkspaceTab !== "games");
+  if (deckRailCollapsed && deckHistoryOpen) {
+    deckHistoryOpen = false;
+    localStorage.setItem("mage-table-deck-history-open", "0");
+  }
   els.accountDecksView.classList.toggle("deck-rail-collapsed", deckRailCollapsed);
   els.collapseDeckRailButton.textContent = deckRailCollapsed ? "☰" : "⇤";
   els.collapseDeckRailButton.title = deckRailCollapsed ? "Expand deck library" : "Collapse deck library";
@@ -7485,6 +7489,10 @@ els.accountStartGameButton.addEventListener("click", openAccountStartGameDialog)
 els.collapseDeckRailButton.addEventListener("click", () => {
   deckRailCollapsed = !deckRailCollapsed;
   localStorage.setItem("mage-table-deck-rail-collapsed", deckRailCollapsed ? "1" : "0");
+  if (deckRailCollapsed && deckHistoryOpen) {
+    deckHistoryOpen = false;
+    localStorage.setItem("mage-table-deck-history-open", "0");
+  }
   renderAccountPanel();
 });
 if (els.deckHistoryButton) els.deckHistoryButton.addEventListener("click", () => setDeckHistoryOpen(!deckHistoryOpen));

@@ -679,7 +679,7 @@ body.landing-mode .landing-panel button:not(.landing-actions button) {
 }
 
 .deck-workspace.deck-rail-collapsed {
-  grid-template-columns: 38px minmax(0, 1fr);
+  grid-template-columns: 46px minmax(0, 1fr);
 }
 
 .deck-library-rail {
@@ -697,7 +697,7 @@ body.landing-mode .landing-panel button:not(.landing-actions button) {
   padding: 10px 4px;
 }
 
-.deck-rail-collapsed .deck-library-heading > div,
+.deck-rail-collapsed .deck-library-heading > div:not(.deck-library-heading-actions),
 .deck-rail-collapsed .deck-library-heading #newSavedDeckButton,
 .deck-rail-collapsed #savedDeckSearchInput,
 .deck-rail-collapsed #deckHistoryRail,
@@ -747,11 +747,18 @@ body.landing-mode .landing-panel button:not(.landing-actions button) {
   stroke-linejoin: round;
 }
 
-.deck-library-heading > div,
+.deck-library-heading > div:not(.deck-library-heading-actions),
 .deck-builder-header > div:first-child,
 .active-games-heading > div {
   display: grid;
   gap: 2px;
+}
+
+.deck-library-heading > .deck-library-heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  justify-content: end;
 }
 
 .deck-library-heading h2,
