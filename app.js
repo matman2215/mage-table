@@ -344,6 +344,7 @@ let currentToken = "";
 let pollTimer = null;
 let roomEvents = null;
 let roomEventsKey = "";
+let roomEventsConnected = false;
 let presenceHeartbeatTimer = null;
 let clockRenderTimer = null;
 let queuedRoomUpdateSeq = 0;
@@ -3760,7 +3761,7 @@ async function sendAction(type, payload = {}) {
 function startPolling() {
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(() => {
-    if (state && !localInteractionActive()) refreshState({ quiet: true });
+    if (state && !roomEventsConnected && !localInteractionActive()) refreshState({ quiet: true });
   }, 30000);
 }
 
@@ -3780,6 +3781,7 @@ function mergePresencePayload(payload) {
 
 async function sendPresenceHeartbeat() {
   if (!state) return;
+  if (roomEventsConnected) return;
   const roomId = state.id;
   try {
     const response = await fetch(`/api/rooms/${roomId}/presence`, {
@@ -3796,10 +3798,10 @@ async function sendPresenceHeartbeat() {
   }
 }
 
-function startPresenceHeartbeat() {
+function startPresenceHeartbeat({ immediate = false } = {}) {
   if (presenceHeartbeatTimer) clearInterval(presenceHeartbeatTimer);
   if (clockRenderTimer) clearInterval(clockRenderTimer);
-  sendPresenceHeartbeat();
+  if (immediate) sendPresenceHeartbeat();
   presenceHeartbeatTimer = setInterval(sendPresenceHeartbeat, 15000);
   clockRenderTimer = setInterval(renderClockPanel, 1000);
 }
@@ -3812,14 +3814,23 @@ function stopPresenceHeartbeat() {
 }
 
 function connectRoomEvents() {
-  if (!state || typeof EventSource === "undefined") return;
+  if (!state) return;
+  if (typeof EventSource === "undefined") {
+    roomEventsConnected = false;
+    startPresenceHeartbeat({ immediate: true });
+    return;
+  }
   const key = `${state.id}:${currentToken}:${roomPasswordFor(state.id)}`;
   if (roomEvents && roomEventsKey === key) return;
   closeRoomEvents();
   roomEventsKey = key;
   const password = roomPasswordFor(state.id);
   roomEvents = new EventSource(`/api/rooms/${state.id}/stream?token=${encodeURIComponent(currentToken)}&password=${encodeURIComponent(password)}`);
+  roomEvents.onopen = () => {
+    roomEventsConnected = true;
+  };
   roomEvents.addEventListener("room-update", (event) => {
+    roomEventsConnected = true;
     let payload = null;
     try {
       payload = JSON.parse(event.data || "{}");
@@ -3836,6 +3847,7 @@ function connectRoomEvents() {
     refreshState({ quiet: true });
   });
   roomEvents.addEventListener("presence-update", (event) => {
+    roomEventsConnected = true;
     try {
       mergePresencePayload(JSON.parse(event.data || "{}"));
     } catch {
@@ -3843,7 +3855,8 @@ function connectRoomEvents() {
     }
   });
   roomEvents.onerror = () => {
-    scheduleQueuedRefresh(1500);
+    roomEventsConnected = false;
+    if (queuedRoomUpdateSeq) scheduleQueuedRefresh(1500);
   };
   startPresenceHeartbeat();
 }
@@ -3853,6 +3866,7 @@ function closeRoomEvents() {
   if (roomEvents) roomEvents.close();
   roomEvents = null;
   roomEventsKey = "";
+  roomEventsConnected = false;
 }
 
 function scheduleQueuedRefresh(delay = 350) {
