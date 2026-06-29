@@ -303,12 +303,15 @@ const els = {
   deckStatsDialog: document.querySelector("#deckStatsDialog"),
   deckStatsDialogTitle: document.querySelector("#deckStatsDialogTitle"),
   deckStatsDialogSummary: document.querySelector("#deckStatsDialogSummary"),
+  deckStatsControls: document.querySelector(".deck-stats-controls"),
   deckStatsProductionSelect: document.querySelector("#deckStatsProductionSelect"),
   deckStatsOddsSortSelect: document.querySelector("#deckStatsOddsSortSelect"),
   deckStatsPriceSourceSelect: document.querySelector("#deckStatsPriceSourceSelect"),
   closeDeckStatsButton: document.querySelector("#closeDeckStatsButton"),
   deckStatsApplyButton: document.querySelector("#deckStatsApplyButton"),
   deckStatsOddsJumpButton: document.querySelector("#deckStatsOddsJumpButton"),
+  deckStatsTabs: document.querySelector("#deckStatsTabs"),
+  deckStatsTabButtons: [...document.querySelectorAll("[data-deck-stats-tab]")],
   deckStatsContent: document.querySelector("#deckStatsContent"),
   deckPlayChoiceDialog: document.querySelector("#deckPlayChoiceDialog"),
   deckPlayChoiceForm: document.querySelector("#deckPlayChoiceForm"),
@@ -436,7 +439,9 @@ let deckMetadataLoadingSummary = "";
 let deckPriceSource = localStorage.getItem("mage-table-deck-price-source") || "scryfall";
 let deckBuilderTheme = localStorage.getItem("mage-table-deck-builder-theme") || "dark";
 let selectedPriceHistoryCardKey = "";
+let deckStatsActiveTab = "analysis";
 const deckPriceHistoryCache = new Map();
+const deckPlayStatsCache = new Map();
 const probabilitySettings = {
   mode: "atLeast",
   targetCount: 1,
@@ -2036,20 +2041,57 @@ function openDeckStatsDialog(deck = currentBuilderDeck()) {
   const name = deck.name || els.deckBuilderNameInput.value || "Deck";
   syncDeckPriceControls();
   els.deckStatsDialogTitle.textContent = `${name} Stats`;
-  els.deckStatsDialogSummary.textContent = deckBuilderMetadata?.cards?.length
-    ? `${deckBuilderMetadata.stats?.total || deckListCardCount(deck.decklist)} cards analyzed · ${priceSourceLabel(deckPriceSource)}`
-    : "Stats are available after Scryfall card data resolves.";
+  els.deckStatsDialogSummary.textContent = deckStatsSummaryText(deck);
   renderDeckStatsContent();
   if (!els.deckStatsDialog.open) els.deckStatsDialog.showModal();
   loadDeckPriceHistory(deck.id);
+  loadDeckPlayStats(deck.id, { force: true });
+}
+
+function deckStatsSummaryText(deck = currentBuilderDeck()) {
+  if (deckStatsActiveTab === "play") {
+    if (!deck.id) return "Save this deck to begin recording persistent gameplay statistics.";
+    const stats = deckPlayStatsCache.get(deck.id)?.stats;
+    if (stats?.commits) {
+      return `${stats.games} game${stats.games === 1 ? "" : "s"} recorded · ${stats.commits} checkpoint${stats.commits === 1 ? "" : "s"} · ${stats.spellsCast} spell${stats.spellsCast === 1 ? "" : "s"} tracked`;
+    }
+    return "Gameplay statistics are recorded after priority or turn checkpoints.";
+  }
+  return deckBuilderMetadata?.cards?.length
+    ? `${deckBuilderMetadata.stats?.total || deckListCardCount(deck.decklist)} cards analyzed · ${priceSourceLabel(deckPriceSource)}`
+    : "Stats are available after Scryfall card data resolves.";
+}
+
+function syncDeckStatsTabs() {
+  deckStatsActiveTab = deckStatsActiveTab === "play" ? "play" : "analysis";
+  els.deckStatsTabButtons.forEach((button) => {
+    const selected = button.dataset.deckStatsTab === deckStatsActiveTab;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-selected", String(selected));
+    button.tabIndex = selected ? 0 : -1;
+  });
+  if (els.deckStatsControls) els.deckStatsControls.classList.toggle("hidden", deckStatsActiveTab !== "analysis");
+  if (els.deckStatsOddsJumpButton) els.deckStatsOddsJumpButton.classList.toggle("hidden", deckStatsActiveTab !== "analysis");
+}
+
+function setDeckStatsTab(tab) {
+  deckStatsActiveTab = tab === "play" ? "play" : "analysis";
+  if (deckStatsActiveTab === "play") loadDeckPlayStats(currentBuilderDeck().id);
+  renderDeckStatsContent();
 }
 
 function renderDeckStatsContent() {
   els.deckStatsContent.innerHTML = "";
+  syncDeckStatsTabs();
+  els.deckStatsDialogSummary.textContent = deckStatsSummaryText();
+  if (deckStatsActiveTab === "play") {
+    els.deckStatsContent.append(playHistorySection());
+    return;
+  }
   const cards = deckBuilderMetadata?.cards || [];
   syncDeckPriceControls();
   if (els.deckStatsDialogSummary && cards.length) {
-    els.deckStatsDialogSummary.textContent = `${deckBuilderMetadata.stats?.total || deckListCardCount(currentBuilderDeck().decklist)} cards analyzed · ${priceSourceLabel(deckPriceSource)}`;
+    els.deckStatsDialogSummary.textContent = deckStatsSummaryText();
   }
   if (!cards.length) {
     const empty = document.createElement("p");
@@ -2066,6 +2108,225 @@ function renderDeckStatsContent() {
     priceHistorySection(cards),
     probabilitySection(cards, total),
   );
+}
+
+async function loadDeckPlayStats(deckId = selectedBuilderDeckId, options = {}) {
+  if (!account || !deckId) return;
+  if (deckPlayStatsCache.has(deckId) && !options.force) {
+    if (els.deckStatsDialog?.open && deckStatsActiveTab === "play") renderDeckStatsContent();
+    return;
+  }
+  deckPlayStatsCache.set(deckId, { loading: true, stats: null, error: "" });
+  if (els.deckStatsDialog?.open && deckStatsActiveTab === "play") renderDeckStatsContent();
+  try {
+    const result = await accountApi(`/api/account/decks/${encodeURIComponent(deckId)}/play-stats`);
+    deckPlayStatsCache.set(deckId, { loading: false, stats: result.stats || null, error: "" });
+  } catch (error) {
+    deckPlayStatsCache.set(deckId, { loading: false, stats: null, error: error.message });
+  }
+  if (els.deckStatsDialog?.open && deckStatsActiveTab === "play" && deckId === currentBuilderDeck().id) renderDeckStatsContent();
+}
+
+function playHistorySection() {
+  const deck = currentBuilderDeck();
+  const section = document.createElement("section");
+  section.className = "deck-stat-section deck-play-history-section";
+  if (!account) {
+    section.append(emptyDeckPlayMessage("Sign in to save and view deck play statistics."));
+    return section;
+  }
+  if (!deck.id) {
+    section.append(emptyDeckPlayMessage("Save this deck before games can write play statistics to it."));
+    return section;
+  }
+  const cached = deckPlayStatsCache.get(deck.id);
+  if (!cached) {
+    loadDeckPlayStats(deck.id);
+    section.append(emptyDeckPlayMessage("Loading play statistics..."));
+    return section;
+  }
+  if (cached.loading) {
+    section.append(emptyDeckPlayMessage("Loading play statistics..."));
+    return section;
+  }
+  if (cached.error) {
+    section.append(emptyDeckPlayMessage(`Could not load play statistics: ${cached.error}`));
+    return section;
+  }
+  const stats = cached.stats || {};
+  section.append(playStatsHeader(stats));
+  if (!Number(stats.commits)) {
+    section.append(emptyDeckPlayMessage("No committed gameplay statistics have been recorded for this deck yet. Start or join a game with this saved deck, then pass priority or end a turn after taking actions."));
+    return section;
+  }
+  section.append(
+    playStatsMetricGrid(stats),
+    playStatsTimeline(stats.recent || []),
+    playStatsBreakdownGrid(stats),
+    playStatsRecentTable(stats.recent || []),
+  );
+  return section;
+}
+
+function emptyDeckPlayMessage(message) {
+  const empty = document.createElement("p");
+  empty.className = "empty-list-message";
+  empty.textContent = message;
+  return empty;
+}
+
+function playStatsHeader(stats) {
+  const header = document.createElement("header");
+  header.className = "play-stats-heading";
+  const lastPlayed = Number(stats.lastPlayedAt) ? new Date(Number(stats.lastPlayedAt)).toLocaleString() : "No games recorded";
+  header.innerHTML = `
+    <div>
+      <h3>Play History</h3>
+      <span>Saved after priority passes, combat passes, and turn changes.</span>
+    </div>
+    <strong>${escapeHtml(lastPlayed)}</strong>
+  `;
+  return header;
+}
+
+function playStatsMetricGrid(stats) {
+  const metrics = [
+    { label: "Games", value: Number(stats.games) || 0, note: "rooms with this deck" },
+    { label: "Checkpoints", value: Number(stats.commits) || 0, note: "saved stat batches" },
+    { label: "Spells Cast", value: Number(stats.spellsCast) || 0, note: `${averageStat(stats.spellsCast, stats.commits)} per checkpoint` },
+    { label: "Mana Used", value: Number(stats.manaUsed) || 0, note: `${averageStat(stats.manaUsed, stats.spellsCast)} per spell` },
+    { label: "Mana Produced", value: Number(stats.manaProduced) || 0, note: `${averageStat(stats.manaProduced, stats.commits)} per checkpoint` },
+  ];
+  const grid = document.createElement("div");
+  grid.className = "play-stats-metric-grid";
+  metrics.forEach((metric) => {
+    const card = document.createElement("article");
+    card.className = "play-stat-metric";
+    card.innerHTML = `<span>${escapeHtml(metric.label)}</span><strong>${formatStatNumber(metric.value)}</strong><small>${escapeHtml(metric.note)}</small>`;
+    grid.append(card);
+  });
+  return grid;
+}
+
+function playStatsTimeline(commits) {
+  const section = document.createElement("section");
+  section.className = "play-stats-timeline";
+  section.innerHTML = "<h4>Recent checkpoints</h4>";
+  const rows = commits.slice().reverse().slice(-24);
+  if (!rows.length) {
+    section.append(emptyDeckPlayMessage("No checkpoints recorded yet."));
+    return section;
+  }
+  const max = Math.max(1, ...rows.map((commit) => Math.max(Number(commit.spellsCast) || 0, Number(commit.manaProduced) || 0, Number(commit.manaUsed) || 0)));
+  const chart = document.createElement("div");
+  chart.className = "play-timeline-bars";
+  rows.forEach((commit) => {
+    const bar = document.createElement("span");
+    const spells = Number(commit.spellsCast) || 0;
+    const manaUsed = Number(commit.manaUsed) || 0;
+    const manaProduced = Number(commit.manaProduced) || 0;
+    bar.title = `Turn ${commit.turn}: ${spells} spells, ${manaUsed} mana used, ${manaProduced} mana produced`;
+    bar.innerHTML = `
+      <i class="spell" style="height:${timelineHeight(spells, max)}%"></i>
+      <i class="mana-used" style="height:${timelineHeight(manaUsed, max)}%"></i>
+      <i class="mana-produced" style="height:${timelineHeight(manaProduced, max)}%"></i>
+      <b>T${Number(commit.turn) || 1}</b>
+      <small>${escapeHtml(compactDateLabel(commit.committedAt))}</small>
+    `;
+    chart.append(bar);
+  });
+  const legend = document.createElement("div");
+  legend.className = "play-stats-legend";
+  legend.innerHTML = "<span><i class=\"spell\"></i>Spells</span><span><i class=\"mana-used\"></i>Mana used</span><span><i class=\"mana-produced\"></i>Mana produced</span>";
+  section.append(chart, legend);
+  return section;
+}
+
+function timelineHeight(value, max) {
+  const numeric = Number(value) || 0;
+  return Math.max(numeric ? 8 : 2, (numeric / Math.max(1, max)) * 100);
+}
+
+function playStatsBreakdownGrid(stats) {
+  const grid = document.createElement("div");
+  grid.className = "deck-breakdown-grid play-stats-breakdowns";
+  const spellRows = Object.entries(stats.spellsByType || {})
+    .map(([label, value]) => ({ label, value: Number(value) || 0, display: `${Number(value) || 0}`, color: typeColor(label) }))
+    .filter((row) => row.value > 0)
+    .sort((a, b) => b.value - a.value || a.label.localeCompare(b.label));
+  const manaRows = Object.entries(stats.manaByColor || {})
+    .map(([label, value]) => ({ label, value: Number(value) || 0, display: `${Number(value) || 0}`, color: playManaColor(label) }))
+    .filter((row) => row.value > 0)
+    .sort((a, b) => b.value - a.value || a.label.localeCompare(b.label));
+  grid.append(
+    breakdownChart("Spells Cast by Type", spellRows, "No spells have been committed yet."),
+    breakdownChart("Mana Produced by Color", manaRows, "No mana production has been committed yet."),
+  );
+  return grid;
+}
+
+function playStatsRecentTable(commits) {
+  const section = document.createElement("section");
+  section.className = "play-stats-table-section";
+  section.innerHTML = "<h4>Recent recorded actions</h4>";
+  const table = document.createElement("table");
+  table.className = "play-stats-table";
+  table.innerHTML = "<thead><tr><th>When</th><th>Room</th><th>Turn</th><th>Spells</th><th>Mana</th><th>Recorded detail</th></tr></thead>";
+  const body = document.createElement("tbody");
+  commits.slice(0, 80).forEach((commit) => {
+    const row = document.createElement("tr");
+    row.innerHTML = `
+      <td>${escapeHtml(localDateTime(commit.committedAt))}</td>
+      <td>${escapeHtml(commit.roomName || commit.roomId || "Game")}</td>
+      <td>${Number(commit.turn) || 1}</td>
+      <td>${Number(commit.spellsCast) || 0}</td>
+      <td>${Number(commit.manaUsed) || 0} used / ${Number(commit.manaProduced) || 0} made</td>
+      <td>${escapeHtml(playCommitEventSummary(commit))}</td>
+    `;
+    body.append(row);
+  });
+  table.append(body);
+  section.append(table);
+  return section;
+}
+
+function playCommitEventSummary(commit) {
+  const events = Array.isArray(commit.events) ? commit.events : [];
+  const spells = events.filter((event) => event.kind === "spell").map((event) => event.cardName).filter(Boolean);
+  const mana = events.filter((event) => event.kind === "mana").map((event) => event.cardName).filter(Boolean);
+  const pieces = [];
+  if (spells.length) pieces.push(`Cast ${spells.slice(0, 3).join(", ")}${spells.length > 3 ? ` +${spells.length - 3}` : ""}`);
+  if (mana.length) pieces.push(`Mana from ${mana.slice(0, 3).join(", ")}${mana.length > 3 ? ` +${mana.length - 3}` : ""}`);
+  if (!pieces.length && Array.isArray(commit.logEvents) && commit.logEvents.length) {
+    pieces.push(commit.logEvents.slice(0, 2).map((event) => event.message).filter(Boolean).join(" · "));
+  }
+  return pieces.filter(Boolean).join(" · ") || commit.reason || "Checkpoint saved";
+}
+
+function averageStat(value, divisor) {
+  const denominator = Number(divisor) || 0;
+  if (!denominator) return "0";
+  return ((Number(value) || 0) / denominator).toFixed(1).replace(/\.0$/, "");
+}
+
+function formatStatNumber(value) {
+  const numeric = Number(value) || 0;
+  return Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(1).replace(/\.0$/, "");
+}
+
+function localDateTime(timestamp) {
+  return Number(timestamp) ? new Date(Number(timestamp)).toLocaleString() : "Unknown";
+}
+
+function playManaColor(label) {
+  const text = String(label || "");
+  if (text.includes("W")) return colorSwatch("W");
+  if (text.includes("U")) return colorSwatch("U");
+  if (text.includes("B")) return colorSwatch("B");
+  if (text.includes("R")) return colorSwatch("R");
+  if (text.includes("G")) return colorSwatch("G");
+  if (text.includes("C")) return colorSwatch("C");
+  return "#8ee7d6";
 }
 
 function applyDeckStatsFilters() {
@@ -8160,6 +8421,9 @@ els.closeDeckStatsButton.addEventListener("click", (event) => {
 });
 if (els.deckStatsApplyButton) els.deckStatsApplyButton.addEventListener("click", applyDeckStatsFilters);
 if (els.deckStatsOddsJumpButton) els.deckStatsOddsJumpButton.addEventListener("click", scrollDeckStatsToProbability);
+els.deckStatsTabButtons.forEach((button) => {
+  button.addEventListener("click", () => setDeckStatsTab(button.dataset.deckStatsTab));
+});
 els.deckStatsProductionSelect.addEventListener("change", () => {
   applyDeckStatsFilters();
 });

@@ -1899,6 +1899,7 @@ body.shift-cascade .deck-stack-card strong {
 }
 
 .deck-stats-content {
+  grid-row: 4;
   display: grid;
   grid-template-columns: 1fr;
   gap: 14px;
@@ -1931,6 +1932,34 @@ body.shift-cascade .deck-stack-card strong {
   min-height: 30px;
   padding: 0 12px;
   font-size: 0.72rem;
+}
+
+.deck-stats-tabs {
+  grid-row: 3;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  border-bottom: 1px solid rgba(73, 92, 86, 0.68);
+  padding-bottom: 8px;
+}
+
+.deck-stats-tabs button {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid rgba(142, 231, 214, 0.28);
+  border-radius: 6px;
+  background: rgba(13, 20, 18, 0.62);
+  color: var(--muted);
+  box-shadow: none;
+  font-size: 0.74rem;
+}
+
+.deck-stats-tabs button.active,
+.deck-stats-tabs button[aria-selected="true"] {
+  border-color: rgba(142, 231, 214, 0.62);
+  background: rgba(142, 231, 214, 0.16);
+  color: var(--ink);
 }
 
 .deck-stat-section {
@@ -2025,6 +2054,191 @@ body.shift-cascade .deck-stack-card strong {
 .deck-price-history-section {
   gap: 10px;
   background: rgba(10, 16, 14, 0.48);
+}
+
+.deck-play-history-section {
+  gap: 14px;
+  background: rgba(10, 16, 14, 0.42);
+}
+
+.play-stats-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+
+.play-stats-heading h3,
+.play-stats-timeline h4,
+.play-stats-table-section h4 {
+  margin: 0;
+  color: var(--ink);
+}
+
+.play-stats-heading h3 {
+  font-size: 1.08rem;
+}
+
+.play-stats-heading span,
+.play-stats-heading strong {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.play-stats-heading strong {
+  justify-self: end;
+  white-space: nowrap;
+}
+
+.play-stats-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.play-stat-metric {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  border: 1px solid rgba(142, 231, 214, 0.18);
+  border-radius: 6px;
+  background: rgba(237, 244, 240, 0.04);
+  padding: 10px;
+}
+
+.play-stat-metric span,
+.play-stat-metric small {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.play-stat-metric strong {
+  color: #dffdf6;
+  font-size: 1.28rem;
+}
+
+.play-stats-timeline {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.play-timeline-bars {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(38px, 1fr));
+  gap: 7px;
+  align-items: end;
+  min-height: 162px;
+  border-bottom: 1px solid rgba(142, 231, 214, 0.32);
+  padding-top: 8px;
+}
+
+.play-timeline-bars span {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: minmax(0, 1fr) auto auto;
+  gap: 3px;
+  min-width: 0;
+  height: 150px;
+  align-items: end;
+}
+
+.play-timeline-bars i {
+  display: block;
+  width: 100%;
+  min-height: 3px;
+  border-radius: 4px 4px 0 0;
+}
+
+.play-timeline-bars b,
+.play-timeline-bars small {
+  grid-column: 1 / -1;
+  justify-self: center;
+  color: var(--muted);
+  font-size: 0.58rem;
+  line-height: 1;
+}
+
+.play-timeline-bars b {
+  color: var(--ink);
+  font-size: 0.64rem;
+}
+
+.play-stats-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.play-stats-legend span {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.play-stats-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.play-timeline-bars .spell,
+.play-stats-legend .spell {
+  background: #9bdbff;
+}
+
+.play-timeline-bars .mana-used,
+.play-stats-legend .mana-used {
+  background: #ffb86b;
+}
+
+.play-timeline-bars .mana-produced,
+.play-stats-legend .mana-produced {
+  background: #7ee787;
+}
+
+.play-stats-table-section {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.play-stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 0.7rem;
+}
+
+.play-stats-table th,
+.play-stats-table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid rgba(73, 92, 86, 0.55);
+  text-align: left;
+  vertical-align: top;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.play-stats-table th:nth-child(1),
+.play-stats-table td:nth-child(1) {
+  width: 156px;
+}
+
+.play-stats-table th:nth-child(3),
+.play-stats-table td:nth-child(3),
+.play-stats-table th:nth-child(4),
+.play-stats-table td:nth-child(4) {
+  width: 54px;
+  text-align: right;
+}
+
+.play-stats-table th:nth-child(5),
+.play-stats-table td:nth-child(5) {
+  width: 132px;
+  text-align: right;
 }
 
 .price-history-heading {
