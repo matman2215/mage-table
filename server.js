@@ -3552,6 +3552,32 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    if (requestUrl.pathname === "/api/account/collections") {
+      const account = authenticatedAccount(req, res);
+      if (!account) return;
+      if (req.method === "GET") return sendJson(res, 200, { collections: accountStore.listCollections(account.id) });
+      if (req.method === "POST") {
+        const body = await readBody(req);
+        const collection = accountStore.saveCollection(account.id, body);
+        return sendJson(res, 201, { collection });
+      }
+    }
+
+    const accountCollectionMatch = requestUrl.pathname.match(/^\/api\/account\/collections\/([^/]+)$/);
+    if (accountCollectionMatch && ["PUT", "DELETE"].includes(req.method)) {
+      const account = authenticatedAccount(req, res);
+      if (!account) return;
+      const collectionId = decodeURIComponent(accountCollectionMatch[1]);
+      if (req.method === "DELETE") {
+        const deleted = accountStore.deleteCollection(account.id, collectionId);
+        if (!deleted) return sendJson(res, 404, { error: "Collection was not found." });
+        return sendJson(res, 200, { ok: true });
+      }
+      const body = await readBody(req);
+      const collection = accountStore.saveCollection(account.id, body, collectionId);
+      return sendJson(res, 200, { collection });
+    }
+
     if (req.method === "POST" && requestUrl.pathname === "/api/decks/inspect") {
       const body = await readBody(req);
       return sendJson(res, 200, await inspectDeck(body.decklist || body.text || ""));

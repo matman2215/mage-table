@@ -694,6 +694,10 @@ body.landing-mode .landing-panel button:not(.landing-actions button) {
   overflow: hidden;
 }
 
+.collection-library-rail {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
 .deck-rail-collapsed .deck-library-rail {
   padding: 10px 4px;
 }
@@ -1021,6 +1025,15 @@ body.landing-mode .account-workspace-shell label {
   min-height: 0;
   overflow: hidden;
   scrollbar-gutter: stable;
+}
+
+.collection-builder-main {
+  min-width: 0;
+}
+
+.collection-name-field {
+  max-width: 420px;
+  margin: 0;
 }
 
 .deck-builder-form {
@@ -1746,6 +1759,48 @@ body.shift-cascade .deck-stack-card strong {
   background: rgba(19, 26, 23, 0.9);
   color: #dffdf6;
   font-weight: 900;
+}
+
+.collection-preview .empty-list-message {
+  margin: 14px;
+}
+
+.deck-membership-badge {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid rgba(241, 202, 112, 0.45);
+  border-radius: 999px;
+  background: rgba(241, 202, 112, 0.14);
+  color: #f7df9c;
+  font-size: 0.58rem;
+  font-weight: 900;
+  line-height: 1.1;
+  padding: 3px 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deck-stack-card .deck-membership-badge {
+  position: absolute;
+  left: 5px;
+  right: 5px;
+  bottom: 34px;
+  justify-content: center;
+  background: rgba(9, 12, 11, 0.78);
+}
+
+.deck-search-details .deck-membership-badge {
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 4px;
+}
+
+.collection-text-table th:nth-child(6),
+.collection-text-table td:nth-child(6) {
+  width: 180px;
 }
 
 .deck-card-row {
@@ -4821,6 +4876,26 @@ body.ctrl-zoom .reference-player-board .pile-zone {
 .pile-zone {
   min-height: 64px;
   overflow: hidden;
+  position: relative;
+}
+
+.zone-card-count {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  min-width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(142, 231, 214, 0.34);
+  border-radius: 999px;
+  background: rgba(9, 16, 14, 0.78);
+  color: #dffdf6;
+  font-size: 0.66rem;
+  font-weight: 900;
+  line-height: 1;
+  z-index: 2;
+  pointer-events: none;
 }
 
 .count-pile {

@@ -44,7 +44,7 @@
             <button id="joinGameButton" class="secondary" data-landing-action="join" type="button">Join Game</button>
             <button id="loginButton" class="secondary" data-landing-action="account" type="button">Log In</button>
           </div>
-          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.5.5</p>
+          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.6.0</p>
         </div>
         <section id="createModePanel" class="landing-subpanel create-mode-panel hidden">
           <header class="create-room-header">
@@ -183,6 +183,7 @@
                 <button id="accountDecksTab" class="account-workspace-tab active" type="button">Decks</button>
                 <button id="accountGamesTab" class="account-workspace-tab secondary" type="button">Active Games</button>
                 <button id="accountFriendsTab" class="account-workspace-tab secondary" type="button">Friends</button>
+                <button id="accountCollectionsTab" class="account-workspace-tab secondary" type="button">Collections</button>
               </nav>
               <div class="account-workspace-actions">
                 <div class="account-status-stack">
@@ -414,6 +415,115 @@
                   </section>
                 </aside>
               </div>
+            </section>
+
+            <section id="accountCollectionsView" class="account-workspace-view collection-workspace deck-workspace hidden">
+              <aside class="collection-library-rail deck-library-rail">
+                <header class="deck-library-heading">
+                  <div>
+                    <h2>Collections</h2>
+                    <span id="collectionSummary">0 collections</span>
+                  </div>
+                  <div class="deck-library-heading-actions">
+                    <button id="newCollectionButton" type="button">New Collection</button>
+                  </div>
+                </header>
+                <input id="collectionSearchInput" type="search" placeholder="Filter collections" aria-label="Filter collections">
+                <div id="collectionList" class="saved-deck-list"></div>
+              </aside>
+
+              <main class="collection-builder-main deck-builder-main">
+                <section class="deck-builder-form">
+                  <header class="deck-builder-header">
+                    <div>
+                      <div class="deck-heading-line">
+                        <h2 id="collectionTitle">New Collection</h2>
+                        <span id="collectionPrice" class="deck-title-price hidden">$0.00</span>
+                      </div>
+                      <div class="deck-title-meta">
+                        <span id="collectionCount">0 cards</span>
+                      </div>
+                    </div>
+                    <div class="deck-builder-header-actions">
+                      <button id="saveCollectionButton" type="button">Save Collection</button>
+                      <button id="deleteCollectionButton" class="secondary" type="button">Delete</button>
+                    </div>
+                  </header>
+                  <label class="collection-name-field">
+                    Collection name
+                    <input id="collectionNameInput" type="text" maxlength="80" placeholder="Trade Binder">
+                  </label>
+                  <section class="deck-view-toolbar collection-view-toolbar">
+                    <label>
+                      Group
+                      <select id="collectionGroupSelect">
+                        <option value="type" selected>Type</option>
+                        <option value="category">Category</option>
+                        <option value="rarity">Rarity</option>
+                        <option value="price">Price</option>
+                        <option value="color">Color</option>
+                        <option value="manaValue">Mana Value</option>
+                        <option value="keyword">Keyword</option>
+                      </select>
+                    </label>
+                    <label>
+                      Sort
+                      <select id="collectionSortSelect">
+                        <option value="name" selected>Card Name</option>
+                        <option value="manaValue">Mana Value</option>
+                        <option value="type">Type</option>
+                        <option value="subtype">Subtype</option>
+                        <option value="price">Price</option>
+                        <option value="color">Color</option>
+                        <option value="rarity">Rarity</option>
+                        <option value="keyword">Keyword</option>
+                      </select>
+                    </label>
+                    <label>
+                      View
+                      <select id="collectionViewModeSelect">
+                        <option value="cascade" selected>Cascade</option>
+                        <option value="grid">Image Grid</option>
+                        <option value="table">Text Table</option>
+                      </select>
+                    </label>
+                    <label>
+                      Deck use
+                      <select id="collectionDeckFilterSelect">
+                        <option value="all" selected>All cards</option>
+                        <option value="inDeck">In a deck</option>
+                        <option value="notInDeck">Not in a deck</option>
+                      </select>
+                    </label>
+                    <label>
+                      Find
+                      <input id="collectionVisualSearchInput" type="search" maxlength="120" placeholder="Highlight card">
+                    </label>
+                    <section class="deck-card-search deck-toolbar-search" aria-label="Add cards to collection">
+                      <span class="deck-toolbar-label">Add card</span>
+                      <div class="deck-card-search-row">
+                        <input id="collectionCardSearchInput" type="search" maxlength="120" placeholder="Search Scryfall for a card" aria-label="Search Scryfall for a card">
+                        <button id="collectionCardSearchButton" type="button">Search</button>
+                        <button id="dismissCollectionCardSearchButton" class="secondary deck-search-dismiss hidden" type="button" title="Dismiss search results" aria-label="Dismiss search results">x</button>
+                      </div>
+                      <p id="collectionCardSearchSummary" class="workspace-note">Search for cards to add to this collection.</p>
+                    </section>
+                  </section>
+                  <div id="collectionCardSearchResults" class="deck-card-search-results hidden"></div>
+                  <div class="deck-builder-content">
+                    <section class="deck-structured-list deck-viewer-panel">
+                      <div id="collectionPreview" class="deck-builder-preview collection-preview"></div>
+                    </section>
+                  </div>
+                  <details class="deck-debug-panel">
+                    <summary>Raw collection list / debug</summary>
+                    <label class="deck-raw-list">
+                      Raw collection list
+                      <textarea id="collectionListInput" rows="10" maxlength="200000" placeholder="4 Sol Ring&#10;2 Command Tower"></textarea>
+                    </label>
+                  </details>
+                </section>
+              </main>
             </section>
           </div>
           <p id="accountStatus" class="account-status hidden" role="status"></p>

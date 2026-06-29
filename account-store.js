@@ -115,6 +115,14 @@ class AccountStore {
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS account_collections (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        cardlist TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS deck_price_snapshots (
         id TEXT PRIMARY KEY,
         account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
@@ -167,6 +175,7 @@ class AccountStore {
         CHECK(from_account_id <> to_account_id)
       );
       CREATE INDEX IF NOT EXISTS decks_account_updated_idx ON decks(account_id, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS collections_account_updated_idx ON account_collections(account_id, updated_at DESC);
       CREATE INDEX IF NOT EXISTS sessions_account_idx ON sessions(account_id);
       CREATE INDEX IF NOT EXISTS deck_price_snapshots_deck_idx ON deck_price_snapshots(account_id, deck_id, captured_at DESC);
       CREATE INDEX IF NOT EXISTS deck_play_stats_deck_idx ON deck_play_stat_commits(account_id, deck_id, committed_at DESC);
@@ -562,6 +571,47 @@ class AccountStore {
     return Number(result.changes) > 0;
   }
 
+  listCollections(accountId) {
+    return this.db.prepare(`
+      SELECT id, name, cardlist, created_at, updated_at
+      FROM account_collections WHERE account_id = ? ORDER BY updated_at DESC
+    `).all(accountId).map(this.collectionFromRow);
+  }
+
+  collectionById(accountId, collectionId) {
+    const row = this.db.prepare(`
+      SELECT id, name, cardlist, created_at, updated_at
+      FROM account_collections WHERE id = ? AND account_id = ?
+    `).get(collectionId, accountId);
+    return row ? this.collectionFromRow(row) : null;
+  }
+
+  saveCollection(accountId, values, collectionId = "") {
+    const name = String(values.name || "").trim().slice(0, 80);
+    const cardlist = String(values.cardlist || values.decklist || "").trim().slice(0, 200000);
+    if (!name) throw new Error("Collection name is required.");
+    const now = Date.now();
+    if (collectionId) {
+      const result = this.db.prepare(`
+        UPDATE account_collections SET name = ?, cardlist = ?, updated_at = ?
+        WHERE id = ? AND account_id = ?
+      `).run(name, cardlist, now, collectionId, accountId);
+      if (Number(result.changes) === 0) throw new Error("Collection was not found.");
+      return this.collectionFromRow(this.db.prepare("SELECT * FROM account_collections WHERE id = ? AND account_id = ?").get(collectionId, accountId));
+    }
+    const id = newId("collection");
+    this.db.prepare(`
+      INSERT INTO account_collections (id, account_id, name, cardlist, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(id, accountId, name, cardlist, now, now);
+    return this.collectionFromRow(this.db.prepare("SELECT * FROM account_collections WHERE id = ?").get(id));
+  }
+
+  deleteCollection(accountId, collectionId) {
+    const result = this.db.prepare("DELETE FROM account_collections WHERE id = ? AND account_id = ?").run(collectionId, accountId);
+    return Number(result.changes) > 0;
+  }
+
   saveDeckPriceSnapshot(accountId, deckId, snapshot) {
     const deck = this.db.prepare("SELECT id FROM decks WHERE id = ? AND account_id = ?").get(deckId, accountId);
     if (!deck) throw new Error("Saved deck was not found.");
@@ -711,6 +761,16 @@ class AccountStore {
       name: row.name,
       commander: row.commander,
       decklist: row.decklist,
+      createdAt: Number(row.created_at),
+      updatedAt: Number(row.updated_at),
+    };
+  }
+
+  collectionFromRow(row) {
+    return {
+      id: row.id,
+      name: row.name,
+      cardlist: row.cardlist,
       createdAt: Number(row.created_at),
       updatedAt: Number(row.updated_at),
     };

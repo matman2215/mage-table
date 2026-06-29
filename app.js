@@ -38,10 +38,12 @@ const els = {
   accountDecksTab: document.querySelector("#accountDecksTab"),
   accountGamesTab: document.querySelector("#accountGamesTab"),
   accountFriendsTab: document.querySelector("#accountFriendsTab"),
+  accountCollectionsTab: document.querySelector("#accountCollectionsTab"),
   accountStartGameButton: document.querySelector("#accountStartGameButton"),
   accountDecksView: document.querySelector("#accountDecksView"),
   accountGamesView: document.querySelector("#accountGamesView"),
   accountFriendsView: document.querySelector("#accountFriendsView"),
+  accountCollectionsView: document.querySelector("#accountCollectionsView"),
   newSavedDeckButton: document.querySelector("#newSavedDeckButton"),
   collapseDeckRailButton: document.querySelector("#collapseDeckRailButton"),
   deckHistoryButton: document.querySelector("#deckHistoryButton"),
@@ -102,6 +104,28 @@ const els = {
   incomingFriendRequests: document.querySelector("#incomingFriendRequests"),
   outgoingFriendRequests: document.querySelector("#outgoingFriendRequests"),
   gameInvitesList: document.querySelector("#gameInvitesList"),
+  collectionSummary: document.querySelector("#collectionSummary"),
+  newCollectionButton: document.querySelector("#newCollectionButton"),
+  collectionSearchInput: document.querySelector("#collectionSearchInput"),
+  collectionList: document.querySelector("#collectionList"),
+  collectionTitle: document.querySelector("#collectionTitle"),
+  collectionPrice: document.querySelector("#collectionPrice"),
+  collectionCount: document.querySelector("#collectionCount"),
+  collectionNameInput: document.querySelector("#collectionNameInput"),
+  collectionGroupSelect: document.querySelector("#collectionGroupSelect"),
+  collectionSortSelect: document.querySelector("#collectionSortSelect"),
+  collectionViewModeSelect: document.querySelector("#collectionViewModeSelect"),
+  collectionDeckFilterSelect: document.querySelector("#collectionDeckFilterSelect"),
+  collectionVisualSearchInput: document.querySelector("#collectionVisualSearchInput"),
+  collectionCardSearchInput: document.querySelector("#collectionCardSearchInput"),
+  collectionCardSearchButton: document.querySelector("#collectionCardSearchButton"),
+  dismissCollectionCardSearchButton: document.querySelector("#dismissCollectionCardSearchButton"),
+  collectionCardSearchSummary: document.querySelector("#collectionCardSearchSummary"),
+  collectionCardSearchResults: document.querySelector("#collectionCardSearchResults"),
+  collectionPreview: document.querySelector("#collectionPreview"),
+  collectionListInput: document.querySelector("#collectionListInput"),
+  saveCollectionButton: document.querySelector("#saveCollectionButton"),
+  deleteCollectionButton: document.querySelector("#deleteCollectionButton"),
   tablePanel: document.querySelector("#tablePanel"),
   roomForm: document.querySelector("#roomForm"),
   joinRoomForm: document.querySelector("#joinRoomForm"),
@@ -408,14 +432,23 @@ let keybindCaptureAction = "";
 let landingView = "menu";
 let account = null;
 let savedDecks = [];
+let savedCollections = [];
 let activeGames = [];
 let friendsData = { friends: [], incoming: [], outgoing: [], gameInvites: { incoming: [], outgoing: [] } };
 let accountMode = "login";
 let accountWorkspaceTab = "decks";
 let selectedBuilderDeckId = "";
+let selectedCollectionId = "";
 let deckBuilderInitialized = false;
 let deckCardSearchResults = [];
 let deckCardSearchTimer = null;
+let collectionCardSearchResults = [];
+let collectionCardSearchTimer = null;
+let collectionInitialized = false;
+let collectionMetadata = null;
+let collectionMetadataKey = "";
+let collectionMetadataTimer = null;
+let collectionMetadataRequestInFlightKey = "";
 let deckPrintingCardName = "";
 let deckPrintingResults = [];
 let deckPrintingRequestId = 0;
@@ -958,9 +991,12 @@ function renderAccountPanel() {
   els.accountGamesTab.classList.toggle("secondary", accountWorkspaceTab !== "games");
   els.accountFriendsTab?.classList.toggle("active", accountWorkspaceTab === "friends");
   els.accountFriendsTab?.classList.toggle("secondary", accountWorkspaceTab !== "friends");
+  els.accountCollectionsTab?.classList.toggle("active", accountWorkspaceTab === "collections");
+  els.accountCollectionsTab?.classList.toggle("secondary", accountWorkspaceTab !== "collections");
   els.accountDecksView.classList.toggle("hidden", accountWorkspaceTab !== "decks");
   els.accountGamesView.classList.toggle("hidden", accountWorkspaceTab !== "games");
   els.accountFriendsView?.classList.toggle("hidden", accountWorkspaceTab !== "friends");
+  els.accountCollectionsView?.classList.toggle("hidden", accountWorkspaceTab !== "collections");
   if (deckRailCollapsed && deckHistoryOpen) {
     deckHistoryOpen = false;
     localStorage.setItem("mage-table-deck-history-open", "0");
@@ -981,6 +1017,7 @@ function renderAccountPanel() {
   renderDeckBuilderPreview();
   renderActiveGames();
   renderFriendsWorkspace();
+  renderCollectionsWorkspace();
 }
 
 function renderAccountControls() {
@@ -1031,6 +1068,411 @@ function renderSavedDecks() {
     row.append(details, play, menu);
     els.savedDeckList.append(row);
   });
+}
+
+function renderCollectionsWorkspace() {
+  if (!els.accountCollectionsView) return;
+  renderCollectionList();
+  renderCollectionEditor();
+}
+
+function renderCollectionList() {
+  if (!els.collectionList) return;
+  els.collectionList.innerHTML = "";
+  const query = els.collectionSearchInput?.value.trim().toLowerCase() || "";
+  const filtered = query
+    ? savedCollections.filter((collection) => collection.name.toLowerCase().includes(query))
+    : savedCollections;
+  if (els.collectionSummary) {
+    els.collectionSummary.textContent = query
+      ? `${filtered.length} of ${savedCollections.length} collections`
+      : `${savedCollections.length} collection${savedCollections.length === 1 ? "" : "s"}`;
+  }
+  if (!filtered.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-list-message";
+    empty.textContent = savedCollections.length ? "No collections match this filter." : "No collections yet.";
+    els.collectionList.append(empty);
+    return;
+  }
+  filtered.forEach((collection) => {
+    const row = document.createElement("div");
+    row.className = `saved-deck-row${collection.id === selectedCollectionId ? " selected" : ""}`;
+    const details = document.createElement("button");
+    details.type = "button";
+    details.className = "saved-deck-details deck-library-select";
+    const count = deckListCardCount(collection.cardlist);
+    details.innerHTML = `<strong>${escapeHtml(collection.name)}</strong><span>${count} card${count === 1 ? "" : "s"} - Updated ${escapeHtml(new Date(collection.updatedAt).toLocaleDateString())}</span>`;
+    details.addEventListener("click", () => selectCollection(collection));
+    row.append(details);
+    els.collectionList.append(row);
+  });
+}
+
+function currentCollection() {
+  return {
+    id: selectedCollectionId || "",
+    name: els.collectionNameInput?.value.trim() || "",
+    cardlist: els.collectionListInput?.value.trim() || "",
+  };
+}
+
+function newCollection() {
+  selectedCollectionId = "";
+  collectionMetadata = null;
+  collectionMetadataKey = "";
+  collectionCardSearchResults = [];
+  if (els.collectionNameInput) els.collectionNameInput.value = "New Collection";
+  if (els.collectionListInput) els.collectionListInput.value = "";
+  renderCollectionCardSearchResults();
+  renderCollectionsWorkspace();
+  els.collectionNameInput?.focus();
+}
+
+function selectCollection(collection) {
+  selectedCollectionId = collection.id || "";
+  collectionMetadata = null;
+  collectionMetadataKey = "";
+  if (els.collectionNameInput) els.collectionNameInput.value = collection.name || "";
+  if (els.collectionListInput) els.collectionListInput.value = collection.cardlist || "";
+  renderCollectionsWorkspace();
+}
+
+function renderCollectionEditor() {
+  if (!els.collectionPreview) return;
+  const collection = currentCollection();
+  const title = collection.name || "New Collection";
+  els.collectionTitle.textContent = title;
+  const count = deckListCardCount(collection.cardlist);
+  els.collectionCount.textContent = `${count} card${count === 1 ? "" : "s"}`;
+  if (els.deleteCollectionButton) setDisabled(els.deleteCollectionButton, !selectedCollectionId);
+  renderCollectionPrice();
+  renderCollectionPreview();
+}
+
+function renderCollectionPrice() {
+  if (!els.collectionPrice) return;
+  const cards = collectionMetadata?.cards;
+  if (!Array.isArray(cards) || !cards.length) {
+    els.collectionPrice.classList.add("hidden");
+    return;
+  }
+  const total = cards.reduce((sum, card) => sum + deckCardTotalPrice(card), 0);
+  els.collectionPrice.textContent = `${formatUsd(total)} ${priceSourceShortLabel(deckPriceSource)}`;
+  els.collectionPrice.classList.remove("hidden");
+}
+
+function renderCollectionPreview() {
+  if (!els.collectionPreview) return;
+  const list = els.collectionListInput?.value.trim() || "";
+  const key = list;
+  els.collectionPreview.innerHTML = "";
+  els.collectionPreview.style.setProperty("--deck-view-scale", String(deckViewScale() / 100));
+  if (!list) {
+    els.collectionPreview.innerHTML = '<p class="empty-list-message">Add cards to begin building this collection.</p>';
+    return;
+  }
+  if (collectionMetadataKey !== key) {
+    loadCollectionMetadata(key);
+    els.collectionPreview.innerHTML = '<p class="empty-list-message">Resolving collection cards through Scryfall...</p>';
+    return;
+  }
+  if (collectionMetadata?.error) {
+    els.collectionPreview.innerHTML = `<p class="empty-list-message">${escapeHtml(collectionMetadata.error)}</p>`;
+    return;
+  }
+  const cards = collectionFilteredCards(collectionMetadata?.cards || []);
+  if (!cards.length) {
+    els.collectionPreview.innerHTML = '<p class="empty-list-message">No cards match the current collection filters.</p>';
+    return;
+  }
+  renderCollectionVisualStacks(cards, collectionViewSettings());
+}
+
+function loadCollectionMetadata(key) {
+  window.clearTimeout(collectionMetadataTimer);
+  if (!key) return;
+  if (collectionMetadataRequestInFlightKey === key) return;
+  collectionMetadataTimer = window.setTimeout(async () => {
+    collectionMetadataRequestInFlightKey = key;
+    try {
+      const result = await api("/api/decks/inspect", {
+        method: "POST",
+        body: JSON.stringify({ decklist: key }),
+      });
+      if ((els.collectionListInput?.value.trim() || "") !== key) return;
+      collectionMetadata = result;
+      collectionMetadataKey = key;
+    } catch (error) {
+      if ((els.collectionListInput?.value.trim() || "") !== key) return;
+      collectionMetadata = { error: error.message, cards: [] };
+      collectionMetadataKey = key;
+    } finally {
+      if (collectionMetadataRequestInFlightKey === key) collectionMetadataRequestInFlightKey = "";
+      renderCollectionsWorkspace();
+    }
+  }, 350);
+}
+
+function collectionViewSettings() {
+  return {
+    groupMode: els.collectionGroupSelect?.value || "type",
+    sortMode: els.collectionSortSelect?.value || "name",
+    viewMode: els.collectionViewModeSelect?.value || "cascade",
+    query: (els.collectionVisualSearchInput?.value || "").trim().toLowerCase(),
+    deckFilter: els.collectionDeckFilterSelect?.value || "all",
+  };
+}
+
+function collectionFilteredCards(cards) {
+  const { deckFilter } = collectionViewSettings();
+  if (deckFilter === "all") return cards;
+  return cards.filter((card) => {
+    const inDeck = deckMembershipForCard(card).length > 0;
+    return deckFilter === "inDeck" ? inDeck : !inDeck;
+  });
+}
+
+function deckMembershipMap() {
+  const map = new Map();
+  savedDecks.forEach((deck) => {
+    parseDeckBuilderEntries(deck.decklist).forEach((entry) => {
+      const key = normalizedDeckCardName(entry.name);
+      if (!key) return;
+      if (!map.has(key)) map.set(key, []);
+      const decks = map.get(key);
+      if (!decks.some((item) => item.id === deck.id)) decks.push({ id: deck.id, name: deck.name || "Untitled Deck" });
+    });
+  });
+  return map;
+}
+
+function deckMembershipForCard(cardOrName) {
+  const name = typeof cardOrName === "string" ? cardOrName : cardOrName?.name || cardOrName?.displayName || "";
+  return deckMembershipMap().get(normalizedDeckCardName(name)) || [];
+}
+
+function deckMembershipMarkup(card) {
+  const memberships = deckMembershipForCard(card);
+  if (!memberships.length) return "";
+  const label = memberships.length === 1
+    ? memberships[0].name
+    : `${memberships[0].name} +${memberships.length - 1}`;
+  const title = memberships.map((deck) => deck.name).join(", ");
+  return `<span class="deck-membership-badge" title="${escapeHtml(title)}">In ${escapeHtml(label)}</span>`;
+}
+
+function renderCollectionVisualStacks(cards, settings = collectionViewSettings()) {
+  const { groupMode, sortMode, viewMode, query } = settings;
+  const grouped = new Map();
+  cards.forEach((card) => {
+    const group = deckGroupLabel(card, groupMode);
+    if (!grouped.has(group)) grouped.set(group, []);
+    grouped.get(group).push(card);
+  });
+  const groupEntries = [...grouped.entries()].sort(([a], [b]) => compareDeckGroupNames(a, b));
+  const wrap = document.createElement("div");
+  wrap.className = `deck-visual-columns deck-view-${viewMode} collection-visual-columns`;
+  wrap.dataset.groupMode = groupMode;
+  wrap.dataset.sortMode = sortMode;
+  wrap.dataset.viewMode = viewMode;
+  if (viewMode === "table") {
+    wrap.classList.add("deck-table-full");
+    wrap.append(collectionGroupedTextTable(groupEntries, sortMode, query));
+    els.collectionPreview.append(wrap);
+    return;
+  }
+  const laneCount = collectionVisualColumnCount(viewMode);
+  wrap.style.setProperty("--masonry-columns", String(laneCount));
+  const lanes = Array.from({ length: laneCount }, () => {
+    const lane = document.createElement("div");
+    lane.className = "deck-visual-masonry-column";
+    wrap.append(lane);
+    return { node: lane, height: 0, count: 0 };
+  });
+  groupEntries.forEach(([group, groupCards]) => {
+    const sorted = [...groupCards].sort((a, b) => compareDeckCards(a, b, sortMode));
+    const column = document.createElement("section");
+    column.className = "deck-stack-column";
+    const price = sorted.reduce((sum, card) => sum + deckCardTotalPrice(card), 0);
+    column.innerHTML = `<header><strong>${escapeHtml(group)}</strong><span>Qty: ${sorted.reduce((sum, card) => sum + card.quantity, 0)} · ${formatUsd(price)}</span></header>`;
+    if (viewMode === "grid") column.append(collectionImageGrid(sorted, query));
+    else {
+      const stack = document.createElement("div");
+      stack.className = "deck-card-stack";
+      stack.style.setProperty("--stack-count", String(sorted.length));
+      sorted.forEach((card, index) => stack.append(collectionStackCard(card, index, query)));
+      attachLocalCascadeHandlers(stack);
+      column.append(stack);
+    }
+    const lane = lanes.reduce((best, candidate) => {
+      if (candidate.height < best.height) return candidate;
+      if (candidate.height === best.height && candidate.count < best.count) return candidate;
+      return best;
+    }, lanes[0]);
+    lane.node.append(column);
+    lane.height += estimateDeckGroupHeight(sorted.length, viewMode);
+    lane.count += 1;
+  });
+  els.collectionPreview.append(wrap);
+}
+
+function collectionVisualColumnCount(viewMode = "cascade") {
+  const width = Math.max(1, els.collectionPreview?.clientWidth || 1);
+  const scale = deckViewScale() / 100;
+  const baseWidth = viewMode === "table" ? 310 : viewMode === "grid" ? 270 : 230;
+  const columnWidth = Math.min(390, Math.max(190, baseWidth * scale));
+  return Math.max(1, Math.min(8, Math.floor((width + 12) / (columnWidth + 12))));
+}
+
+function collectionStackCard(card, index, query) {
+  const item = document.createElement("article");
+  item.className = "deck-stack-card collection-card";
+  if (query && card.name.toLowerCase().includes(query)) item.classList.add("highlight");
+  item.style.setProperty("--stack-index", String(index));
+  item.dataset.stackIndex = String(index);
+  item.title = `${card.quantity} ${card.name}`;
+  if (card.imageUrl) {
+    item.dataset.zoomImage = card.imageUrl;
+    item.dataset.zoomName = card.name;
+  }
+  const image = card.imageUrl
+    ? `<img src="${escapeHtml(card.imageUrl)}" alt="${escapeHtml(card.name)}" loading="lazy">`
+    : `<div class="deck-stack-placeholder">${escapeHtml(card.name)}</div>`;
+  item.innerHTML = `
+    ${image}
+    <span class="deck-stack-qty">${card.quantity}</span>
+    <strong>${escapeHtml(card.name)}</strong>
+    ${deckMembershipMarkup(card)}
+    <span class="deck-card-edit-controls" aria-label="Edit ${escapeHtml(card.name)} quantity">
+      <button type="button" data-collection-adjust="-1" title="Remove one ${escapeHtml(card.name)}" aria-label="Remove one ${escapeHtml(card.name)}">-</button>
+      <button type="button" data-collection-adjust="1" title="Add one ${escapeHtml(card.name)}" aria-label="Add one ${escapeHtml(card.name)}">+</button>
+    </span>
+  `;
+  attachCollectionCardEditControls(item, card.name);
+  attachCardZoomHandlers(item, "collection-viewer", index);
+  return item;
+}
+
+function collectionImageGrid(cards, query) {
+  const grid = document.createElement("div");
+  grid.className = "deck-image-grid";
+  cards.forEach((card, index) => {
+    const item = collectionStackCard(card, index, query);
+    item.classList.add("deck-grid-card");
+    grid.append(item);
+  });
+  return grid;
+}
+
+function collectionGroupedTextTable(groupEntries, sortMode, query) {
+  const table = document.createElement("table");
+  table.className = "deck-text-table deck-grouped-text-table collection-text-table";
+  table.innerHTML = "<thead><tr><th>Qty</th><th>Name</th><th>MV</th><th>Type</th><th>Color</th><th>Decks</th><th>Edit</th></tr></thead>";
+  const body = document.createElement("tbody");
+  groupEntries.forEach(([group, groupCards]) => {
+    const sorted = [...groupCards].sort((a, b) => compareDeckCards(a, b, sortMode));
+    const quantity = sorted.reduce((sum, card) => sum + (Number(card.quantity) || 1), 0);
+    const header = document.createElement("tr");
+    header.className = "deck-table-group-row";
+    header.innerHTML = `<th colspan="7"><span>${escapeHtml(group)}</span><small>Qty: ${quantity}</small></th>`;
+    body.append(header);
+    sorted.forEach((card) => body.append(collectionTextTableRow(card, query)));
+  });
+  table.append(body);
+  return table;
+}
+
+function collectionTextTableRow(card, query) {
+  const row = document.createElement("tr");
+  if (query && card.name.toLowerCase().includes(query)) row.classList.add("highlight");
+  if (card.imageUrl) {
+    row.dataset.zoomImage = card.imageUrl;
+    row.dataset.zoomName = card.name;
+    attachCardZoomHandlers(row, "collection-viewer", 0);
+  }
+  const memberships = deckMembershipForCard(card);
+  row.innerHTML = `
+    <td>${Number(card.quantity) || 1}</td>
+    <td>${escapeHtml(card.name)}</td>
+    <td>${Number(card.manaValue) || 0}</td>
+    <td>${escapeHtml(primaryType(card))}</td>
+    <td>${escapeHtml(colorLabel(card.colorIdentity || card.colors || []))}</td>
+    <td>${memberships.length ? memberships.map((deck) => escapeHtml(deck.name)).join(", ") : ""}</td>
+    <td class="deck-table-edit-cell">
+      <button type="button" data-collection-adjust="-1" title="Remove one ${escapeHtml(card.name)}" aria-label="Remove one ${escapeHtml(card.name)}">-</button>
+      <button type="button" data-collection-adjust="1" title="Add one ${escapeHtml(card.name)}" aria-label="Add one ${escapeHtml(card.name)}">+</button>
+    </td>
+  `;
+  attachCollectionCardEditControls(row, card.name);
+  return row;
+}
+
+function attachCollectionCardEditControls(root, cardName) {
+  root.querySelectorAll("[data-collection-adjust]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      adjustCollectionCard(cardName, Number(button.dataset.collectionAdjust) || 0);
+    });
+  });
+}
+
+function adjustCollectionCard(cardName, delta) {
+  const before = els.collectionListInput.value;
+  const entries = parseDeckBuilderEntries(before);
+  const target = normalizedDeckCardName(cardName);
+  let entry = entries.find((candidate) => normalizedDeckCardName(candidate.name) === target);
+  if (!entry && delta > 0) {
+    entry = { quantity: 0, name: cardName, rawName: cardName };
+    entries.push(entry);
+  }
+  if (!entry) return;
+  entry.quantity = Math.max(0, (Number(entry.quantity) || 0) + delta);
+  const nextEntries = entries.filter((candidate) => Number(candidate.quantity) > 0);
+  els.collectionListInput.value = serializeDeckBuilderEntries(nextEntries);
+  collectionMetadata = null;
+  collectionMetadataKey = "";
+  setAccountStatus("Unsaved collection changes.");
+  renderCollectionsWorkspace();
+}
+
+function renderCollectionCardSearchResults() {
+  if (!els.collectionCardSearchResults) return;
+  els.collectionCardSearchResults.innerHTML = "";
+  const hasResults = collectionCardSearchResults.length > 0;
+  els.collectionCardSearchResults.classList.toggle("hidden", !hasResults);
+  els.dismissCollectionCardSearchButton?.classList.toggle("hidden", !hasResults && !(els.collectionCardSearchInput?.value.trim()));
+  collectionCardSearchResults.forEach((card, index) => {
+    const item = document.createElement("article");
+    item.className = "deck-search-result";
+    const preview = cardElement(deckSearchCardPreview(card), null, "librarySearch", index);
+    preview.classList.add("deck-search-preview-card");
+    const details = document.createElement("div");
+    details.className = "deck-search-details";
+    details.innerHTML = `<strong>${escapeHtml(card.name)}</strong><span>${escapeHtml(card.typeLine || "Card")}</span>${deckMembershipMarkup(card)}`;
+    const price = document.createElement("span");
+    price.className = "deck-search-price";
+    price.textContent = `${formatUsd(searchCardUnitPrice(card))} ${priceSourceShortLabel(deckPriceSource)}`;
+    const owned = document.createElement("span");
+    owned.className = "deck-search-owned";
+    owned.textContent = `In collection: ${currentCollectionCardQuantity(card.name)}`;
+    const actions = document.createElement("div");
+    actions.className = "deck-search-actions";
+    actions.innerHTML = `
+      <button type="button" data-collection-adjust="-1" title="Remove one ${escapeHtml(card.name)}" aria-label="Remove one ${escapeHtml(card.name)}">-</button>
+      <button type="button" data-collection-adjust="1" title="Add one ${escapeHtml(card.name)}" aria-label="Add one ${escapeHtml(card.name)}">+</button>
+    `;
+    item.append(preview, details, price, owned, actions);
+    attachCollectionCardEditControls(item, card.name);
+    els.collectionCardSearchResults.append(item);
+  });
+}
+
+function currentCollectionCardQuantity(cardName) {
+  const match = parseDeckBuilderEntries(els.collectionListInput?.value || "")
+    .find((entry) => normalizedDeckCardName(entry.name) === normalizedDeckCardName(cardName));
+  return match ? Number(match.quantity) || 0 : 0;
 }
 
 function commanderColorIdentityForDeck(deck) {
@@ -4169,6 +4611,54 @@ function queueDeckBuilderCardSearch() {
   deckCardSearchTimer = window.setTimeout(() => searchDeckBuilderCards(), 300);
 }
 
+async function searchCollectionCards() {
+  const query = els.collectionCardSearchInput.value.trim();
+  if (query.length < 2) {
+    els.collectionCardSearchSummary.textContent = "Enter at least two characters.";
+    collectionCardSearchResults = [];
+    renderCollectionCardSearchResults();
+    return;
+  }
+  setDisabled(els.collectionCardSearchButton, true);
+  els.dismissCollectionCardSearchButton?.classList.remove("hidden");
+  els.collectionCardSearchSummary.textContent = "Searching Scryfall...";
+  try {
+    const result = await api(`/api/scryfall/cards?q=${encodeURIComponent(query)}`);
+    if (els.collectionCardSearchInput.value.trim() !== query) return;
+    collectionCardSearchResults = result.cards || [];
+    els.collectionCardSearchSummary.textContent = `${collectionCardSearchResults.length} result${collectionCardSearchResults.length === 1 ? "" : "s"}`;
+    renderCollectionCardSearchResults();
+  } catch (error) {
+    collectionCardSearchResults = [];
+    renderCollectionCardSearchResults();
+    els.collectionCardSearchSummary.textContent = error.message;
+  } finally {
+    setDisabled(els.collectionCardSearchButton, false);
+  }
+}
+
+function queueCollectionCardSearch() {
+  window.clearTimeout(collectionCardSearchTimer);
+  const query = els.collectionCardSearchInput.value.trim();
+  els.dismissCollectionCardSearchButton?.classList.toggle("hidden", !query && !collectionCardSearchResults.length);
+  if (query.length < 2) {
+    collectionCardSearchResults = [];
+    renderCollectionCardSearchResults();
+    els.collectionCardSearchSummary.textContent = query ? "Enter at least two characters." : "Search for cards to add to this collection.";
+    return;
+  }
+  els.collectionCardSearchSummary.textContent = "Searching Scryfall...";
+  collectionCardSearchTimer = window.setTimeout(() => searchCollectionCards(), 300);
+}
+
+function dismissCollectionCardSearch() {
+  collectionCardSearchResults = [];
+  els.collectionCardSearchInput.value = "";
+  els.collectionCardSearchSummary.textContent = "Search for cards to add to this collection.";
+  renderCollectionCardSearchResults();
+  els.dismissCollectionCardSearchButton?.classList.add("hidden");
+}
+
 function openDeleteDeckDialog(deck) {
   pendingDeleteDeckId = deck.id;
   els.deleteDeckSummary.textContent = `Delete ${deck.name}? This cannot be undone.`;
@@ -4276,6 +4766,66 @@ async function loadSavedDecks() {
   if (landingView === "account") renderAccountPanel();
 }
 
+async function loadCollections() {
+  if (!account) {
+    savedCollections = [];
+    return;
+  }
+  try {
+    const result = await accountApi("/api/account/collections");
+    savedCollections = result.collections || [];
+    if (!collectionInitialized) {
+      collectionInitialized = true;
+      if (savedCollections[0]) selectCollection(savedCollections[0]);
+      else newCollection();
+    } else if (selectedCollectionId) {
+      const selected = savedCollections.find((collection) => collection.id === selectedCollectionId);
+      if (selected) selectCollection(selected);
+      else newCollection();
+    }
+  } catch (error) {
+    if (error.status === 401) clearAccountSession();
+    else throw error;
+  }
+  if (landingView === "account") renderCollectionsWorkspace();
+}
+
+async function saveCollection() {
+  if (!account) throw new Error("Sign in again before saving this collection.");
+  const collection = currentCollection();
+  const body = {
+    name: collection.name || "New Collection",
+    cardlist: collection.cardlist,
+  };
+  const path = selectedCollectionId
+    ? `/api/account/collections/${encodeURIComponent(selectedCollectionId)}`
+    : "/api/account/collections";
+  const result = await accountApi(path, {
+    method: selectedCollectionId ? "PUT" : "POST",
+    body: JSON.stringify(body),
+  });
+  const saved = result.collection;
+  selectedCollectionId = saved.id;
+  const index = savedCollections.findIndex((item) => item.id === saved.id);
+  if (index === -1) savedCollections.unshift(saved);
+  else savedCollections[index] = saved;
+  selectCollection(saved);
+  setAccountStatus("Collection saved.");
+}
+
+async function deleteSelectedCollection() {
+  if (!selectedCollectionId) return;
+  const collection = savedCollections.find((item) => item.id === selectedCollectionId);
+  if (!collection) return;
+  if (!window.confirm(`Delete ${collection.name}? This cannot be undone.`)) return;
+  await accountApi(`/api/account/collections/${encodeURIComponent(selectedCollectionId)}`, { method: "DELETE" });
+  savedCollections = savedCollections.filter((item) => item.id !== selectedCollectionId);
+  selectedCollectionId = "";
+  if (savedCollections[0]) selectCollection(savedCollections[0]);
+  else newCollection();
+  setAccountStatus("Collection deleted.");
+}
+
 async function loadActiveGames() {
   if (!account) {
     activeGames = [];
@@ -4307,17 +4857,22 @@ async function loadFriends() {
 }
 
 async function loadAccountWorkspaceData() {
-  await Promise.all([loadSavedDecks(), loadActiveGames(), loadFriends()]);
+  await Promise.all([loadSavedDecks(), loadCollections(), loadActiveGames(), loadFriends()]);
   if (landingView === "account") renderAccountPanel();
 }
 
 function setAccountWorkspaceTab(tab) {
-  accountWorkspaceTab = ["games", "friends"].includes(tab) ? tab : "decks";
+  accountWorkspaceTab = ["games", "friends", "collections"].includes(tab) ? tab : "decks";
   renderAccountPanel();
   if (accountWorkspaceTab === "games") loadActiveGames().catch((error) => setAccountStatus(error.message, true));
   if (accountWorkspaceTab === "friends") {
     Promise.all([loadFriends(), loadActiveGames()])
       .then(() => renderFriendsWorkspace())
+      .catch((error) => setAccountStatus(error.message, true));
+  }
+  if (accountWorkspaceTab === "collections") {
+    loadCollections()
+      .then(() => renderCollectionsWorkspace())
       .catch((error) => setAccountStatus(error.message, true));
   }
 }
@@ -4417,10 +4972,13 @@ function openEndGameDialog(game) {
 function clearAccountSession() {
   account = null;
   savedDecks = [];
+  savedCollections = [];
   activeGames = [];
   normalizeFriendsPayload();
   selectedBuilderDeckId = "";
+  selectedCollectionId = "";
   deckBuilderInitialized = false;
+  collectionInitialized = false;
   renderAccountControls();
   if (!state) renderLanding();
 }
@@ -5726,6 +6284,14 @@ function publicZone(player, zoneName, label, className, role = "") {
   zone.className = className;
   if (zoneName === "battlefield") zone.setAttribute("aria-label", label);
   else zone.innerHTML = `<span>${label}</span>`;
+  if (zoneName === "graveyard" || zoneName === "exile") {
+    const countBadge = document.createElement("strong");
+    countBadge.className = "zone-card-count";
+    const count = Array.isArray(player[zoneName]) ? player[zoneName].length : 0;
+    countBadge.textContent = String(count);
+    countBadge.title = `${count} card${count === 1 ? "" : "s"} in ${label}`;
+    zone.append(countBadge);
+  }
   makeDropZone(zone, player.seat, zoneName);
   if (zoneName === "graveyard" || zoneName === "exile") {
     zone.classList.add("zone-viewer-trigger");
@@ -8157,7 +8723,9 @@ function activateDefaultFieldConfirm(event) {
 
   if (field === els.tokenSearchInput) return false;
   if (field === els.deckCardSearchInput) return false;
+  if (field === els.collectionCardSearchInput) return false;
   if (field === els.deckVisualSearchInput) return false;
+  if (field === els.collectionVisualSearchInput) return false;
 
   const directConfirmButton = {
     roomForm: els.createRoomSubmitButton,
@@ -8320,6 +8888,7 @@ async function completeAccountAuthentication(path, username, password, extra = {
   account = result.account;
   accountWorkspaceTab = "decks";
   deckBuilderInitialized = false;
+  collectionInitialized = false;
   await loadAccountWorkspaceData();
   accountMode = "login";
   setAccountStatus("Signed in.");
@@ -8373,6 +8942,7 @@ els.logoutButton.addEventListener("click", async () => {
 els.accountDecksTab.addEventListener("click", () => setAccountWorkspaceTab("decks"));
 els.accountGamesTab.addEventListener("click", () => setAccountWorkspaceTab("games"));
 if (els.accountFriendsTab) els.accountFriendsTab.addEventListener("click", () => setAccountWorkspaceTab("friends"));
+if (els.accountCollectionsTab) els.accountCollectionsTab.addEventListener("click", () => setAccountWorkspaceTab("collections"));
 if (els.friendsActivityButton) els.friendsActivityButton.addEventListener("click", () => setFriendsActivityOpen(!friendsActivityOpen));
 if (els.closeFriendsActivityButton) els.closeFriendsActivityButton.addEventListener("click", () => setFriendsActivityOpen(false));
 els.accountStartGameButton.addEventListener("click", openAccountStartGameDialog);
@@ -8508,6 +9078,67 @@ els.deckCardSearchInput.addEventListener("keydown", (event) => {
   window.clearTimeout(deckCardSearchTimer);
   searchDeckBuilderCards();
 });
+if (els.newCollectionButton) els.newCollectionButton.addEventListener("click", newCollection);
+if (els.collectionSearchInput) els.collectionSearchInput.addEventListener("input", renderCollectionList);
+if (els.saveCollectionButton) {
+  els.saveCollectionButton.addEventListener("click", async () => {
+    setDisabled(els.saveCollectionButton, true);
+    try {
+      await saveCollection();
+    } catch (error) {
+      setAccountStatus(error.message, true);
+    } finally {
+      setDisabled(els.saveCollectionButton, false);
+    }
+  });
+}
+if (els.deleteCollectionButton) {
+  els.deleteCollectionButton.addEventListener("click", async () => {
+    setDisabled(els.deleteCollectionButton, true);
+    try {
+      await deleteSelectedCollection();
+    } catch (error) {
+      setAccountStatus(error.message, true);
+    } finally {
+      setDisabled(els.deleteCollectionButton, false);
+    }
+  });
+}
+[
+  els.collectionGroupSelect,
+  els.collectionSortSelect,
+  els.collectionViewModeSelect,
+  els.collectionDeckFilterSelect,
+  els.collectionVisualSearchInput,
+].filter(Boolean).forEach((control) => {
+  control.addEventListener("input", renderCollectionPreview);
+  control.addEventListener("change", renderCollectionPreview);
+});
+if (els.collectionNameInput) {
+  els.collectionNameInput.addEventListener("input", () => {
+    els.collectionTitle.textContent = els.collectionNameInput.value.trim() || "New Collection";
+    setAccountStatus("Unsaved collection changes.");
+  });
+}
+if (els.collectionListInput) {
+  els.collectionListInput.addEventListener("input", () => {
+    collectionMetadata = null;
+    collectionMetadataKey = "";
+    setAccountStatus("Unsaved collection changes.");
+    renderCollectionEditor();
+  });
+}
+if (els.collectionCardSearchButton) els.collectionCardSearchButton.addEventListener("click", searchCollectionCards);
+if (els.dismissCollectionCardSearchButton) els.dismissCollectionCardSearchButton.addEventListener("click", dismissCollectionCardSearch);
+if (els.collectionCardSearchInput) {
+  els.collectionCardSearchInput.addEventListener("input", queueCollectionCardSearch);
+  els.collectionCardSearchInput.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    window.clearTimeout(collectionCardSearchTimer);
+    searchCollectionCards();
+  });
+}
 els.refreshActiveGamesButton.addEventListener("click", async () => {
   setDisabled(els.refreshActiveGamesButton, true);
   try {
