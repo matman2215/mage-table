@@ -44,7 +44,7 @@
             <button id="joinGameButton" class="secondary" data-landing-action="join" type="button">Join Game</button>
             <button id="loginButton" class="secondary" data-landing-action="account" type="button">Log In</button>
           </div>
-          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.6.0</p>
+          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.6.2</p>
         </div>
         <section id="createModePanel" class="landing-subpanel create-mode-panel hidden">
           <header class="create-room-header">
@@ -425,6 +425,7 @@
                     <span id="collectionSummary">0 collections</span>
                   </div>
                   <div class="deck-library-heading-actions">
+                    <button id="collapseCollectionRailButton" class="secondary compact-icon-button" type="button" title="Collapse collections" aria-label="Collapse collections">|||</button>
                     <button id="newCollectionButton" type="button">New Collection</button>
                   </div>
                 </header>
@@ -439,20 +440,26 @@
                       <div class="deck-heading-line">
                         <h2 id="collectionTitle">New Collection</h2>
                         <span id="collectionPrice" class="deck-title-price hidden">$0.00</span>
+                        <select id="collectionHeaderPriceSourceSelect" class="deck-header-price-source" aria-label="Collection price source">
+                          <option value="scryfall" selected>Scryfall</option>
+                          <option value="tcgplayer">TCGplayer</option>
+                          <option value="cardkingdom">Card Kingdom</option>
+                          <option value="average">Average</option>
+                        </select>
                       </div>
                       <div class="deck-title-meta">
                         <span id="collectionCount">0 cards</span>
                       </div>
                     </div>
                     <div class="deck-builder-header-actions">
+                      <button id="bulkAddCollectionButton" class="secondary" type="button">Bulk Add</button>
+                      <button id="collectionStatsButton" class="secondary" type="button">Stats</button>
+                      <button id="collectionDetailsButton" class="secondary deck-context-button" type="button" title="Collection details" aria-label="Collection details">...</button>
                       <button id="saveCollectionButton" type="button">Save Collection</button>
                       <button id="deleteCollectionButton" class="secondary" type="button">Delete</button>
                     </div>
                   </header>
-                  <label class="collection-name-field">
-                    Collection name
-                    <input id="collectionNameInput" type="text" maxlength="80" placeholder="Trade Binder">
-                  </label>
+                  <input id="collectionNameInput" type="hidden" maxlength="80">
                   <section class="deck-view-toolbar collection-view-toolbar">
                     <label>
                       Group
@@ -498,6 +505,11 @@
                     <label>
                       Find
                       <input id="collectionVisualSearchInput" type="search" maxlength="120" placeholder="Highlight card">
+                    </label>
+                    <label class="deck-view-scale-control">
+                      Scale
+                      <input id="collectionViewScaleInput" type="range" min="70" max="300" step="1" value="100" list="collectionViewScaleTicks">
+                      <datalist id="collectionViewScaleTicks"></datalist>
                     </label>
                     <section class="deck-card-search deck-toolbar-search" aria-label="Add cards to collection">
                       <span class="deck-toolbar-label">Add card</span>
@@ -834,6 +846,62 @@
           <button id="closeDeckActionButton" class="popover-close" type="button" title="Dismiss" aria-label="Dismiss deck actions">x</button>
         </header>
         <div id="deckActionList" class="dialog-actions deck-action-list"></div>
+      </form>
+    </dialog>
+
+    <dialog id="collectionDetailsDialog">
+      <form id="collectionDetailsForm" method="dialog" class="dialog-card confirmation-dialog-card">
+        <header class="popover-header">
+          <div>
+            <h2>Collection Details</h2>
+            <p class="dialog-note">Edit the saved collection name.</p>
+          </div>
+          <button id="closeCollectionDetailsButton" class="popover-close" type="button" title="Dismiss" aria-label="Dismiss collection details">x</button>
+        </header>
+        <label>
+          Collection name
+          <input id="collectionDetailsNameInput" type="text" maxlength="80" required>
+        </label>
+        <div class="dialog-actions">
+          <button value="cancel" class="secondary" type="submit">Cancel</button>
+          <button value="save" type="submit">Apply Details</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="collectionBulkAddDialog">
+      <form id="collectionBulkAddForm" class="dialog-card collection-bulk-add-card">
+        <header class="popover-header">
+          <div>
+            <h2>Bulk Add To Collection</h2>
+            <p class="dialog-note">Paste one card per line, or add cards from saved decks.</p>
+          </div>
+          <button id="closeCollectionBulkAddButton" class="popover-close" type="button" title="Dismiss" aria-label="Dismiss collection bulk add">x</button>
+        </header>
+        <textarea id="collectionBulkAddInput" rows="12" maxlength="200000" placeholder="4 Sol Ring&#10;2 Command Tower"></textarea>
+        <section class="collection-bulk-decks">
+          <header>
+            <strong>Include Saved Decks</strong>
+            <span id="collectionBulkDeckSummary">0 decks selected</span>
+          </header>
+          <div id="collectionBulkDeckList" class="collection-bulk-deck-list"></div>
+        </section>
+        <div class="dialog-actions bulk-import-actions">
+          <button id="applyCollectionBulkAddButton" type="button">Add To Collection</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="collectionStatsDialog">
+      <form method="dialog" class="dialog-card deck-stats-dialog-card collection-stats-dialog-card">
+        <header class="popover-header">
+          <div>
+            <h2 id="collectionStatsTitle">Collection Stats</h2>
+            <p id="collectionStatsSummary" class="dialog-note">Type, price, color, and deck-use breakdowns.</p>
+          </div>
+          <button id="closeCollectionStatsButton" class="popover-close" type="button" title="Dismiss" aria-label="Dismiss collection stats">x</button>
+        </header>
+        <div id="collectionStatsContent" class="deck-stats-content collection-stats-content"></div>
       </form>
     </dialog>
 

@@ -683,6 +683,10 @@ body.landing-mode .landing-panel button:not(.landing-actions button) {
   grid-template-columns: 46px minmax(0, 1fr);
 }
 
+.collection-workspace.collection-rail-collapsed {
+  grid-template-columns: 46px minmax(0, 1fr);
+}
+
 .deck-library-rail {
   display: grid;
   grid-template-rows: auto auto auto minmax(0, 1fr);
@@ -702,6 +706,10 @@ body.landing-mode .landing-panel button:not(.landing-actions button) {
   padding: 10px 4px;
 }
 
+.collection-rail-collapsed .collection-library-rail {
+  padding: 10px 4px;
+}
+
 .deck-rail-collapsed .deck-library-heading > div:not(.deck-library-heading-actions),
 .deck-rail-collapsed .deck-library-heading #newSavedDeckButton,
 .deck-rail-collapsed #savedDeckSearchInput,
@@ -710,12 +718,29 @@ body.landing-mode .landing-panel button:not(.landing-actions button) {
   display: none;
 }
 
+.collection-rail-collapsed .collection-library-rail .deck-library-heading > div:not(.deck-library-heading-actions),
+.collection-rail-collapsed .collection-library-rail #newCollectionButton,
+.collection-rail-collapsed #collectionSearchInput,
+.collection-rail-collapsed #collectionList {
+  display: none;
+}
+
 .deck-rail-collapsed .deck-library-heading {
   flex-direction: column;
   gap: 6px;
 }
 
+.collection-rail-collapsed .collection-library-rail .deck-library-heading {
+  flex-direction: column;
+  gap: 6px;
+}
+
 .deck-rail-collapsed .deck-library-heading-actions {
+  display: grid;
+  justify-items: center;
+}
+
+.collection-rail-collapsed .collection-library-rail .deck-library-heading-actions {
   display: grid;
   justify-items: center;
 }
@@ -938,6 +963,91 @@ body.landing-mode .account-workspace-shell label {
   min-height: 0;
   resize: none;
   font-size: 0.72rem;
+}
+
+.collection-bulk-add-card {
+  width: min(860px, calc(100vw - 28px));
+  max-height: min(88vh, 880px);
+  grid-template-rows: auto minmax(160px, 28vh) auto auto;
+  overflow: hidden;
+}
+
+.collection-bulk-add-card textarea {
+  min-height: 0;
+  resize: none;
+  font-size: 0.74rem;
+}
+
+.collection-bulk-decks {
+  display: grid;
+  grid-template-rows: auto minmax(100px, 1fr);
+  gap: 8px;
+  min-height: 0;
+  border: 1px solid rgba(142, 231, 214, 0.26);
+  border-radius: 7px;
+  background: rgba(142, 231, 214, 0.04);
+  padding: 8px;
+}
+
+.collection-bulk-decks header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  color: #dffdf6;
+  font-size: 0.72rem;
+}
+
+.collection-bulk-decks header span {
+  color: #a6b4ae;
+  font-size: 0.64rem;
+}
+
+.collection-bulk-deck-list {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.collection-bulk-deck-choice {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px !important;
+  align-items: center;
+  border: 1px solid rgba(52, 67, 62, 0.86);
+  border-radius: 6px;
+  background: rgba(13, 18, 16, 0.72);
+  padding: 7px 8px;
+}
+
+.collection-bulk-deck-choice input {
+  width: 16px;
+  height: 16px;
+}
+
+.collection-bulk-deck-choice span {
+  display: grid;
+  min-width: 0;
+}
+
+.collection-bulk-deck-choice strong,
+.collection-bulk-deck-choice small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collection-bulk-deck-choice strong {
+  color: #edf4f0;
+  font-size: 0.72rem;
+}
+
+.collection-bulk-deck-choice small {
+  color: #a6b4ae;
+  font-size: 0.62rem;
 }
 
 .deck-history-rail {
@@ -1323,6 +1433,10 @@ body.landing-mode .account-workspace-shell label {
   border-bottom: 1px solid #34433e;
 }
 
+.collection-view-toolbar {
+  grid-template-columns: minmax(72px, 94px) minmax(82px, 106px) minmax(88px, 112px) minmax(96px, 124px) minmax(104px, 132px) minmax(112px, 140px) minmax(260px, 1fr);
+}
+
 .deck-toolbar-search {
   grid-template-columns: auto minmax(0, 1fr);
   grid-template-areas:
@@ -1685,6 +1799,15 @@ body.shift-cascade .deck-stack-card strong {
   overflow-wrap: anywhere;
 }
 
+.deck-text-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  border-bottom-color: rgba(142, 231, 214, 0.58);
+  background: #131a17;
+  color: #dffdf6;
+}
+
 .deck-text-table th:first-child,
 .deck-text-table td:first-child,
 .deck-text-table th:nth-child(3),
@@ -1800,7 +1923,17 @@ body.shift-cascade .deck-stack-card strong {
 
 .collection-text-table th:nth-child(6),
 .collection-text-table td:nth-child(6) {
+  width: 88px;
+}
+
+.collection-text-table th:nth-child(7),
+.collection-text-table td:nth-child(7) {
   width: 180px;
+}
+
+.collection-text-table th:nth-child(8),
+.collection-text-table td:nth-child(8) {
+  width: 96px;
 }
 
 .deck-card-row {
@@ -1953,6 +2086,10 @@ body.shift-cascade .deck-stack-card strong {
   overflow-x: hidden;
 }
 
+.collection-stats-dialog-card {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
 .deck-stats-content {
   grid-row: 4;
   display: grid;
@@ -1962,6 +2099,14 @@ body.shift-cascade .deck-stack-card strong {
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 4px;
+}
+
+.collection-stats-dialog-card .deck-stats-content {
+  grid-row: 2;
+}
+
+.collection-stats-content {
+  padding-bottom: 48px;
 }
 
 .deck-stats-controls {
@@ -2040,6 +2185,25 @@ body.shift-cascade .deck-stack-card strong {
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 12px;
   min-width: 0;
+}
+
+.collection-breakdown-grid {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.collection-stat-metrics .play-stat-metric small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collection-stats-table {
+  margin-top: 4px;
+}
+
+.collection-stats-table th:nth-child(6),
+.collection-stats-table td:nth-child(6) {
+  width: 220px;
 }
 
 .deck-breakdown-chart {
@@ -5455,6 +5619,17 @@ dialog {
   max-width: none;
   max-height: calc(100vh - 12px);
   overflow: hidden;
+}
+
+#collectionStatsDialog {
+  width: calc(100vw - 12px);
+  max-width: none;
+  max-height: calc(100vh - 12px);
+  overflow: hidden;
+}
+
+#collectionBulkAddDialog {
+  width: min(860px, calc(100vw - 28px));
 }
 
 #revealNoticeDialog {

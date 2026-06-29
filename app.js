@@ -105,6 +105,7 @@ const els = {
   outgoingFriendRequests: document.querySelector("#outgoingFriendRequests"),
   gameInvitesList: document.querySelector("#gameInvitesList"),
   collectionSummary: document.querySelector("#collectionSummary"),
+  collapseCollectionRailButton: document.querySelector("#collapseCollectionRailButton"),
   newCollectionButton: document.querySelector("#newCollectionButton"),
   collectionSearchInput: document.querySelector("#collectionSearchInput"),
   collectionList: document.querySelector("#collectionList"),
@@ -112,11 +113,14 @@ const els = {
   collectionPrice: document.querySelector("#collectionPrice"),
   collectionCount: document.querySelector("#collectionCount"),
   collectionNameInput: document.querySelector("#collectionNameInput"),
+  collectionHeaderPriceSourceSelect: document.querySelector("#collectionHeaderPriceSourceSelect"),
   collectionGroupSelect: document.querySelector("#collectionGroupSelect"),
   collectionSortSelect: document.querySelector("#collectionSortSelect"),
   collectionViewModeSelect: document.querySelector("#collectionViewModeSelect"),
   collectionDeckFilterSelect: document.querySelector("#collectionDeckFilterSelect"),
   collectionVisualSearchInput: document.querySelector("#collectionVisualSearchInput"),
+  collectionViewScaleInput: document.querySelector("#collectionViewScaleInput"),
+  collectionViewScaleTicks: document.querySelector("#collectionViewScaleTicks"),
   collectionCardSearchInput: document.querySelector("#collectionCardSearchInput"),
   collectionCardSearchButton: document.querySelector("#collectionCardSearchButton"),
   dismissCollectionCardSearchButton: document.querySelector("#dismissCollectionCardSearchButton"),
@@ -124,6 +128,9 @@ const els = {
   collectionCardSearchResults: document.querySelector("#collectionCardSearchResults"),
   collectionPreview: document.querySelector("#collectionPreview"),
   collectionListInput: document.querySelector("#collectionListInput"),
+  bulkAddCollectionButton: document.querySelector("#bulkAddCollectionButton"),
+  collectionStatsButton: document.querySelector("#collectionStatsButton"),
+  collectionDetailsButton: document.querySelector("#collectionDetailsButton"),
   saveCollectionButton: document.querySelector("#saveCollectionButton"),
   deleteCollectionButton: document.querySelector("#deleteCollectionButton"),
   tablePanel: document.querySelector("#tablePanel"),
@@ -319,6 +326,22 @@ const els = {
   deckActionSummary: document.querySelector("#deckActionSummary"),
   deckActionList: document.querySelector("#deckActionList"),
   closeDeckActionButton: document.querySelector("#closeDeckActionButton"),
+  collectionDetailsDialog: document.querySelector("#collectionDetailsDialog"),
+  collectionDetailsForm: document.querySelector("#collectionDetailsForm"),
+  closeCollectionDetailsButton: document.querySelector("#closeCollectionDetailsButton"),
+  collectionDetailsNameInput: document.querySelector("#collectionDetailsNameInput"),
+  collectionBulkAddDialog: document.querySelector("#collectionBulkAddDialog"),
+  collectionBulkAddForm: document.querySelector("#collectionBulkAddForm"),
+  collectionBulkAddInput: document.querySelector("#collectionBulkAddInput"),
+  collectionBulkDeckSummary: document.querySelector("#collectionBulkDeckSummary"),
+  collectionBulkDeckList: document.querySelector("#collectionBulkDeckList"),
+  closeCollectionBulkAddButton: document.querySelector("#closeCollectionBulkAddButton"),
+  applyCollectionBulkAddButton: document.querySelector("#applyCollectionBulkAddButton"),
+  collectionStatsDialog: document.querySelector("#collectionStatsDialog"),
+  collectionStatsTitle: document.querySelector("#collectionStatsTitle"),
+  collectionStatsSummary: document.querySelector("#collectionStatsSummary"),
+  closeCollectionStatsButton: document.querySelector("#closeCollectionStatsButton"),
+  collectionStatsContent: document.querySelector("#collectionStatsContent"),
   printingDialog: document.querySelector("#printingDialog"),
   printingDialogTitle: document.querySelector("#printingDialogTitle"),
   printingDialogSummary: document.querySelector("#printingDialogSummary"),
@@ -449,6 +472,9 @@ let collectionMetadata = null;
 let collectionMetadataKey = "";
 let collectionMetadataTimer = null;
 let collectionMetadataRequestInFlightKey = "";
+let collectionMetadataLoadingKey = "";
+let collectionMetadataLoadingTimer = null;
+let collectionRailCollapsed = localStorage.getItem("mage-table-collection-rail-collapsed") === "1";
 let deckPrintingCardName = "";
 let deckPrintingResults = [];
 let deckPrintingRequestId = 0;
@@ -1072,6 +1098,11 @@ function renderSavedDecks() {
 
 function renderCollectionsWorkspace() {
   if (!els.accountCollectionsView) return;
+  els.accountCollectionsView.classList.toggle("collection-rail-collapsed", collectionRailCollapsed);
+  els.collapseCollectionRailButton?.classList.toggle("active", collectionRailCollapsed);
+  els.collapseCollectionRailButton?.setAttribute("aria-expanded", String(!collectionRailCollapsed));
+  syncDeckPriceControls();
+  applyCollectionViewScale();
   renderCollectionList();
   renderCollectionEditor();
 }
@@ -1104,7 +1135,17 @@ function renderCollectionList() {
     const count = deckListCardCount(collection.cardlist);
     details.innerHTML = `<strong>${escapeHtml(collection.name)}</strong><span>${count} card${count === 1 ? "" : "s"} - Updated ${escapeHtml(new Date(collection.updatedAt).toLocaleDateString())}</span>`;
     details.addEventListener("click", () => selectCollection(collection));
-    row.append(details);
+    const menu = document.createElement("button");
+    menu.type = "button";
+    menu.className = "deck-row-menu";
+    menu.textContent = "...";
+    menu.title = `Collection details for ${collection.name}`;
+    menu.addEventListener("click", (event) => {
+      event.stopPropagation();
+      selectCollection(collection);
+      openCollectionDetailsDialog(collection);
+    });
+    row.append(details, menu);
     els.collectionList.append(row);
   });
 }
@@ -1117,7 +1158,7 @@ function currentCollection() {
   };
 }
 
-function newCollection() {
+function newCollection(options = {}) {
   selectedCollectionId = "";
   collectionMetadata = null;
   collectionMetadataKey = "";
@@ -1126,7 +1167,7 @@ function newCollection() {
   if (els.collectionListInput) els.collectionListInput.value = "";
   renderCollectionCardSearchResults();
   renderCollectionsWorkspace();
-  els.collectionNameInput?.focus();
+  if (options.openDetails) requestAnimationFrame(() => openCollectionDetailsDialog());
 }
 
 function selectCollection(collection) {
@@ -1167,7 +1208,7 @@ function renderCollectionPreview() {
   const list = els.collectionListInput?.value.trim() || "";
   const key = list;
   els.collectionPreview.innerHTML = "";
-  els.collectionPreview.style.setProperty("--deck-view-scale", String(deckViewScale() / 100));
+  els.collectionPreview.style.setProperty("--deck-view-scale", String(collectionViewScale() / 100));
   if (!list) {
     els.collectionPreview.innerHTML = '<p class="empty-list-message">Add cards to begin building this collection.</p>';
     return;
@@ -1195,6 +1236,7 @@ function loadCollectionMetadata(key) {
   if (collectionMetadataRequestInFlightKey === key) return;
   collectionMetadataTimer = window.setTimeout(async () => {
     collectionMetadataRequestInFlightKey = key;
+    showCollectionMetadataLoading(key);
     try {
       const result = await api("/api/decks/inspect", {
         method: "POST",
@@ -1209,9 +1251,28 @@ function loadCollectionMetadata(key) {
       collectionMetadataKey = key;
     } finally {
       if (collectionMetadataRequestInFlightKey === key) collectionMetadataRequestInFlightKey = "";
+      hideCollectionMetadataLoading(key);
       renderCollectionsWorkspace();
+      if (els.collectionStatsDialog?.open) renderCollectionStatsContent();
     }
   }, 350);
+}
+
+function showCollectionMetadataLoading(key) {
+  collectionMetadataLoadingKey = key;
+  window.clearTimeout(collectionMetadataLoadingTimer);
+  collectionMetadataLoadingTimer = window.setTimeout(() => {
+    if (collectionMetadataLoadingKey !== key) return;
+    showGameLoading("Loading Collection", "Resolving card images, printings, and price providers.", "collection");
+  }, 160);
+}
+
+function hideCollectionMetadataLoading(key) {
+  if (collectionMetadataLoadingKey !== key) return;
+  collectionMetadataLoadingKey = "";
+  window.clearTimeout(collectionMetadataLoadingTimer);
+  collectionMetadataLoadingTimer = null;
+  hideGameLoading("collection");
 }
 
 function collectionViewSettings() {
@@ -1311,7 +1372,7 @@ function renderCollectionVisualStacks(cards, settings = collectionViewSettings()
       return best;
     }, lanes[0]);
     lane.node.append(column);
-    lane.height += estimateDeckGroupHeight(sorted.length, viewMode);
+    lane.height += estimateCollectionGroupHeight(sorted.length, viewMode);
     lane.count += 1;
   });
   els.collectionPreview.append(wrap);
@@ -1319,10 +1380,17 @@ function renderCollectionVisualStacks(cards, settings = collectionViewSettings()
 
 function collectionVisualColumnCount(viewMode = "cascade") {
   const width = Math.max(1, els.collectionPreview?.clientWidth || 1);
-  const scale = deckViewScale() / 100;
+  const scale = collectionViewScale() / 100;
   const baseWidth = viewMode === "table" ? 310 : viewMode === "grid" ? 270 : 230;
   const columnWidth = Math.min(390, Math.max(190, baseWidth * scale));
   return Math.max(1, Math.min(8, Math.floor((width + 12) / (columnWidth + 12))));
+}
+
+function estimateCollectionGroupHeight(cardCount, viewMode = "cascade") {
+  const scale = collectionViewScale() / 100;
+  if (viewMode === "table") return 52 + cardCount * 36 * scale;
+  if (viewMode === "grid") return 58 + cardCount * 186 * scale;
+  return 72 + Math.max(0, cardCount - 1) * 44 * scale + 322 * scale;
 }
 
 function collectionStackCard(card, index, query) {
@@ -1368,14 +1436,15 @@ function collectionImageGrid(cards, query) {
 function collectionGroupedTextTable(groupEntries, sortMode, query) {
   const table = document.createElement("table");
   table.className = "deck-text-table deck-grouped-text-table collection-text-table";
-  table.innerHTML = "<thead><tr><th>Qty</th><th>Name</th><th>MV</th><th>Type</th><th>Color</th><th>Decks</th><th>Edit</th></tr></thead>";
+  table.innerHTML = "<thead><tr><th>Qty</th><th>Name</th><th>MV</th><th>Type</th><th>Color</th><th>Price</th><th>Decks</th><th>Edit</th></tr></thead>";
   const body = document.createElement("tbody");
   groupEntries.forEach(([group, groupCards]) => {
     const sorted = [...groupCards].sort((a, b) => compareDeckCards(a, b, sortMode));
     const quantity = sorted.reduce((sum, card) => sum + (Number(card.quantity) || 1), 0);
+    const price = sorted.reduce((sum, card) => sum + deckCardTotalPrice(card), 0);
     const header = document.createElement("tr");
     header.className = "deck-table-group-row";
-    header.innerHTML = `<th colspan="7"><span>${escapeHtml(group)}</span><small>Qty: ${quantity}</small></th>`;
+    header.innerHTML = `<th colspan="8"><span>${escapeHtml(group)}</span><small>Qty: ${quantity} - ${formatUsd(price)}</small></th>`;
     body.append(header);
     sorted.forEach((card) => body.append(collectionTextTableRow(card, query)));
   });
@@ -1398,6 +1467,7 @@ function collectionTextTableRow(card, query) {
     <td>${Number(card.manaValue) || 0}</td>
     <td>${escapeHtml(primaryType(card))}</td>
     <td>${escapeHtml(colorLabel(card.colorIdentity || card.colors || []))}</td>
+    <td>${formatUsd(deckCardTotalPrice(card))}</td>
     <td>${memberships.length ? memberships.map((deck) => escapeHtml(deck.name)).join(", ") : ""}</td>
     <td class="deck-table-edit-cell">
       <button type="button" data-collection-adjust="-1" title="Remove one ${escapeHtml(card.name)}" aria-label="Remove one ${escapeHtml(card.name)}">-</button>
@@ -1473,6 +1543,288 @@ function currentCollectionCardQuantity(cardName) {
   const match = parseDeckBuilderEntries(els.collectionListInput?.value || "")
     .find((entry) => normalizedDeckCardName(entry.name) === normalizedDeckCardName(cardName));
   return match ? Number(match.quantity) || 0 : 0;
+}
+
+function openCollectionDetailsDialog(collection = currentCollection()) {
+  if (!els.collectionDetailsDialog || !els.collectionDetailsNameInput) return;
+  els.collectionDetailsNameInput.value = collection?.name || els.collectionNameInput?.value || "New Collection";
+  if (!els.collectionDetailsDialog.open) els.collectionDetailsDialog.showModal();
+  requestAnimationFrame(() => els.collectionDetailsNameInput?.focus());
+}
+
+function applyCollectionDetailsFromDialog() {
+  const name = els.collectionDetailsNameInput?.value.trim() || "New Collection";
+  if (els.collectionNameInput) els.collectionNameInput.value = name;
+  if (els.collectionTitle) els.collectionTitle.textContent = name;
+  setAccountStatus("Unsaved collection changes.");
+  renderCollectionList();
+}
+
+function setCollectionRailCollapsed(collapsed) {
+  collectionRailCollapsed = Boolean(collapsed);
+  localStorage.setItem("mage-table-collection-rail-collapsed", collectionRailCollapsed ? "1" : "0");
+  renderCollectionsWorkspace();
+}
+
+function openCollectionBulkAddDialog() {
+  if (!els.collectionBulkAddDialog) return;
+  if (els.collectionBulkAddInput) els.collectionBulkAddInput.value = "";
+  renderCollectionBulkDeckChoices();
+  if (!els.collectionBulkAddDialog.open) els.collectionBulkAddDialog.showModal();
+  requestAnimationFrame(() => els.collectionBulkAddInput?.focus());
+}
+
+function renderCollectionBulkDeckChoices() {
+  if (!els.collectionBulkDeckList) return;
+  els.collectionBulkDeckList.innerHTML = "";
+  if (!savedDecks.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-list-message";
+    empty.textContent = "No saved decks are available to import from.";
+    els.collectionBulkDeckList.append(empty);
+    updateCollectionBulkDeckSummary();
+    return;
+  }
+  savedDecks.forEach((deck) => {
+    const label = document.createElement("label");
+    label.className = "collection-bulk-deck-choice";
+    label.innerHTML = `
+      <input type="checkbox" value="${escapeHtml(deck.id)}">
+      <span><strong>${escapeHtml(deck.name || "Untitled Deck")}</strong><small>${deckListCardCount(deck.decklist)} cards - ${escapeHtml(deck.commander || "No commander")}</small></span>
+    `;
+    label.querySelector("input")?.addEventListener("change", updateCollectionBulkDeckSummary);
+    els.collectionBulkDeckList.append(label);
+  });
+  updateCollectionBulkDeckSummary();
+}
+
+function selectedCollectionBulkDeckIds() {
+  return [...(els.collectionBulkDeckList?.querySelectorAll('input[type="checkbox"]:checked') || [])]
+    .map((input) => input.value)
+    .filter(Boolean);
+}
+
+function updateCollectionBulkDeckSummary() {
+  if (!els.collectionBulkDeckSummary) return;
+  const count = selectedCollectionBulkDeckIds().length;
+  els.collectionBulkDeckSummary.textContent = `${count} deck${count === 1 ? "" : "s"} selected`;
+}
+
+function collectionEntriesFromSelectedDecks() {
+  const selectedIds = new Set(selectedCollectionBulkDeckIds());
+  if (!selectedIds.size) return [];
+  return savedDecks
+    .filter((deck) => selectedIds.has(deck.id))
+    .flatMap((deck) => parseDeckBuilderEntries(deck.decklist));
+}
+
+function mergeCollectionEntries(currentEntries, incomingEntries) {
+  const byName = new Map();
+  const merged = [];
+  [...(currentEntries || []), ...(incomingEntries || [])].forEach((entry) => {
+    const name = cleanDeckBuilderCardName(entry.name || entry.rawName || "");
+    if (!name) return;
+    const key = normalizedDeckCardName(name);
+    const quantity = Math.max(1, Number(entry.quantity) || 1);
+    const rawName = entry.rawName || name;
+    const existing = byName.get(key);
+    if (existing) {
+      existing.quantity += quantity;
+      if (!existing.rawName && rawName) existing.rawName = rawName;
+      return;
+    }
+    const next = { quantity, name, rawName };
+    byName.set(key, next);
+    merged.push(next);
+  });
+  return merged.sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function applyCollectionBulkAdd() {
+  const pasted = parseBulkDeckImportText(els.collectionBulkAddInput?.value || "").entries;
+  const deckEntries = collectionEntriesFromSelectedDecks();
+  const incoming = [...pasted, ...deckEntries];
+  if (!incoming.length) {
+    els.collectionBulkAddInput?.focus();
+    return;
+  }
+  const merged = mergeCollectionEntries(parseDeckBuilderEntries(els.collectionListInput?.value || ""), incoming);
+  els.collectionListInput.value = serializeDeckBuilderEntries(merged);
+  collectionMetadata = null;
+  collectionMetadataKey = "";
+  collectionCardSearchResults = [];
+  els.collectionBulkAddDialog?.close();
+  setAccountStatus(`${incoming.reduce((sum, entry) => sum + (Number(entry.quantity) || 1), 0)} cards added to collection - unsaved changes.`);
+  renderCollectionCardSearchResults();
+  renderCollectionEditor();
+}
+
+function openCollectionStatsDialog() {
+  if (!els.collectionStatsDialog) return;
+  const collection = currentCollection();
+  els.collectionStatsTitle.textContent = `${collection.name || "Collection"} Stats`;
+  renderCollectionStatsContent();
+  if (!els.collectionStatsDialog.open) els.collectionStatsDialog.showModal();
+  const key = collection.cardlist.trim();
+  if (key && collectionMetadataKey !== key) loadCollectionMetadata(key);
+}
+
+function renderCollectionStatsContent() {
+  if (!els.collectionStatsContent) return;
+  const collection = currentCollection();
+  const cards = Array.isArray(collectionMetadata?.cards) ? collectionMetadata.cards : [];
+  const totalCards = cards.reduce((sum, card) => sum + (Number(card.quantity) || 1), 0);
+  const totalPrice = cards.reduce((sum, card) => sum + deckCardTotalPrice(card), 0);
+  els.collectionStatsSummary.textContent = cards.length
+    ? `${totalCards} cards analyzed - ${cards.length} unique - ${formatUsd(totalPrice)} ${priceSourceShortLabel(deckPriceSource)}`
+    : "Resolve this collection through Scryfall before viewing stats.";
+  els.collectionStatsContent.innerHTML = "";
+  if (collectionMetadata?.error) {
+    els.collectionStatsContent.innerHTML = `<p class="empty-list-message">${escapeHtml(collectionMetadata.error)}</p>`;
+    return;
+  }
+  if (!collection.cardlist.trim()) {
+    els.collectionStatsContent.innerHTML = '<p class="empty-list-message">Add cards before viewing collection stats.</p>';
+    return;
+  }
+  if (!cards.length) {
+    els.collectionStatsContent.innerHTML = '<p class="empty-list-message">Loading collection statistics...</p>';
+    return;
+  }
+  els.collectionStatsContent.append(
+    collectionStatsMetricGrid(cards),
+    collectionStatsBreakdownSection(cards),
+    collectionStatsTable(cards),
+  );
+}
+
+function collectionStatsMetricGrid(cards) {
+  const totalCards = cards.reduce((sum, card) => sum + (Number(card.quantity) || 1), 0);
+  const totalPrice = cards.reduce((sum, card) => sum + deckCardTotalPrice(card), 0);
+  const inDeck = cards.filter((card) => deckMembershipForCard(card).length > 0).length;
+  const mostExpensive = cards.slice().sort((a, b) => deckCardTotalPrice(b) - deckCardTotalPrice(a))[0];
+  const grid = document.createElement("div");
+  grid.className = "play-stats-metric-grid collection-stat-metrics";
+  [
+    { label: "Cards", value: totalCards, note: `${cards.length} unique` },
+    { label: "Value", value: formatUsd(totalPrice), note: priceSourceLabel(deckPriceSource) },
+    { label: "In Decks", value: inDeck, note: `${cards.length - inDeck} not used` },
+    { label: "Highest Value", value: formatUsd(mostExpensive ? deckCardTotalPrice(mostExpensive) : 0), note: mostExpensive?.name || "None" },
+  ].forEach((metric) => {
+    const card = document.createElement("article");
+    card.className = "play-stat-metric";
+    card.innerHTML = `<span>${escapeHtml(metric.label)}</span><strong>${escapeHtml(String(metric.value))}</strong><small>${escapeHtml(metric.note)}</small>`;
+    grid.append(card);
+  });
+  return grid;
+}
+
+function collectionStatsBreakdownSection(cards) {
+  const section = document.createElement("section");
+  section.className = "deck-stat-section collection-stat-section";
+  section.innerHTML = "<h3>Collection Breakdown</h3>";
+  const grid = document.createElement("div");
+  grid.className = "deck-breakdown-grid collection-breakdown-grid";
+  grid.append(
+    breakdownChart("Cards by Type", collectionTypeRows(cards), "No cards"),
+    breakdownChart("Price by Type", collectionPriceByTypeRows(cards), "No priced cards"),
+    breakdownChart("Cards by Color Identity", collectionColorRows(cards), "No color data"),
+    breakdownChart("Deck Usage", collectionDeckUsageRows(cards), "No deck usage data"),
+    breakdownChart("Price Bands", collectionPriceBandRows(cards), "No priced cards"),
+  );
+  section.append(grid);
+  return section;
+}
+
+function collectionTypeRows(cards) {
+  const totals = new Map();
+  cards.forEach((card) => {
+    const label = primaryType(card) || "Other";
+    totals.set(label, (totals.get(label) || 0) + (Number(card.quantity) || 1));
+  });
+  return [...totals.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([label, value]) => ({ label, value, display: `${value} card${value === 1 ? "" : "s"}`, color: typeColor(label) }));
+}
+
+function collectionPriceByTypeRows(cards) {
+  const totals = new Map();
+  cards.forEach((card) => {
+    const label = primaryType(card) || "Other";
+    totals.set(label, (totals.get(label) || 0) + deckCardTotalPrice(card));
+  });
+  return [...totals.entries()]
+    .filter(([, value]) => value > 0)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([label, value]) => ({ label, value, display: formatUsd(value), color: typeColor(label) }));
+}
+
+function collectionColorRows(cards) {
+  const totals = new Map();
+  cards.forEach((card) => {
+    const label = colorLabel(card.colorIdentity || card.colors || []);
+    totals.set(label, (totals.get(label) || 0) + (Number(card.quantity) || 1));
+  });
+  return [...totals.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([label, value]) => ({ label, value, display: `${value} card${value === 1 ? "" : "s"}`, color: colorCollectionSwatch(label) }));
+}
+
+function colorCollectionSwatch(label) {
+  if (label === "Colorless") return colorSwatch("C");
+  const colors = { White: "W", Blue: "U", Black: "B", Red: "R", Green: "G" };
+  return colors[label] ? colorSwatch(colors[label]) : "#8ee7d6";
+}
+
+function collectionDeckUsageRows(cards) {
+  const inDeck = cards.filter((card) => deckMembershipForCard(card).length > 0).length;
+  const notInDeck = Math.max(0, cards.length - inDeck);
+  return [
+    { label: "In a deck", value: inDeck, display: `${inDeck} unique`, color: "#2a9d8f" },
+    { label: "Not in a deck", value: notInDeck, display: `${notInDeck} unique`, color: "#f1ca70" },
+  ].filter((row) => row.value > 0);
+}
+
+function collectionPriceBandRows(cards) {
+  const bands = [
+    { label: "$0", min: 0, max: 0.005, color: "#6c7a76" },
+    { label: "< $1", min: 0.005, max: 1, color: "#8ee7d6" },
+    { label: "$1-$5", min: 1, max: 5, color: "#2a9d8f" },
+    { label: "$5-$20", min: 5, max: 20, color: "#f1ca70" },
+    { label: "$20+", min: 20, max: Infinity, color: "#e76f51" },
+  ];
+  return bands.map((band) => {
+    const value = cards.reduce((sum, card) => {
+      const unit = deckCardUnitPrice(card);
+      return unit >= band.min && unit < band.max ? sum + (Number(card.quantity) || 1) : sum;
+    }, 0);
+    return { label: band.label, value, display: `${value} card${value === 1 ? "" : "s"}`, color: band.color };
+  }).filter((row) => row.value > 0);
+}
+
+function collectionStatsTable(cards) {
+  const table = document.createElement("table");
+  table.className = "deck-text-table collection-stats-table";
+  table.innerHTML = "<thead><tr><th>Qty</th><th>Name</th><th>Type</th><th>Unit</th><th>Total</th><th>Decks</th></tr></thead>";
+  const body = document.createElement("tbody");
+  cards
+    .slice()
+    .sort((a, b) => deckCardTotalPrice(b) - deckCardTotalPrice(a) || a.name.localeCompare(b.name))
+    .forEach((card) => {
+      const memberships = deckMembershipForCard(card);
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td>${Number(card.quantity) || 1}</td>
+        <td>${escapeHtml(card.name)}</td>
+        <td>${escapeHtml(primaryType(card))}</td>
+        <td>${formatUsd(deckCardUnitPrice(card))}</td>
+        <td>${formatUsd(deckCardTotalPrice(card))}</td>
+        <td>${memberships.length ? memberships.map((deck) => escapeHtml(deck.name)).join(", ") : ""}</td>
+      `;
+      body.append(row);
+    });
+  table.append(body);
+  return table;
 }
 
 function commanderColorIdentityForDeck(deck) {
@@ -2118,6 +2470,102 @@ function applyDeckViewScale() {
   els.deckBuilderPreview.style.setProperty("--deck-view-scale", String(deckViewScale() / 100));
 }
 
+function ensureCollectionViewScaleInput() {
+  if (!els.collectionViewScaleInput || els.collectionViewScaleInput.dataset.scaleReady) return;
+  const stored = Number(localStorage.getItem("mage-table-collection-view-scale")) || 100;
+  const min = Number(els.collectionViewScaleInput.min) || 70;
+  const max = Number(els.collectionViewScaleInput.max) || 300;
+  els.collectionViewScaleInput.value = String(Math.max(min, Math.min(max, stored)));
+  els.collectionViewScaleInput.dataset.scaleReady = "1";
+}
+
+function collectionViewScale() {
+  ensureCollectionViewScaleInput();
+  return Math.max(70, Math.min(300, Number(els.collectionViewScaleInput?.value) || 100));
+}
+
+function collectionScaleBounds() {
+  return {
+    min: Number(els.collectionViewScaleInput?.min) || 70,
+    max: Number(els.collectionViewScaleInput?.max) || 300,
+  };
+}
+
+function collectionScaleSnapPoints() {
+  const { min, max } = collectionScaleBounds();
+  const previewWidth = Math.max(
+    1,
+    Number(els.collectionPreview?.clientWidth) || 0,
+    Number(els.collectionPreview?.parentElement?.clientWidth) || 0,
+    typeof window !== "undefined" ? Number(window.innerWidth) || 0 : 0,
+  );
+  const cardWidth = 230;
+  const gap = 12;
+  const available = Math.max(1, previewWidth - 4);
+  const points = new Set([min, max]);
+  for (let lanes = 1; lanes <= 8; lanes += 1) {
+    const laneWidth = (available - (lanes - 1) * gap) / lanes;
+    if (laneWidth <= 0) continue;
+    const snap = Math.round((laneWidth / cardWidth) * 100);
+    if (snap >= min && snap <= max) points.add(snap);
+  }
+  return [...points].sort((a, b) => a - b);
+}
+
+function nearestCollectionScaleSnap(value) {
+  const { min, max } = collectionScaleBounds();
+  const raw = Math.max(min, Math.min(max, Number(value) || 100));
+  return collectionScaleSnapPoints().reduce((best, point) => (
+    Math.abs(point - raw) < Math.abs(best - raw) ? point : best
+  ));
+}
+
+function updateCollectionScaleTicks(points = collectionScaleSnapPoints()) {
+  if (!els.collectionViewScaleTicks || !els.collectionViewScaleInput) return;
+  els.collectionViewScaleTicks.innerHTML = "";
+  points.forEach((point) => {
+    const option = document.createElement("option");
+    option.value = String(point);
+    option.label = `${point}%`;
+    els.collectionViewScaleTicks.append(option);
+  });
+  els.collectionViewScaleInput.title = `Snap points: ${points.map((point) => `${point}%`).join(", ")}`;
+}
+
+function snapCollectionViewScaleInput() {
+  if (!els.collectionViewScaleInput) return collectionViewScale();
+  ensureCollectionViewScaleInput();
+  const points = collectionScaleSnapPoints();
+  updateCollectionScaleTicks(points);
+  const snapped = nearestCollectionScaleSnap(els.collectionViewScaleInput.value);
+  els.collectionViewScaleInput.value = String(snapped);
+  els.collectionViewScaleInput.setAttribute("aria-valuetext", `${snapped}%`);
+  localStorage.setItem("mage-table-collection-view-scale", String(snapped));
+  return snapped;
+}
+
+function applyCollectionViewScale() {
+  if (!els.collectionPreview) return;
+  ensureCollectionViewScaleInput();
+  updateCollectionScaleTicks();
+  els.collectionPreview.style.setProperty("--deck-view-scale", String(collectionViewScale() / 100));
+}
+
+function applyCollectionViewSettings(event = null) {
+  if (event?.type === "click" || event?.type === "pointerup" || event?.type === "submit") event.preventDefault();
+  if (event?.target === els.collectionHeaderPriceSourceSelect) {
+    deckPriceSource = normalizePriceSource(event.target.value);
+    localStorage.setItem("mage-table-deck-price-source", deckPriceSource);
+    syncDeckPriceControls();
+  }
+  if (event?.target === els.collectionViewScaleInput) snapCollectionViewScaleInput();
+  applyCollectionViewScale();
+  renderCollectionPrice();
+  renderCollectionPreview();
+  renderCollectionCardSearchResults();
+  if (els.collectionStatsDialog?.open) renderCollectionStatsContent();
+}
+
 function applyDeckViewSettings(event = null) {
   if (event?.type === "click" || event?.type === "pointerup" || event?.type === "submit") event.preventDefault();
   deckBuilderPreviewCollapsed = false;
@@ -2163,6 +2611,7 @@ function syncDeckPriceControls() {
   if (els.deckPriceSourceSelect && els.deckPriceSourceSelect.value !== deckPriceSource) els.deckPriceSourceSelect.value = deckPriceSource;
   if (els.deckHeaderPriceSourceSelect && els.deckHeaderPriceSourceSelect.value !== deckPriceSource) els.deckHeaderPriceSourceSelect.value = deckPriceSource;
   if (els.deckStatsPriceSourceSelect && els.deckStatsPriceSourceSelect.value !== deckPriceSource) els.deckStatsPriceSourceSelect.value = deckPriceSource;
+  if (els.collectionHeaderPriceSourceSelect && els.collectionHeaderPriceSourceSelect.value !== deckPriceSource) els.collectionHeaderPriceSourceSelect.value = deckPriceSource;
 }
 
 function normalizePriceSource(value) {
@@ -2411,7 +2860,8 @@ function clearLocalCascade(stack) {
 function cascadeStepSize(stack, property, fallback) {
   const raw = getComputedStyle(stack).getPropertyValue(property);
   const base = Number.parseFloat(raw);
-  return (Number.isFinite(base) ? base : fallback) * (deckViewScale() / 100);
+  const scale = stack.closest(".collection-preview") ? collectionViewScale() : deckViewScale();
+  return (Number.isFinite(base) ? base : fallback) * (scale / 100);
 }
 
 function deckImageGrid(cards, query) {
@@ -9078,8 +9528,12 @@ els.deckCardSearchInput.addEventListener("keydown", (event) => {
   window.clearTimeout(deckCardSearchTimer);
   searchDeckBuilderCards();
 });
-if (els.newCollectionButton) els.newCollectionButton.addEventListener("click", newCollection);
+if (els.newCollectionButton) els.newCollectionButton.addEventListener("click", () => newCollection({ openDetails: true }));
+if (els.collapseCollectionRailButton) els.collapseCollectionRailButton.addEventListener("click", () => setCollectionRailCollapsed(!collectionRailCollapsed));
 if (els.collectionSearchInput) els.collectionSearchInput.addEventListener("input", renderCollectionList);
+if (els.collectionDetailsButton) els.collectionDetailsButton.addEventListener("click", () => openCollectionDetailsDialog());
+if (els.bulkAddCollectionButton) els.bulkAddCollectionButton.addEventListener("click", openCollectionBulkAddDialog);
+if (els.collectionStatsButton) els.collectionStatsButton.addEventListener("click", openCollectionStatsDialog);
 if (els.saveCollectionButton) {
   els.saveCollectionButton.addEventListener("click", async () => {
     setDisabled(els.saveCollectionButton, true);
@@ -9104,15 +9558,33 @@ if (els.deleteCollectionButton) {
     }
   });
 }
+if (els.closeCollectionDetailsButton) els.closeCollectionDetailsButton.addEventListener("click", () => els.collectionDetailsDialog.close());
+if (els.collectionDetailsForm) {
+  els.collectionDetailsForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (event.submitter?.value !== "save") {
+      els.collectionDetailsDialog.close();
+      return;
+    }
+    applyCollectionDetailsFromDialog();
+    els.collectionDetailsDialog.close();
+  });
+}
+if (els.closeCollectionBulkAddButton) els.closeCollectionBulkAddButton.addEventListener("click", () => els.collectionBulkAddDialog.close());
+if (els.collectionBulkAddForm) els.collectionBulkAddForm.addEventListener("submit", (event) => event.preventDefault());
+if (els.applyCollectionBulkAddButton) els.applyCollectionBulkAddButton.addEventListener("click", applyCollectionBulkAdd);
+if (els.closeCollectionStatsButton) els.closeCollectionStatsButton.addEventListener("click", () => els.collectionStatsDialog.close());
 [
   els.collectionGroupSelect,
   els.collectionSortSelect,
   els.collectionViewModeSelect,
   els.collectionDeckFilterSelect,
   els.collectionVisualSearchInput,
+  els.collectionHeaderPriceSourceSelect,
+  els.collectionViewScaleInput,
 ].filter(Boolean).forEach((control) => {
-  control.addEventListener("input", renderCollectionPreview);
-  control.addEventListener("change", renderCollectionPreview);
+  control.addEventListener("input", applyCollectionViewSettings);
+  control.addEventListener("change", applyCollectionViewSettings);
 });
 if (els.collectionNameInput) {
   els.collectionNameInput.addEventListener("input", () => {
