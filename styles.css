@@ -2491,7 +2491,8 @@ body.shift-cascade .deck-stack-card strong {
   padding: 16px;
 }
 
-.active-games-heading {
+.active-games-heading,
+.friends-heading {
   padding-bottom: 13px;
 }
 
@@ -2554,6 +2555,120 @@ body.shift-cascade .deck-stack-card strong {
   display: flex;
   justify-content: flex-end;
   gap: 6px;
+}
+
+.friends-workspace {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 16px;
+  min-height: 0;
+}
+
+.friends-heading,
+.friends-panel header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.friend-invite-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  border-block: 1px solid #34433e;
+  padding: 10px 0;
+}
+
+.friends-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.1fr) minmax(240px, 0.9fr) minmax(260px, 1fr);
+  gap: 12px;
+  min-height: 0;
+}
+
+.friends-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
+  min-height: 0;
+  border: 1px solid #34433e;
+  background: #111815;
+  padding: 10px;
+}
+
+.friends-panel h3 {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.friends-panel header span,
+.friend-action-note {
+  color: #a6b4ae;
+  font-size: 0.68rem;
+}
+
+.friends-list {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.friend-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid #293832;
+  background: #17211d;
+  padding: 9px;
+}
+
+.friend-row.online {
+  border-color: rgba(80, 202, 138, 0.55);
+}
+
+.friend-identity {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.friend-identity strong {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.friend-identity span {
+  color: #a6b4ae;
+  font-size: 0.68rem;
+}
+
+.friend-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  align-items: center;
+}
+
+.friend-actions button,
+.friend-actions select {
+  min-height: 30px;
+  font-size: 0.68rem;
+}
+
+.friend-game-select {
+  max-width: 190px;
 }
 
 .account-workspace-shell > .account-status,
@@ -6220,6 +6335,19 @@ body.cosmic-table-theme .counter-step {
   }
 
   .active-game-actions {
+    justify-content: flex-start;
+  }
+
+  .friends-layout,
+  .friend-invite-form {
+    grid-template-columns: 1fr;
+  }
+
+  .friend-row {
+    grid-template-columns: 1fr;
+  }
+
+  .friend-actions {
     justify-content: flex-start;
   }
 

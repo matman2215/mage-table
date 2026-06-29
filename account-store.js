@@ -82,6 +82,7 @@ function safeJson(value, fallback) {
 class AccountStore {
   constructor(databasePath = process.env.MAGE_TABLE_DB_PATH || path.join(__dirname, "data", "mage-table.db")) {
     this.databasePath = databasePath;
+    this.presenceTouchCache = new Map();
     if (databasePath !== ":memory:") fs.mkdirSync(path.dirname(databasePath), { recursive: true });
     this.db = new DatabaseSync(databasePath);
     this.db.exec("PRAGMA foreign_keys = ON;");
@@ -126,14 +127,40 @@ class AccountStore {
         cards_json TEXT NOT NULL DEFAULT '[]',
         UNIQUE(deck_id, account_id, source, captured_day)
       );
+      CREATE TABLE IF NOT EXISTS friendships (
+        id TEXT PRIMARY KEY,
+        requester_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        addressee_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        CHECK(requester_id <> addressee_id)
+      );
+      CREATE TABLE IF NOT EXISTS game_invites (
+        id TEXT PRIMARY KEY,
+        room_id TEXT NOT NULL,
+        from_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        to_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        CHECK(from_account_id <> to_account_id)
+      );
       CREATE INDEX IF NOT EXISTS decks_account_updated_idx ON decks(account_id, updated_at DESC);
       CREATE INDEX IF NOT EXISTS sessions_account_idx ON sessions(account_id);
       CREATE INDEX IF NOT EXISTS deck_price_snapshots_deck_idx ON deck_price_snapshots(account_id, deck_id, captured_at DESC);
+      CREATE INDEX IF NOT EXISTS friendships_requester_idx ON friendships(requester_id, status);
+      CREATE INDEX IF NOT EXISTS friendships_addressee_idx ON friendships(addressee_id, status);
+      CREATE UNIQUE INDEX IF NOT EXISTS friendships_pair_unique ON friendships(requester_id, addressee_id);
+      CREATE INDEX IF NOT EXISTS game_invites_to_idx ON game_invites(to_account_id, status, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS game_invites_from_idx ON game_invites(from_account_id, status, updated_at DESC);
+      CREATE UNIQUE INDEX IF NOT EXISTS game_invites_pending_unique ON game_invites(room_id, to_account_id) WHERE status = 'pending';
     `);
     this.ensureColumn("accounts", "first_name", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("accounts", "last_name", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("accounts", "email", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("accounts", "email_normalized", "TEXT NOT NULL DEFAULT ''");
+    this.ensureColumn("accounts", "last_seen_at", "INTEGER NOT NULL DEFAULT 0");
     this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS accounts_email_normalized_unique ON accounts(email_normalized) WHERE email_normalized <> '';");
   }
 
@@ -157,11 +184,15 @@ class AccountStore {
     const password = validatePassword(passwordValue);
     if (String(confirmPasswordValue || passwordValue) !== password) throw new Error("Passwords do not match.");
     const salt = crypto.randomBytes(16).toString("hex");
-    const account = { id: newId("account"), username, firstName, lastName, email, createdAt: Date.now() };
+    const now = Date.now();
+    const account = { id: newId("account"), username, firstName, lastName, email, createdAt: now, lastSeenAt: now };
     this.db.prepare(`
-      INSERT INTO accounts (id, username, username_normalized, first_name, last_name, email, email_normalized, password_hash, password_salt, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(account.id, account.username, normalized, account.firstName, account.lastName, account.email, account.email, passwordHash(password, salt), salt, account.createdAt);
+      INSERT INTO accounts (
+        id, username, username_normalized, first_name, last_name, email, email_normalized,
+        password_hash, password_salt, created_at, last_seen_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(account.id, account.username, normalized, account.firstName, account.lastName, account.email, account.email, passwordHash(password, salt), salt, account.createdAt, now);
     return { account, sessionToken: this.createSession(account.id) };
   }
 
@@ -171,14 +202,8 @@ class AccountStore {
     if (!row) return null;
     const suppliedHash = passwordHash(String(passwordValue || ""), row.password_salt);
     if (!safeEqualHex(suppliedHash, row.password_hash)) return null;
-    const account = {
-      id: row.id,
-      username: row.username,
-      firstName: row.first_name || row.username,
-      lastName: row.last_name || "",
-      email: row.email || "",
-      createdAt: Number(row.created_at),
-    };
+    this.touchAccountPresence(row.id, Date.now(), true);
+    const account = this.accountFromRow({ ...row, last_seen_at: Date.now() });
     return { account, sessionToken: this.createSession(account.id) };
   }
 
@@ -197,24 +222,278 @@ class AccountStore {
     if (!token) return null;
     const now = Date.now();
     const row = this.db.prepare(`
-      SELECT accounts.id, accounts.username, accounts.first_name, accounts.last_name, accounts.email, accounts.created_at
+      SELECT accounts.id, accounts.username, accounts.first_name, accounts.last_name, accounts.email, accounts.created_at, accounts.last_seen_at
       FROM sessions
       JOIN accounts ON accounts.id = sessions.account_id
       WHERE sessions.token_hash = ? AND sessions.expires_at > ?
     `).get(sessionHash(token), now);
-    return row ? {
-      id: row.id,
-      username: row.username,
-      firstName: row.first_name || row.username,
-      lastName: row.last_name || "",
-      email: row.email || "",
-      createdAt: Number(row.created_at),
-    } : null;
+    if (!row) return null;
+    this.touchAccountPresence(row.id, now);
+    return this.accountFromRow(row);
   }
 
   deleteSession(token) {
     if (!token) return;
     this.db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(sessionHash(token));
+  }
+
+  touchAccountPresence(accountId, now = Date.now(), force = false) {
+    if (!accountId) return;
+    const previous = Number(this.presenceTouchCache.get(accountId)) || 0;
+    if (!force && now - previous < 30000) return;
+    this.presenceTouchCache.set(accountId, now);
+    this.db.prepare("UPDATE accounts SET last_seen_at = ? WHERE id = ?").run(now, accountId);
+  }
+
+  publicAccountFromRow(row) {
+    return row ? {
+      id: row.id,
+      username: row.username,
+      firstName: row.first_name || row.username,
+      lastName: row.last_name || "",
+      lastSeenAt: Number(row.last_seen_at) || 0,
+    } : null;
+  }
+
+  accountFromRow(row) {
+    return row ? {
+      ...this.publicAccountFromRow(row),
+      email: row.email || "",
+      createdAt: Number(row.created_at),
+    } : null;
+  }
+
+  findPublicAccountByUsername(usernameValue) {
+    const row = this.db.prepare(`
+      SELECT id, username, first_name, last_name, last_seen_at
+      FROM accounts
+      WHERE username_normalized = ?
+    `).get(normalizeUsername(usernameValue));
+    return this.publicAccountFromRow(row);
+  }
+
+  publicAccountById(accountId) {
+    const row = this.db.prepare(`
+      SELECT id, username, first_name, last_name, last_seen_at
+      FROM accounts
+      WHERE id = ?
+    `).get(accountId);
+    return this.publicAccountFromRow(row);
+  }
+
+  friendshipBetween(leftAccountId, rightAccountId) {
+    return this.db.prepare(`
+      SELECT * FROM friendships
+      WHERE (requester_id = ? AND addressee_id = ?)
+         OR (requester_id = ? AND addressee_id = ?)
+    `).get(leftAccountId, rightAccountId, rightAccountId, leftAccountId);
+  }
+
+  areFriends(leftAccountId, rightAccountId) {
+    const row = this.friendshipBetween(leftAccountId, rightAccountId);
+    return row?.status === "accepted";
+  }
+
+  sendFriendRequest(accountId, usernameValue) {
+    const target = this.findPublicAccountByUsername(usernameValue);
+    if (!target) {
+      const error = new Error("No account was found with that username.");
+      error.code = "FRIEND_NOT_FOUND";
+      throw error;
+    }
+    if (target.id === accountId) {
+      const error = new Error("You cannot send a friend invite to yourself.");
+      error.code = "FRIEND_SELF";
+      throw error;
+    }
+    const existing = this.friendshipBetween(accountId, target.id);
+    const now = Date.now();
+    if (existing?.status === "accepted") {
+      const error = new Error("You are already friends with that account.");
+      error.code = "ALREADY_FRIENDS";
+      throw error;
+    }
+    if (existing?.status === "pending" && existing.requester_id === accountId) {
+      const error = new Error("A friend invite is already pending.");
+      error.code = "FRIEND_INVITE_PENDING";
+      throw error;
+    }
+    if (existing?.status === "pending" && existing.addressee_id === accountId) {
+      this.db.prepare("UPDATE friendships SET status = 'accepted', updated_at = ? WHERE id = ?").run(now, existing.id);
+      return this.friendshipById(existing.id);
+    }
+    const id = existing?.id || newId("friend");
+    if (existing) {
+      this.db.prepare(`
+        UPDATE friendships
+        SET requester_id = ?, addressee_id = ?, status = 'pending', updated_at = ?
+        WHERE id = ?
+      `).run(accountId, target.id, now, id);
+    } else {
+      this.db.prepare(`
+        INSERT INTO friendships (id, requester_id, addressee_id, status, created_at, updated_at)
+        VALUES (?, ?, ?, 'pending', ?, ?)
+      `).run(id, accountId, target.id, now, now);
+    }
+    return this.friendshipById(id);
+  }
+
+  friendshipById(friendshipId) {
+    return this.db.prepare("SELECT * FROM friendships WHERE id = ?").get(friendshipId);
+  }
+
+  respondToFriendRequest(accountId, friendshipId, action) {
+    const row = this.db.prepare(`
+      SELECT * FROM friendships
+      WHERE id = ? AND addressee_id = ? AND status = 'pending'
+    `).get(friendshipId, accountId);
+    if (!row) {
+      const error = new Error("Friend invite was not found.");
+      error.code = "FRIEND_INVITE_NOT_FOUND";
+      throw error;
+    }
+    if (action === "accept") {
+      this.db.prepare("UPDATE friendships SET status = 'accepted', updated_at = ? WHERE id = ?").run(Date.now(), row.id);
+      return this.friendshipById(row.id);
+    }
+    this.db.prepare("DELETE FROM friendships WHERE id = ?").run(row.id);
+    return null;
+  }
+
+  removeFriendship(accountId, friendshipId) {
+    const result = this.db.prepare(`
+      DELETE FROM friendships
+      WHERE id = ? AND (requester_id = ? OR addressee_id = ?)
+    `).run(friendshipId, accountId, accountId);
+    return Number(result.changes) > 0;
+  }
+
+  listFriendships(accountId) {
+    const rows = this.db.prepare(`
+      SELECT
+        friendships.id, friendships.requester_id, friendships.addressee_id, friendships.status,
+        friendships.created_at, friendships.updated_at,
+        accounts.id AS account_id, accounts.username, accounts.first_name, accounts.last_name, accounts.last_seen_at
+      FROM friendships
+      JOIN accounts ON accounts.id = CASE
+        WHEN friendships.requester_id = ? THEN friendships.addressee_id
+        ELSE friendships.requester_id
+      END
+      WHERE friendships.requester_id = ? OR friendships.addressee_id = ?
+      ORDER BY friendships.updated_at DESC
+    `).all(accountId, accountId, accountId);
+    const result = { friends: [], incoming: [], outgoing: [] };
+    rows.forEach((row) => {
+      const item = {
+        id: row.id,
+        status: row.status,
+        requestedAt: Number(row.created_at) || 0,
+        updatedAt: Number(row.updated_at) || 0,
+        account: this.publicAccountFromRow({
+          id: row.account_id,
+          username: row.username,
+          first_name: row.first_name,
+          last_name: row.last_name,
+          last_seen_at: row.last_seen_at,
+        }),
+      };
+      if (row.status === "accepted") result.friends.push(item);
+      else if (row.addressee_id === accountId) result.incoming.push(item);
+      else result.outgoing.push(item);
+    });
+    return result;
+  }
+
+  sendGameInvite(fromAccountId, toAccountId, roomId) {
+    if (!this.areFriends(fromAccountId, toAccountId)) {
+      const error = new Error("You can only invite accepted friends to games.");
+      error.code = "FRIEND_REQUIRED";
+      throw error;
+    }
+    const now = Date.now();
+    const existing = this.db.prepare(`
+      SELECT id FROM game_invites
+      WHERE room_id = ? AND to_account_id = ? AND status = 'pending'
+    `).get(roomId, toAccountId);
+    if (existing) {
+      this.db.prepare(`
+        UPDATE game_invites
+        SET from_account_id = ?, updated_at = ?
+        WHERE id = ?
+      `).run(fromAccountId, now, existing.id);
+      return this.gameInviteById(existing.id);
+    }
+    const id = newId("invite");
+    this.db.prepare(`
+      INSERT INTO game_invites (id, room_id, from_account_id, to_account_id, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'pending', ?, ?)
+    `).run(id, roomId, fromAccountId, toAccountId, now, now);
+    return this.gameInviteById(id);
+  }
+
+  gameInviteById(inviteId) {
+    return this.db.prepare("SELECT * FROM game_invites WHERE id = ?").get(inviteId);
+  }
+
+  resolveGameInvite(accountId, inviteId, status) {
+    const row = this.db.prepare(`
+      SELECT * FROM game_invites
+      WHERE id = ? AND to_account_id = ? AND status = 'pending'
+    `).get(inviteId, accountId);
+    if (!row) {
+      const error = new Error("Game invite was not found.");
+      error.code = "GAME_INVITE_NOT_FOUND";
+      throw error;
+    }
+    this.db.prepare("UPDATE game_invites SET status = ?, updated_at = ? WHERE id = ?").run(status, Date.now(), row.id);
+    return { ...row, status };
+  }
+
+  listGameInvites(accountId) {
+    const rows = this.db.prepare(`
+      SELECT
+        game_invites.*,
+        from_accounts.username AS from_username,
+        from_accounts.first_name AS from_first_name,
+        from_accounts.last_name AS from_last_name,
+        from_accounts.last_seen_at AS from_last_seen_at,
+        to_accounts.username AS to_username,
+        to_accounts.first_name AS to_first_name,
+        to_accounts.last_name AS to_last_name,
+        to_accounts.last_seen_at AS to_last_seen_at
+      FROM game_invites
+      JOIN accounts AS from_accounts ON from_accounts.id = game_invites.from_account_id
+      JOIN accounts AS to_accounts ON to_accounts.id = game_invites.to_account_id
+      WHERE (game_invites.from_account_id = ? OR game_invites.to_account_id = ?)
+        AND game_invites.status = 'pending'
+      ORDER BY game_invites.updated_at DESC
+    `).all(accountId, accountId);
+    return rows.reduce((result, row) => {
+      const item = {
+        id: row.id,
+        roomId: row.room_id,
+        status: row.status,
+        createdAt: Number(row.created_at) || 0,
+        updatedAt: Number(row.updated_at) || 0,
+        from: this.publicAccountFromRow({
+          id: row.from_account_id,
+          username: row.from_username,
+          first_name: row.from_first_name,
+          last_name: row.from_last_name,
+          last_seen_at: row.from_last_seen_at,
+        }),
+        to: this.publicAccountFromRow({
+          id: row.to_account_id,
+          username: row.to_username,
+          first_name: row.to_first_name,
+          last_name: row.to_last_name,
+          last_seen_at: row.to_last_seen_at,
+        }),
+      };
+      if (row.to_account_id === accountId) result.incoming.push(item);
+      else result.outgoing.push(item);
+      return result;
+    }, { incoming: [], outgoing: [] });
   }
 
   listDecks(accountId) {

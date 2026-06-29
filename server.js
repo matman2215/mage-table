@@ -25,6 +25,7 @@ const presenceTimeoutMs = 30000;
 const residentRoomUnloadMs = 2 * 60 * 1000;
 const guestHostDormantMs = 10 * 60 * 1000;
 const cleanupIntervalMs = 60 * 1000;
+const accountOnlineWindowMs = 90 * 1000;
 const phases = ["Untap", "Upkeep", "Draw", "Main 1", "Combat", "Main 2", "End"];
 
 function id(prefix) {
@@ -1222,7 +1223,30 @@ function accountGameSummary(room, accountId, origin) {
     activePlayer: activePlayer?.name || "Player 1",
     createdAt: Number(room.createdAt) || 0,
     lastPlayedAt: Number(room.updatedAt) || Number(room.createdAt) || 0,
+    roomFull: room.players.every((candidate) => candidate.claimed),
+    openSeats: room.players.filter((candidate) => !candidate.claimed).length,
     selfUrl: `${origin}/?room=${encodeURIComponent(room.id)}&token=${encodeURIComponent(player.token)}`,
+    players: room.players
+      .filter((candidate) => candidate.claimed)
+      .map((candidate) => ({
+        seat: candidate.seat,
+        name: candidate.name,
+        commander: candidate.commander || "",
+      })),
+  };
+}
+
+function publicRoomInviteSummary(room) {
+  if (!room || room.endedAt) return null;
+  const activePlayer = room.players[Number(room.activePlayer) || 0] || room.players[0];
+  return {
+    id: room.id,
+    name: room.name,
+    turnNumber: Number(room.turnNumber) || 1,
+    activePlayer: activePlayer?.name || "Player 1",
+    lastPlayedAt: Number(room.updatedAt) || Number(room.createdAt) || 0,
+    roomFull: room.players.every((candidate) => candidate.claimed),
+    openSeats: room.players.filter((candidate) => !candidate.claimed).length,
     players: room.players
       .filter((candidate) => candidate.claimed)
       .map((candidate) => ({
@@ -1239,6 +1263,80 @@ function activeGamesForAccount(accountId, origin) {
     .map((room) => accountGameSummary(room, accountId, origin))
     .filter(Boolean)
     .sort((left, right) => right.lastPlayedAt - left.lastPlayedAt);
+}
+
+function accountIsPresentInActiveRoom(accountId, now = Date.now()) {
+  for (const room of rooms.values()) {
+    if (!room || room.endedAt) continue;
+    const player = room.players?.find((candidate) => candidate.accountId === accountId);
+    if (player && playerIsPresent(room, player, now)) return true;
+  }
+  return false;
+}
+
+function friendPresenceView(account, now = Date.now()) {
+  const lastSeenAt = Number(account?.lastSeenAt) || 0;
+  const online = accountIsPresentInActiveRoom(account?.id, now) || lastSeenAt > now - accountOnlineWindowMs;
+  return {
+    ...account,
+    online,
+    lastSeenAt,
+  };
+}
+
+function accountFriendsPayload(accountId, origin) {
+  const now = Date.now();
+  const friendships = accountStore.listFriendships(accountId);
+  const decorateFriendship = (friendship) => ({
+    ...friendship,
+    account: friendPresenceView(friendship.account, now),
+  });
+  const invites = accountStore.listGameInvites(accountId);
+  const decorateInvite = (invite) => {
+    const room = getRoomById(invite.roomId);
+    return {
+      ...invite,
+      from: friendPresenceView(invite.from, now),
+      to: friendPresenceView(invite.to, now),
+      room: publicRoomInviteSummary(room),
+    };
+  };
+  return {
+    friends: friendships.friends.map(decorateFriendship),
+    incoming: friendships.incoming.map(decorateFriendship),
+    outgoing: friendships.outgoing.map(decorateFriendship),
+    gameInvites: {
+      incoming: invites.incoming.map(decorateInvite).filter((invite) => invite.room),
+      outgoing: invites.outgoing.map(decorateInvite).filter((invite) => invite.room),
+    },
+  };
+}
+
+function claimRoomSeatForAccount(room, account) {
+  let player = room.players.find((candidate) => candidate.accountId === account.id);
+  const now = Date.now();
+  if (player) {
+    player.claimed = true;
+    player.presenceLastSeenAt = now;
+    return player;
+  }
+  player = room.players.find((candidate) => !candidate.claimed);
+  if (!player) {
+    const error = new Error("That game is full.");
+    error.code = "ROOM_FULL";
+    throw error;
+  }
+  player.claimed = true;
+  player.accountId = account.id;
+  player.name = accountDisplayName(account, player.name);
+  player.presenceLastSeenAt = now;
+  room.updatedAt = now;
+  room.updateSeq = (Number(room.updateSeq) || 0) + 1;
+  addLog(room, `${player.name} accepted a friend game invite.`, player, { kind: "join", seat: player.seat });
+  persistRoom(room);
+  broadcastRoomUpdate(room);
+  broadcastPresence(room);
+  return player;
 }
 
 function addCollectionAliases(results, card, summary) {
@@ -3127,6 +3225,83 @@ const server = http.createServer(async (req, res) => {
       const account = authenticatedAccount(req, res);
       if (!account) return;
       return sendJson(res, 200, { games: activeGamesForAccount(account.id, origin) });
+    }
+
+    if (requestUrl.pathname === "/api/account/friends") {
+      const account = authenticatedAccount(req, res);
+      if (!account) return;
+      if (req.method === "GET") {
+        return sendJson(res, 200, accountFriendsPayload(account.id, origin));
+      }
+      if (req.method === "POST") {
+        const body = await readBody(req);
+        accountStore.sendFriendRequest(account.id, body.username);
+        return sendJson(res, 201, accountFriendsPayload(account.id, origin));
+      }
+    }
+
+    const friendActionMatch = requestUrl.pathname.match(/^\/api\/account\/friends\/([^/]+)\/(accept|decline)$/);
+    if (req.method === "POST" && friendActionMatch) {
+      const account = authenticatedAccount(req, res);
+      if (!account) return;
+      accountStore.respondToFriendRequest(account.id, decodeURIComponent(friendActionMatch[1]), friendActionMatch[2]);
+      return sendJson(res, 200, accountFriendsPayload(account.id, origin));
+    }
+
+    const friendDeleteMatch = requestUrl.pathname.match(/^\/api\/account\/friends\/([^/]+)$/);
+    if (req.method === "DELETE" && friendDeleteMatch) {
+      const account = authenticatedAccount(req, res);
+      if (!account) return;
+      const removed = accountStore.removeFriendship(account.id, decodeURIComponent(friendDeleteMatch[1]));
+      if (!removed) return sendJson(res, 404, { error: "Friendship was not found.", code: "FRIEND_NOT_FOUND" });
+      return sendJson(res, 200, accountFriendsPayload(account.id, origin));
+    }
+
+    if (requestUrl.pathname === "/api/account/game-invites") {
+      const account = authenticatedAccount(req, res);
+      if (!account) return;
+      if (req.method === "GET") return sendJson(res, 200, { gameInvites: accountFriendsPayload(account.id, origin).gameInvites });
+      if (req.method === "POST") {
+        const body = await readBody(req);
+        const room = getRoomById(String(body.roomId || ""));
+        if (!room || room.endedAt) return sendJson(res, 404, { error: "Game not found.", code: "GAME_NOT_FOUND" });
+        const actor = room.players.find((player) => player.accountId === account.id && player.claimed);
+        if (!actor) return sendJson(res, 403, { error: "You can only invite friends to games you are seated in.", code: "ROOM_MEMBER_REQUIRED" });
+        const friend = accountStore.publicAccountById(String(body.friendAccountId || ""));
+        if (!friend) return sendJson(res, 404, { error: "Friend account was not found.", code: "FRIEND_NOT_FOUND" });
+        const friendAlreadySeated = room.players.some((player) => player.accountId === friend.id && player.claimed);
+        if (!friendAlreadySeated && room.players.every((player) => player.claimed)) {
+          return sendJson(res, 409, { error: "That game is full.", code: "ROOM_FULL" });
+        }
+        accountStore.sendGameInvite(account.id, friend.id, room.id);
+        return sendJson(res, 201, accountFriendsPayload(account.id, origin));
+      }
+    }
+
+    const gameInviteActionMatch = requestUrl.pathname.match(/^\/api\/account\/game-invites\/([^/]+)\/(accept|decline)$/);
+    if (req.method === "POST" && gameInviteActionMatch) {
+      const account = authenticatedAccount(req, res);
+      if (!account) return;
+      const inviteId = decodeURIComponent(gameInviteActionMatch[1]);
+      const action = gameInviteActionMatch[2];
+      if (action === "decline") {
+        accountStore.resolveGameInvite(account.id, inviteId, "declined");
+        return sendJson(res, 200, accountFriendsPayload(account.id, origin));
+      }
+      const invite = accountStore.gameInviteById(inviteId);
+      if (!invite || invite.to_account_id !== account.id || invite.status !== "pending") {
+        return sendJson(res, 404, { error: "Game invite was not found.", code: "GAME_INVITE_NOT_FOUND" });
+      }
+      const room = getRoomById(invite.room_id);
+      if (!room || room.endedAt) return sendJson(res, 404, { error: "Game not found.", code: "GAME_NOT_FOUND" });
+      let player;
+      try {
+        player = claimRoomSeatForAccount(room, account);
+      } catch (error) {
+        return sendJson(res, error.code === "ROOM_FULL" ? 409 : 400, { error: error.message, code: error.code || "" });
+      }
+      accountStore.resolveGameInvite(account.id, inviteId, "accepted");
+      return sendJson(res, 200, { room: viewRoom(room, player.token, origin), friends: accountFriendsPayload(account.id, origin) });
     }
 
     const endAccountGameMatch = requestUrl.pathname.match(/^\/api\/account\/games\/([^/]+)\/end$/);

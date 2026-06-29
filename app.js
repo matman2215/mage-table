@@ -37,9 +37,11 @@ const els = {
   logoutButton: document.querySelector("#logoutButton"),
   accountDecksTab: document.querySelector("#accountDecksTab"),
   accountGamesTab: document.querySelector("#accountGamesTab"),
+  accountFriendsTab: document.querySelector("#accountFriendsTab"),
   accountStartGameButton: document.querySelector("#accountStartGameButton"),
   accountDecksView: document.querySelector("#accountDecksView"),
   accountGamesView: document.querySelector("#accountGamesView"),
+  accountFriendsView: document.querySelector("#accountFriendsView"),
   newSavedDeckButton: document.querySelector("#newSavedDeckButton"),
   collapseDeckRailButton: document.querySelector("#collapseDeckRailButton"),
   deckHistoryButton: document.querySelector("#deckHistoryButton"),
@@ -85,6 +87,16 @@ const els = {
   activeGamesSummary: document.querySelector("#activeGamesSummary"),
   activeGamesList: document.querySelector("#activeGamesList"),
   refreshActiveGamesButton: document.querySelector("#refreshActiveGamesButton"),
+  friendsSummary: document.querySelector("#friendsSummary"),
+  friendsOnlineSummary: document.querySelector("#friendsOnlineSummary"),
+  friendInviteForm: document.querySelector("#friendInviteForm"),
+  friendInviteUsernameInput: document.querySelector("#friendInviteUsernameInput"),
+  sendFriendInviteButton: document.querySelector("#sendFriendInviteButton"),
+  refreshFriendsButton: document.querySelector("#refreshFriendsButton"),
+  friendsList: document.querySelector("#friendsList"),
+  incomingFriendRequests: document.querySelector("#incomingFriendRequests"),
+  outgoingFriendRequests: document.querySelector("#outgoingFriendRequests"),
+  gameInvitesList: document.querySelector("#gameInvitesList"),
   tablePanel: document.querySelector("#tablePanel"),
   roomForm: document.querySelector("#roomForm"),
   joinRoomForm: document.querySelector("#joinRoomForm"),
@@ -384,6 +396,7 @@ let landingView = "menu";
 let account = null;
 let savedDecks = [];
 let activeGames = [];
+let friendsData = { friends: [], incoming: [], outgoing: [], gameInvites: { incoming: [], outgoing: [] } };
 let accountMode = "login";
 let accountWorkspaceTab = "decks";
 let selectedBuilderDeckId = "";
@@ -923,8 +936,11 @@ function renderAccountPanel() {
   els.accountDecksTab.classList.toggle("secondary", accountWorkspaceTab !== "decks");
   els.accountGamesTab.classList.toggle("active", accountWorkspaceTab === "games");
   els.accountGamesTab.classList.toggle("secondary", accountWorkspaceTab !== "games");
+  els.accountFriendsTab?.classList.toggle("active", accountWorkspaceTab === "friends");
+  els.accountFriendsTab?.classList.toggle("secondary", accountWorkspaceTab !== "friends");
   els.accountDecksView.classList.toggle("hidden", accountWorkspaceTab !== "decks");
   els.accountGamesView.classList.toggle("hidden", accountWorkspaceTab !== "games");
+  els.accountFriendsView?.classList.toggle("hidden", accountWorkspaceTab !== "friends");
   if (deckRailCollapsed && deckHistoryOpen) {
     deckHistoryOpen = false;
     localStorage.setItem("mage-table-deck-history-open", "0");
@@ -944,6 +960,7 @@ function renderAccountPanel() {
   renderSavedDecks();
   renderDeckBuilderPreview();
   renderActiveGames();
+  renderFriendsWorkspace();
 }
 
 function renderAccountControls() {
@@ -3335,6 +3352,195 @@ function renderActiveGames() {
   });
 }
 
+function normalizeFriendsPayload(payload = {}) {
+  friendsData = {
+    friends: Array.isArray(payload.friends) ? payload.friends : [],
+    incoming: Array.isArray(payload.incoming) ? payload.incoming : [],
+    outgoing: Array.isArray(payload.outgoing) ? payload.outgoing : [],
+    gameInvites: {
+      incoming: Array.isArray(payload.gameInvites?.incoming) ? payload.gameInvites.incoming : [],
+      outgoing: Array.isArray(payload.gameInvites?.outgoing) ? payload.gameInvites.outgoing : [],
+    },
+  };
+}
+
+function friendAccountLabel(accountValue = {}) {
+  const fullName = `${accountValue.firstName || ""} ${accountValue.lastName || ""}`.trim();
+  return fullName ? `${fullName} (@${accountValue.username})` : `@${accountValue.username || "unknown"}`;
+}
+
+function friendPresenceMarkup(accountValue = {}) {
+  const online = Boolean(accountValue.online);
+  const lastSeen = Number(accountValue.lastSeenAt) || 0;
+  const lastSeenText = online
+    ? "Online"
+    : lastSeen
+      ? `Last seen ${new Date(lastSeen).toLocaleString()}`
+      : "Offline";
+  return `<span class="presence-dot${online ? " online" : ""}" title="${escapeHtml(lastSeenText)}" aria-label="${escapeHtml(lastSeenText)}"></span>`;
+}
+
+function emptyFriendsMessage(container, message) {
+  const empty = document.createElement("p");
+  empty.className = "empty-list-message";
+  empty.textContent = message;
+  container.append(empty);
+}
+
+function inviteableActiveGames() {
+  return activeGames.filter((game) => !game.roomFull || Number(game.openSeats) > 0);
+}
+
+function renderFriendGameInviteControls(friendship, actions) {
+  const games = inviteableActiveGames();
+  if (!games.length) {
+    const note = document.createElement("span");
+    note.className = "friend-action-note";
+    note.textContent = "No open games";
+    actions.append(note);
+    return;
+  }
+  const select = document.createElement("select");
+  select.className = "friend-game-select";
+  select.setAttribute("aria-label", `Choose game for ${friendship.account.username}`);
+  games.forEach((game) => {
+    const option = document.createElement("option");
+    option.value = game.id;
+    option.textContent = `${game.name} (${Number(game.openSeats) || 0} open)`;
+    select.append(option);
+  });
+  const invite = document.createElement("button");
+  invite.type = "button";
+  invite.textContent = "Invite";
+  invite.addEventListener("click", () => sendGameInviteToFriend(friendship.account.id, select.value));
+  actions.append(select, invite);
+}
+
+function renderFriendRow(friendship) {
+  const row = document.createElement("article");
+  row.className = `friend-row${friendship.account?.online ? " online" : ""}`;
+  const identity = document.createElement("div");
+  identity.className = "friend-identity";
+  identity.innerHTML = `
+    <strong>${friendPresenceMarkup(friendship.account)}${escapeHtml(friendAccountLabel(friendship.account))}</strong>
+    <span>${friendship.account?.online ? "Available" : "Offline"}</span>
+  `;
+  const actions = document.createElement("div");
+  actions.className = "friend-actions";
+  renderFriendGameInviteControls(friendship, actions);
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "secondary";
+  remove.textContent = "Remove";
+  remove.addEventListener("click", () => removeFriendship(friendship.id));
+  actions.append(remove);
+  row.append(identity, actions);
+  return row;
+}
+
+function renderFriendRequestRow(request, direction) {
+  const row = document.createElement("article");
+  row.className = "friend-row friend-request-row";
+  const identity = document.createElement("div");
+  identity.className = "friend-identity";
+  identity.innerHTML = `
+    <strong>${friendPresenceMarkup(request.account)}${escapeHtml(friendAccountLabel(request.account))}</strong>
+    <span>${direction === "incoming" ? "Wants to be friends" : "Invite sent"}</span>
+  `;
+  const actions = document.createElement("div");
+  actions.className = "friend-actions";
+  if (direction === "incoming") {
+    const accept = document.createElement("button");
+    accept.type = "button";
+    accept.textContent = "Accept";
+    accept.addEventListener("click", () => respondToFriendInvite(request.id, "accept"));
+    const decline = document.createElement("button");
+    decline.type = "button";
+    decline.className = "secondary";
+    decline.textContent = "Decline";
+    decline.addEventListener("click", () => respondToFriendInvite(request.id, "decline"));
+    actions.append(accept, decline);
+  } else {
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "secondary";
+    cancel.textContent = "Cancel";
+    cancel.addEventListener("click", () => removeFriendship(request.id));
+    actions.append(cancel);
+  }
+  row.append(identity, actions);
+  return row;
+}
+
+function renderGameInviteRow(invite, direction) {
+  const row = document.createElement("article");
+  row.className = "friend-row game-invite-row";
+  const identity = document.createElement("div");
+  identity.className = "friend-identity";
+  const other = direction === "incoming" ? invite.from : invite.to;
+  const room = invite.room || {};
+  identity.innerHTML = `
+    <strong>${escapeHtml(room.name || "Game invite")}</strong>
+    <span>${direction === "incoming" ? `From ${escapeHtml(friendAccountLabel(other))}` : `Sent to ${escapeHtml(friendAccountLabel(other))}`} - ${Number(room.openSeats) || 0} open seat${Number(room.openSeats) === 1 ? "" : "s"}</span>
+  `;
+  const actions = document.createElement("div");
+  actions.className = "friend-actions";
+  if (direction === "incoming") {
+    const accept = document.createElement("button");
+    accept.type = "button";
+    accept.textContent = "Accept";
+    accept.disabled = Boolean(room.roomFull);
+    accept.addEventListener("click", () => respondToGameInvite(invite.id, "accept"));
+    const decline = document.createElement("button");
+    decline.type = "button";
+    decline.className = "secondary";
+    decline.textContent = "Decline";
+    decline.addEventListener("click", () => respondToGameInvite(invite.id, "decline"));
+    actions.append(accept, decline);
+  } else {
+    const sent = document.createElement("span");
+    sent.className = "friend-action-note";
+    sent.textContent = "Pending";
+    actions.append(sent);
+  }
+  row.append(identity, actions);
+  return row;
+}
+
+function renderFriendsWorkspace() {
+  if (!account || !els.accountFriendsView) return;
+  const onlineCount = friendsData.friends.filter((friend) => friend.account?.online).length;
+  els.friendsSummary.textContent = `${friendsData.friends.length} friend${friendsData.friends.length === 1 ? "" : "s"}`;
+  els.friendsOnlineSummary.textContent = `${onlineCount} online`;
+  els.friendsList.innerHTML = "";
+  els.incomingFriendRequests.innerHTML = "";
+  els.outgoingFriendRequests.innerHTML = "";
+  els.gameInvitesList.innerHTML = "";
+
+  if (friendsData.friends.length) friendsData.friends.forEach((friend) => els.friendsList.append(renderFriendRow(friend)));
+  else emptyFriendsMessage(els.friendsList, "No friends yet. Send an invite by username.");
+
+  if (friendsData.incoming.length) {
+    friendsData.incoming.forEach((request) => els.incomingFriendRequests.append(renderFriendRequestRow(request, "incoming")));
+  } else {
+    emptyFriendsMessage(els.incomingFriendRequests, "No incoming friend invites.");
+  }
+  if (friendsData.outgoing.length) {
+    friendsData.outgoing.forEach((request) => els.outgoingFriendRequests.append(renderFriendRequestRow(request, "outgoing")));
+  } else {
+    emptyFriendsMessage(els.outgoingFriendRequests, "No sent friend invites.");
+  }
+
+  const incomingGameInvites = friendsData.gameInvites.incoming || [];
+  const outgoingGameInvites = friendsData.gameInvites.outgoing || [];
+  if (!incomingGameInvites.length && !outgoingGameInvites.length) {
+    emptyFriendsMessage(els.gameInvitesList, "No pending game invites.");
+  } else {
+    incomingGameInvites.forEach((invite) => els.gameInvitesList.append(renderGameInviteRow(invite, "incoming")));
+    outgoingGameInvites.forEach((invite) => els.gameInvitesList.append(renderGameInviteRow(invite, "outgoing")));
+  }
+}
+
 function deckListCardCount(decklist) {
   return String(decklist || "")
     .split(/\r?\n/)
@@ -3641,15 +3847,121 @@ async function loadActiveGames() {
   if (landingView === "account") renderActiveGames();
 }
 
+async function loadFriends() {
+  if (!account) {
+    normalizeFriendsPayload();
+    return;
+  }
+  try {
+    const result = await accountApi("/api/account/friends");
+    normalizeFriendsPayload(result);
+  } catch (error) {
+    if (error.status === 401) clearAccountSession();
+    else throw error;
+  }
+  if (landingView === "account") renderFriendsWorkspace();
+}
+
 async function loadAccountWorkspaceData() {
-  await Promise.all([loadSavedDecks(), loadActiveGames()]);
+  await Promise.all([loadSavedDecks(), loadActiveGames(), loadFriends()]);
   if (landingView === "account") renderAccountPanel();
 }
 
 function setAccountWorkspaceTab(tab) {
-  accountWorkspaceTab = tab === "games" ? "games" : "decks";
+  accountWorkspaceTab = ["games", "friends"].includes(tab) ? tab : "decks";
   renderAccountPanel();
   if (accountWorkspaceTab === "games") loadActiveGames().catch((error) => setAccountStatus(error.message, true));
+  if (accountWorkspaceTab === "friends") {
+    Promise.all([loadFriends(), loadActiveGames()])
+      .then(() => renderFriendsWorkspace())
+      .catch((error) => setAccountStatus(error.message, true));
+  }
+}
+
+async function sendFriendInvite(event = null) {
+  event?.preventDefault();
+  const username = els.friendInviteUsernameInput?.value.trim();
+  if (!username) {
+    els.friendInviteUsernameInput?.focus();
+    return;
+  }
+  setDisabled(els.sendFriendInviteButton, true);
+  try {
+    const result = await accountApi("/api/account/friends", {
+      method: "POST",
+      body: JSON.stringify({ username }),
+    });
+    normalizeFriendsPayload(result);
+    els.friendInviteUsernameInput.value = "";
+    setAccountStatus(`Friend invite sent to ${username}.`);
+    renderFriendsWorkspace();
+  } catch (error) {
+    setAccountStatus(error.message, true);
+  } finally {
+    setDisabled(els.sendFriendInviteButton, false);
+  }
+}
+
+async function respondToFriendInvite(friendshipId, action) {
+  try {
+    const result = await accountApi(`/api/account/friends/${encodeURIComponent(friendshipId)}/${action}`, {
+      method: "POST",
+      body: "{}",
+    });
+    normalizeFriendsPayload(result);
+    setAccountStatus(action === "accept" ? "Friend invite accepted." : "Friend invite declined.");
+    renderFriendsWorkspace();
+  } catch (error) {
+    setAccountStatus(error.message, true);
+  }
+}
+
+async function removeFriendship(friendshipId) {
+  try {
+    const result = await accountApi(`/api/account/friends/${encodeURIComponent(friendshipId)}`, {
+      method: "DELETE",
+    });
+    normalizeFriendsPayload(result);
+    setAccountStatus("Friend connection updated.");
+    renderFriendsWorkspace();
+  } catch (error) {
+    setAccountStatus(error.message, true);
+  }
+}
+
+async function sendGameInviteToFriend(friendAccountId, roomId) {
+  if (!friendAccountId || !roomId) return;
+  try {
+    const result = await accountApi("/api/account/game-invites", {
+      method: "POST",
+      body: JSON.stringify({ friendAccountId, roomId }),
+    });
+    normalizeFriendsPayload(result);
+    setAccountStatus("Game invite sent.");
+    renderFriendsWorkspace();
+  } catch (error) {
+    setAccountStatus(error.message, true);
+  }
+}
+
+async function respondToGameInvite(inviteId, action) {
+  try {
+    const result = await accountApi(`/api/account/game-invites/${encodeURIComponent(inviteId)}/${action}`, {
+      method: "POST",
+      body: "{}",
+    });
+    if (action === "accept" && result.room) {
+      normalizeFriendsPayload(result.friends || {});
+      history.replaceState(null, "", sameOriginRoomUrl(result.room.selfUrl));
+      enterRoomView(result.room);
+      return;
+    }
+    normalizeFriendsPayload(result);
+    setAccountStatus("Game invite declined.");
+    renderFriendsWorkspace();
+  } catch (error) {
+    setAccountStatus(error.message, true);
+  }
 }
 
 function openEndGameDialog(game) {
@@ -3662,6 +3974,7 @@ function clearAccountSession() {
   account = null;
   savedDecks = [];
   activeGames = [];
+  normalizeFriendsPayload();
   selectedBuilderDeckId = "";
   deckBuilderInitialized = false;
   renderAccountControls();
@@ -7342,6 +7655,108 @@ function escapeHtml(value) {
   })[char]);
 }
 
+function isFieldEnterConfirmTarget(target) {
+  if (target instanceof HTMLTextAreaElement) return false;
+  if (target instanceof HTMLSelectElement) return !target.disabled;
+  if (!(target instanceof HTMLInputElement)) return false;
+  const type = (target.type || "text").toLowerCase();
+  const excludedTypes = new Set([
+    "button",
+    "checkbox",
+    "color",
+    "file",
+    "hidden",
+    "image",
+    "radio",
+    "range",
+    "reset",
+    "submit",
+  ]);
+  return !excludedTypes.has(type) && !target.disabled && !target.readOnly;
+}
+
+function visibleSubmitButtons(form) {
+  return Array.from(form.querySelectorAll('button[type="submit"], input[type="submit"], button:not([type])'))
+    .filter((button) => {
+      if (button.disabled) return false;
+      if (button.closest(".hidden")) return false;
+      return button.offsetParent !== null || button.getClientRects().length > 0;
+    });
+}
+
+function defaultConfirmButtonForForm(form) {
+  if (!form) return null;
+  const explicit = form.querySelector("[data-default-confirm]");
+  if (explicit && !explicit.disabled) return explicit;
+  const buttons = visibleSubmitButtons(form);
+  const confirms = buttons.filter((button) => String(button.value || "").toLowerCase() !== "cancel");
+  return confirms.find((button) => !button.classList.contains("secondary"))
+    || confirms.find((button) => !button.classList.contains("popover-close"))
+    || confirms[confirms.length - 1]
+    || buttons[buttons.length - 1]
+    || null;
+}
+
+function activateDefaultFieldConfirm(event) {
+  if (event.key !== "Enter" || event.defaultPrevented || event.isComposing) return false;
+  if (event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return false;
+  const field = event.target;
+  if (!isFieldEnterConfirmTarget(field)) return false;
+  if (field instanceof HTMLInputElement && (field.type || "").toLowerCase() === "search") return false;
+
+  if (field === els.chatInput) {
+    event.preventDefault();
+    event.stopPropagation();
+    els.sendChatButton.click();
+    return true;
+  }
+
+  if (field === els.tokenSearchInput) return false;
+  if (field === els.deckCardSearchInput) return false;
+  if (field === els.deckVisualSearchInput) return false;
+
+  const directConfirmButton = {
+    roomForm: els.createRoomSubmitButton,
+    joinRoomForm: els.joinRoomSubmitButton,
+  }[field.form?.id];
+  if (directConfirmButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    directConfirmButton.click();
+    return true;
+  }
+
+  if (field === els.randomMaxInput) {
+    event.preventDefault();
+    event.stopPropagation();
+    els.randomRollButton.click();
+    return true;
+  }
+
+  if (
+    field === els.customTokenNameInput
+    || field === els.customTokenTypeInput
+    || field === els.customTokenPowerInput
+    || field === els.customTokenToughnessInput
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    els.createCustomTokenButton.click();
+    return true;
+  }
+
+  const form = field.form || field.closest("form");
+  if (!form) return false;
+  if (field.closest(".deck-view-toolbar") || field.closest(".deck-card-search-panel")) return false;
+  const confirmButton = defaultConfirmButtonForForm(form);
+  if (!confirmButton) return false;
+  event.preventDefault();
+  event.stopPropagation();
+  if (typeof form.requestSubmit === "function") form.requestSubmit(confirmButton);
+  else confirmButton.click();
+  return true;
+}
+
 async function copyText(text) {
   try {
     await navigator.clipboard.writeText(text);
@@ -7513,6 +7928,7 @@ els.logoutButton.addEventListener("click", async () => {
 
 els.accountDecksTab.addEventListener("click", () => setAccountWorkspaceTab("decks"));
 els.accountGamesTab.addEventListener("click", () => setAccountWorkspaceTab("games"));
+if (els.accountFriendsTab) els.accountFriendsTab.addEventListener("click", () => setAccountWorkspaceTab("friends"));
 els.accountStartGameButton.addEventListener("click", openAccountStartGameDialog);
 els.collapseDeckRailButton.addEventListener("click", () => {
   deckRailCollapsed = !deckRailCollapsed;
@@ -7652,6 +8068,20 @@ els.refreshActiveGamesButton.addEventListener("click", async () => {
     setDisabled(els.refreshActiveGamesButton, false);
   }
 });
+if (els.friendInviteForm) els.friendInviteForm.addEventListener("submit", sendFriendInvite);
+if (els.refreshFriendsButton) {
+  els.refreshFriendsButton.addEventListener("click", async () => {
+    setDisabled(els.refreshFriendsButton, true);
+    try {
+      await Promise.all([loadFriends(), loadActiveGames()]);
+      renderFriendsWorkspace();
+    } catch (error) {
+      setAccountStatus(error.message, true);
+    } finally {
+      setDisabled(els.refreshFriendsButton, false);
+    }
+  });
+}
 els.savedDeckListInput.addEventListener("input", updateSavedDeckCount);
 els.closeSaveDeckButton.addEventListener("click", () => els.saveDeckDialog.close());
 els.saveDeckDialog.addEventListener("cancel", (event) => event.preventDefault());
@@ -8373,6 +8803,7 @@ function executeShortcutAction(actionId) {
 
 document.addEventListener("keydown", (event) => {
   if (captureKeybind(event)) return;
+  if (activateDefaultFieldConfirm(event)) return;
   if (event.key === "Control") {
     document.body.classList.add("ctrl-zoom");
     if (hoveredZoomCard) showCardZoom(hoveredZoomCard);

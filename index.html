@@ -44,7 +44,7 @@
             <button id="joinGameButton" class="secondary" data-landing-action="join" type="button">Join Game</button>
             <button id="loginButton" class="secondary" data-landing-action="account" type="button">Log In</button>
           </div>
-          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.4.29</p>
+          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.5.0</p>
         </div>
         <section id="createModePanel" class="landing-subpanel create-mode-panel hidden">
           <header class="create-room-header">
@@ -182,6 +182,7 @@
               <nav class="account-workspace-tabs" aria-label="Account workspace">
                 <button id="accountDecksTab" class="account-workspace-tab active" type="button">Decks</button>
                 <button id="accountGamesTab" class="account-workspace-tab secondary" type="button">Active Games</button>
+                <button id="accountFriendsTab" class="account-workspace-tab secondary" type="button">Friends</button>
               </nav>
               <div class="account-workspace-actions">
                 <div class="account-status-stack">
@@ -350,6 +351,47 @@
                 <span>Game</span><span>Players and commanders</span><span>Turn</span><span>Last played</span><span>Actions</span>
               </div>
               <div id="activeGamesList" class="active-games-list"></div>
+            </section>
+
+            <section id="accountFriendsView" class="account-workspace-view friends-workspace hidden">
+              <header class="friends-heading">
+                <div>
+                  <h2>Friends</h2>
+                  <span id="friendsSummary">0 friends</span>
+                </div>
+                <button id="refreshFriendsButton" class="secondary" type="button">Refresh</button>
+              </header>
+              <form id="friendInviteForm" class="friend-invite-form">
+                <label>
+                  Send friend invite
+                  <input id="friendInviteUsernameInput" type="text" maxlength="24" placeholder="Username" autocomplete="off">
+                </label>
+                <button id="sendFriendInviteButton" type="submit">Send Invite</button>
+              </form>
+              <div class="friends-layout">
+                <section class="friends-panel">
+                  <header>
+                    <h3>Friends</h3>
+                    <span id="friendsOnlineSummary">0 online</span>
+                  </header>
+                  <div id="friendsList" class="friends-list"></div>
+                </section>
+                <section class="friends-panel">
+                  <header>
+                    <h3>Friend Invites</h3>
+                    <span>Incoming and sent</span>
+                  </header>
+                  <div id="incomingFriendRequests" class="friends-list"></div>
+                  <div id="outgoingFriendRequests" class="friends-list"></div>
+                </section>
+                <section class="friends-panel">
+                  <header>
+                    <h3>Game Invites</h3>
+                    <span>Pending rooms</span>
+                  </header>
+                  <div id="gameInvitesList" class="friends-list"></div>
+                </section>
+              </div>
             </section>
           </div>
           <p id="accountStatus" class="account-status hidden" role="status"></p>
