@@ -475,6 +475,7 @@ let collectionMetadataRequestInFlightKey = "";
 let collectionMetadataLoadingKey = "";
 let collectionMetadataLoadingTimer = null;
 let collectionRailCollapsed = localStorage.getItem("mage-table-collection-rail-collapsed") === "1";
+let collectionSourceSelections = [];
 let deckPrintingCardName = "";
 let deckPrintingResults = [];
 let deckPrintingRequestId = 0;
@@ -1155,6 +1156,7 @@ function currentCollection() {
     id: selectedCollectionId || "",
     name: els.collectionNameInput?.value.trim() || "",
     cardlist: els.collectionListInput?.value.trim() || "",
+    sources: normalizeCollectionSources(collectionSourceSelections),
   };
 }
 
@@ -1163,6 +1165,7 @@ function newCollection(options = {}) {
   collectionMetadata = null;
   collectionMetadataKey = "";
   collectionCardSearchResults = [];
+  collectionSourceSelections = [];
   if (els.collectionNameInput) els.collectionNameInput.value = "New Collection";
   if (els.collectionListInput) els.collectionListInput.value = "";
   renderCollectionCardSearchResults();
@@ -1174,6 +1177,7 @@ function selectCollection(collection) {
   selectedCollectionId = collection.id || "";
   collectionMetadata = null;
   collectionMetadataKey = "";
+  collectionSourceSelections = normalizeCollectionSources(collection.sources);
   if (els.collectionNameInput) els.collectionNameInput.value = collection.name || "";
   if (els.collectionListInput) els.collectionListInput.value = collection.cardlist || "";
   renderCollectionsWorkspace();
@@ -1577,45 +1581,110 @@ function openCollectionBulkAddDialog() {
 function renderCollectionBulkDeckChoices() {
   if (!els.collectionBulkDeckList) return;
   els.collectionBulkDeckList.innerHTML = "";
-  if (!savedDecks.length) {
+  const selectedSources = new Set(collectionSourceSelections.map(collectionSourceKey));
+  const sections = [
+    {
+      title: "Saved Decks",
+      empty: "No saved decks are available.",
+      sources: savedDecks.map((deck) => ({
+        type: "deck",
+        id: deck.id,
+        name: deck.name || "Untitled Deck",
+        detail: `${deckListCardCount(deck.decklist)} cards - ${deck.commander || "No commander"}`,
+      })),
+    },
+    {
+      title: "Collections",
+      empty: "No other collections are available.",
+      sources: savedCollections
+        .filter((collection) => collection.id && collection.id !== selectedCollectionId)
+        .map((collection) => ({
+          type: "collection",
+          id: collection.id,
+          name: collection.name || "Untitled Collection",
+          detail: `${deckListCardCount(collection.cardlist)} cards`,
+        })),
+    },
+  ];
+  if (!sections.some((section) => section.sources.length)) {
     const empty = document.createElement("p");
     empty.className = "empty-list-message";
-    empty.textContent = "No saved decks are available to import from.";
+    empty.textContent = "No saved decks or collections are available to import from.";
     els.collectionBulkDeckList.append(empty);
     updateCollectionBulkDeckSummary();
     return;
   }
-  savedDecks.forEach((deck) => {
-    const label = document.createElement("label");
-    label.className = "collection-bulk-deck-choice";
-    label.innerHTML = `
-      <input type="checkbox" value="${escapeHtml(deck.id)}">
-      <span><strong>${escapeHtml(deck.name || "Untitled Deck")}</strong><small>${deckListCardCount(deck.decklist)} cards - ${escapeHtml(deck.commander || "No commander")}</small></span>
-    `;
-    label.querySelector("input")?.addEventListener("change", updateCollectionBulkDeckSummary);
-    els.collectionBulkDeckList.append(label);
+  sections.forEach((section) => {
+    const group = document.createElement("section");
+    group.className = "collection-bulk-source-section";
+    const heading = document.createElement("h3");
+    heading.textContent = section.title;
+    group.append(heading);
+    if (!section.sources.length) {
+      const empty = document.createElement("p");
+      empty.className = "empty-list-message";
+      empty.textContent = section.empty;
+      group.append(empty);
+      els.collectionBulkDeckList.append(group);
+      return;
+    }
+    section.sources.forEach((source) => {
+      const label = document.createElement("label");
+      label.className = "collection-bulk-deck-choice";
+      const checked = selectedSources.has(collectionSourceKey(source)) ? " checked" : "";
+      label.innerHTML = `
+        <input type="checkbox" value="${escapeHtml(source.id)}" data-source-type="${escapeHtml(source.type)}"${checked}>
+        <span><strong>${escapeHtml(source.name)}</strong><small>${escapeHtml(source.detail)}</small></span>
+        <em>${source.type === "deck" ? "Deck" : "Collection"}</em>
+      `;
+      label.querySelector("input")?.addEventListener("change", updateCollectionBulkDeckSummary);
+      group.append(label);
+    });
+    els.collectionBulkDeckList.append(group);
   });
   updateCollectionBulkDeckSummary();
 }
 
-function selectedCollectionBulkDeckIds() {
+function normalizeCollectionSources(sources) {
+  const normalized = [];
+  const seen = new Set();
+  (Array.isArray(sources) ? sources : []).forEach((source) => {
+    const type = source?.type === "collection" ? "collection" : source?.type === "deck" ? "deck" : "";
+    const id = String(source?.id || "").trim();
+    if (!type || !id) return;
+    const key = `${type}:${id}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    normalized.push({ type, id });
+  });
+  return normalized;
+}
+
+function collectionSourceKey(source) {
+  return `${source?.type || ""}:${source?.id || ""}`;
+}
+
+function selectedCollectionBulkSources() {
   return [...(els.collectionBulkDeckList?.querySelectorAll('input[type="checkbox"]:checked') || [])]
-    .map((input) => input.value)
-    .filter(Boolean);
+    .map((input) => ({ type: input.dataset.sourceType, id: input.value }))
+    .filter((source) => source.type && source.id);
 }
 
 function updateCollectionBulkDeckSummary() {
   if (!els.collectionBulkDeckSummary) return;
-  const count = selectedCollectionBulkDeckIds().length;
-  els.collectionBulkDeckSummary.textContent = `${count} deck${count === 1 ? "" : "s"} selected`;
+  const count = selectedCollectionBulkSources().length;
+  els.collectionBulkDeckSummary.textContent = `${count} source${count === 1 ? "" : "s"} selected`;
 }
 
-function collectionEntriesFromSelectedDecks() {
-  const selectedIds = new Set(selectedCollectionBulkDeckIds());
-  if (!selectedIds.size) return [];
-  return savedDecks
-    .filter((deck) => selectedIds.has(deck.id))
-    .flatMap((deck) => parseDeckBuilderEntries(deck.decklist));
+function collectionEntriesFromSources(sources) {
+  return normalizeCollectionSources(sources).flatMap((source) => {
+    if (source.type === "deck") {
+      const deck = savedDecks.find((candidate) => candidate.id === source.id);
+      return deck ? parseDeckBuilderEntries(deck.decklist) : [];
+    }
+    const collection = savedCollections.find((candidate) => candidate.id === source.id);
+    return collection ? parseDeckBuilderEntries(collection.cardlist) : [];
+  });
 }
 
 function mergeCollectionEntries(currentEntries, incomingEntries) {
@@ -1640,21 +1709,42 @@ function mergeCollectionEntries(currentEntries, incomingEntries) {
   return merged.sort((left, right) => left.name.localeCompare(right.name));
 }
 
+function subtractCollectionEntries(currentEntries, removeEntries) {
+  const entries = mergeCollectionEntries(currentEntries, []);
+  const removeByName = new Map();
+  mergeCollectionEntries([], removeEntries).forEach((entry) => {
+    removeByName.set(normalizedDeckCardName(entry.name), Number(entry.quantity) || 0);
+  });
+  return entries
+    .map((entry) => {
+      const remove = removeByName.get(normalizedDeckCardName(entry.name)) || 0;
+      return { ...entry, quantity: Math.max(0, (Number(entry.quantity) || 0) - remove) };
+    })
+    .filter((entry) => entry.quantity > 0);
+}
+
 function applyCollectionBulkAdd() {
   const pasted = parseBulkDeckImportText(els.collectionBulkAddInput?.value || "").entries;
-  const deckEntries = collectionEntriesFromSelectedDecks();
-  const incoming = [...pasted, ...deckEntries];
-  if (!incoming.length) {
+  const previousSources = normalizeCollectionSources(collectionSourceSelections);
+  const nextSources = normalizeCollectionSources(selectedCollectionBulkSources());
+  const sourcesChanged = previousSources.map(collectionSourceKey).join("|") !== nextSources.map(collectionSourceKey).join("|");
+  const previousSourceEntries = collectionEntriesFromSources(previousSources);
+  const nextSourceEntries = collectionEntriesFromSources(nextSources);
+  const incoming = [...pasted, ...nextSourceEntries];
+  if (!incoming.length && !sourcesChanged) {
     els.collectionBulkAddInput?.focus();
     return;
   }
-  const merged = mergeCollectionEntries(parseDeckBuilderEntries(els.collectionListInput?.value || ""), incoming);
+  const baseEntries = subtractCollectionEntries(parseDeckBuilderEntries(els.collectionListInput?.value || ""), previousSourceEntries);
+  const merged = mergeCollectionEntries(baseEntries, incoming);
   els.collectionListInput.value = serializeDeckBuilderEntries(merged);
+  collectionSourceSelections = nextSources;
   collectionMetadata = null;
   collectionMetadataKey = "";
   collectionCardSearchResults = [];
   els.collectionBulkAddDialog?.close();
-  setAccountStatus(`${incoming.reduce((sum, entry) => sum + (Number(entry.quantity) || 1), 0)} cards added to collection - unsaved changes.`);
+  const pastedCount = pasted.reduce((sum, entry) => sum + (Number(entry.quantity) || 1), 0);
+  setAccountStatus(`${nextSources.length} source${nextSources.length === 1 ? "" : "s"} checked${pastedCount ? `, ${pastedCount} pasted card${pastedCount === 1 ? "" : "s"} added` : ""} - unsaved changes.`);
   renderCollectionCardSearchResults();
   renderCollectionEditor();
 }
@@ -5246,6 +5336,7 @@ async function saveCollection() {
   const body = {
     name: collection.name || "New Collection",
     cardlist: collection.cardlist,
+    sources: collection.sources,
   };
   const path = selectedCollectionId
     ? `/api/account/collections/${encodeURIComponent(selectedCollectionId)}`
@@ -5427,6 +5518,7 @@ function clearAccountSession() {
   normalizeFriendsPayload();
   selectedBuilderDeckId = "";
   selectedCollectionId = "";
+  collectionSourceSelections = [];
   deckBuilderInitialized = false;
   collectionInitialized = false;
   renderAccountControls();

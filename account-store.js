@@ -79,6 +79,21 @@ function safeJson(value, fallback) {
   }
 }
 
+function normalizeCollectionSources(sources) {
+  const normalized = [];
+  const seen = new Set();
+  (Array.isArray(sources) ? sources : []).forEach((source) => {
+    const type = source?.type === "collection" ? "collection" : source?.type === "deck" ? "deck" : "";
+    const id = String(source?.id || "").trim().slice(0, 80);
+    if (!type || !id) return;
+    const key = `${type}:${id}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    normalized.push({ type, id });
+  });
+  return normalized.slice(0, 120);
+}
+
 class AccountStore {
   constructor(databasePath = process.env.MAGE_TABLE_DB_PATH || path.join(__dirname, "data", "mage-table.db")) {
     this.databasePath = databasePath;
@@ -120,6 +135,7 @@ class AccountStore {
         account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
         name TEXT NOT NULL,
         cardlist TEXT NOT NULL DEFAULT '',
+        sources_json TEXT NOT NULL DEFAULT '[]',
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
@@ -192,6 +208,7 @@ class AccountStore {
     this.ensureColumn("accounts", "email", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("accounts", "email_normalized", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("accounts", "last_seen_at", "INTEGER NOT NULL DEFAULT 0");
+    this.ensureColumn("account_collections", "sources_json", "TEXT NOT NULL DEFAULT '[]'");
     this.ensureColumn("deck_play_stat_commits", "log_events_json", "TEXT NOT NULL DEFAULT '[]'");
     this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS accounts_email_normalized_unique ON accounts(email_normalized) WHERE email_normalized <> '';");
   }
@@ -573,14 +590,14 @@ class AccountStore {
 
   listCollections(accountId) {
     return this.db.prepare(`
-      SELECT id, name, cardlist, created_at, updated_at
+      SELECT id, name, cardlist, sources_json, created_at, updated_at
       FROM account_collections WHERE account_id = ? ORDER BY updated_at DESC
     `).all(accountId).map(this.collectionFromRow);
   }
 
   collectionById(accountId, collectionId) {
     const row = this.db.prepare(`
-      SELECT id, name, cardlist, created_at, updated_at
+      SELECT id, name, cardlist, sources_json, created_at, updated_at
       FROM account_collections WHERE id = ? AND account_id = ?
     `).get(collectionId, accountId);
     return row ? this.collectionFromRow(row) : null;
@@ -589,21 +606,22 @@ class AccountStore {
   saveCollection(accountId, values, collectionId = "") {
     const name = String(values.name || "").trim().slice(0, 80);
     const cardlist = String(values.cardlist || values.decklist || "").trim().slice(0, 200000);
+    const sourcesJson = JSON.stringify(normalizeCollectionSources(values.sources));
     if (!name) throw new Error("Collection name is required.");
     const now = Date.now();
     if (collectionId) {
       const result = this.db.prepare(`
-        UPDATE account_collections SET name = ?, cardlist = ?, updated_at = ?
+        UPDATE account_collections SET name = ?, cardlist = ?, sources_json = ?, updated_at = ?
         WHERE id = ? AND account_id = ?
-      `).run(name, cardlist, now, collectionId, accountId);
+      `).run(name, cardlist, sourcesJson, now, collectionId, accountId);
       if (Number(result.changes) === 0) throw new Error("Collection was not found.");
       return this.collectionFromRow(this.db.prepare("SELECT * FROM account_collections WHERE id = ? AND account_id = ?").get(collectionId, accountId));
     }
     const id = newId("collection");
     this.db.prepare(`
-      INSERT INTO account_collections (id, account_id, name, cardlist, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(id, accountId, name, cardlist, now, now);
+      INSERT INTO account_collections (id, account_id, name, cardlist, sources_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(id, accountId, name, cardlist, sourcesJson, now, now);
     return this.collectionFromRow(this.db.prepare("SELECT * FROM account_collections WHERE id = ?").get(id));
   }
 
@@ -771,6 +789,7 @@ class AccountStore {
       id: row.id,
       name: row.name,
       cardlist: row.cardlist,
+      sources: normalizeCollectionSources(safeJson(row.sources_json, [])),
       createdAt: Number(row.created_at),
       updatedAt: Number(row.updated_at),
     };

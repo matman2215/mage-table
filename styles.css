@@ -1012,9 +1012,22 @@ body.landing-mode .account-workspace-shell label {
   padding-right: 4px;
 }
 
+.collection-bulk-source-section {
+  display: grid;
+  gap: 6px;
+}
+
+.collection-bulk-source-section h3 {
+  margin: 4px 0 0;
+  color: #dffdf6;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .collection-bulk-deck-choice {
   display: grid !important;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 8px !important;
   align-items: center;
   border: 1px solid rgba(52, 67, 62, 0.86);
@@ -1048,6 +1061,17 @@ body.landing-mode .account-workspace-shell label {
 .collection-bulk-deck-choice small {
   color: #a6b4ae;
   font-size: 0.62rem;
+}
+
+.collection-bulk-deck-choice em {
+  border: 1px solid rgba(142, 231, 214, 0.24);
+  border-radius: 999px;
+  color: #dffdf6;
+  font-size: 0.58rem;
+  font-style: normal;
+  font-weight: 800;
+  padding: 2px 6px;
+  text-transform: uppercase;
 }
 
 .deck-history-rail {

@@ -119,17 +119,22 @@ test("account collections can be saved, updated, listed, and deleted", () => {
     const collection = store.saveCollection(account.id, {
       name: "Trade Binder",
       cardlist: "2 Sol Ring\n1 Command Tower",
+      sources: [{ type: "deck", id: "deck-one" }, { type: "collection", id: "collection-source" }],
     });
     assert.equal(collection.name, "Trade Binder");
+    assert.deepEqual(collection.sources, [{ type: "deck", id: "deck-one" }, { type: "collection", id: "collection-source" }]);
     assert.equal(store.listCollections(account.id).length, 1);
 
     const updated = store.saveCollection(account.id, {
       name: "Main Binder",
       cardlist: "3 Sol Ring",
+      sources: [{ type: "deck", id: "deck-two" }],
     }, collection.id);
     assert.equal(updated.name, "Main Binder");
     assert.equal(updated.cardlist, "3 Sol Ring");
+    assert.deepEqual(updated.sources, [{ type: "deck", id: "deck-two" }]);
     assert.equal(store.collectionById(account.id, collection.id).name, "Main Binder");
+    assert.deepEqual(store.collectionById(account.id, collection.id).sources, [{ type: "deck", id: "deck-two" }]);
     assert.equal(store.deleteCollection(account.id, collection.id), true);
     assert.equal(store.listCollections(account.id).length, 0);
   } finally {
