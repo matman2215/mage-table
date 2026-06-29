@@ -88,7 +88,12 @@ const els = {
   activeGamesList: document.querySelector("#activeGamesList"),
   refreshActiveGamesButton: document.querySelector("#refreshActiveGamesButton"),
   friendsSummary: document.querySelector("#friendsSummary"),
-  friendsOnlineSummary: document.querySelector("#friendsOnlineSummary"),
+  friendsActivityButton: document.querySelector("#friendsActivityButton"),
+  friendsActivityBadge: document.querySelector("#friendsActivityBadge"),
+  friendsActivityRail: document.querySelector("#friendsActivityRail"),
+  closeFriendsActivityButton: document.querySelector("#closeFriendsActivityButton"),
+  friendRequestsSummary: document.querySelector("#friendRequestsSummary"),
+  gameInvitesSummary: document.querySelector("#gameInvitesSummary"),
   friendInviteForm: document.querySelector("#friendInviteForm"),
   friendInviteUsernameInput: document.querySelector("#friendInviteUsernameInput"),
   sendFriendInviteButton: document.querySelector("#sendFriendInviteButton"),
@@ -404,6 +409,7 @@ let deckBuilderInitialized = false;
 let deckCardSearchResults = [];
 let deckCardSearchTimer = null;
 let deckHistoryOpen = localStorage.getItem("mage-table-deck-history-open") === "1";
+let friendsActivityOpen = localStorage.getItem("mage-table-friends-activity-open") !== "0";
 let deckHistoryChangeTimer = null;
 let deckHistoryBaseline = null;
 let deckBuilderPreviewCollapsed = false;
@@ -3369,14 +3375,19 @@ function friendAccountLabel(accountValue = {}) {
   return fullName ? `${fullName} (@${accountValue.username})` : `@${accountValue.username || "unknown"}`;
 }
 
-function friendPresenceMarkup(accountValue = {}) {
+function friendPresenceText(accountValue = {}) {
   const online = Boolean(accountValue.online);
   const lastSeen = Number(accountValue.lastSeenAt) || 0;
-  const lastSeenText = online
+  return online
     ? "Online"
     : lastSeen
       ? `Last seen ${new Date(lastSeen).toLocaleString()}`
       : "Offline";
+}
+
+function friendPresenceMarkup(accountValue = {}) {
+  const online = Boolean(accountValue.online);
+  const lastSeenText = friendPresenceText(accountValue);
   return `<span class="presence-dot${online ? " online" : ""}" title="${escapeHtml(lastSeenText)}" aria-label="${escapeHtml(lastSeenText)}"></span>`;
 }
 
@@ -3385,6 +3396,28 @@ function emptyFriendsMessage(container, message) {
   empty.className = "empty-list-message";
   empty.textContent = message;
   container.append(empty);
+}
+
+function emptyFriendTableRow(message) {
+  const row = document.createElement("tr");
+  row.className = "friend-table-empty-row";
+  const cell = document.createElement("td");
+  cell.colSpan = 4;
+  cell.textContent = message;
+  row.append(cell);
+  return row;
+}
+
+function syncFriendsActivityRail() {
+  if (!els.accountFriendsView) return;
+  els.accountFriendsView.classList.toggle("friends-activity-collapsed", !friendsActivityOpen);
+  els.friendsActivityButton?.setAttribute("aria-expanded", String(friendsActivityOpen));
+}
+
+function setFriendsActivityOpen(open) {
+  friendsActivityOpen = Boolean(open);
+  localStorage.setItem("mage-table-friends-activity-open", friendsActivityOpen ? "1" : "0");
+  syncFriendsActivityRail();
 }
 
 function inviteableActiveGames() {
@@ -3417,24 +3450,40 @@ function renderFriendGameInviteControls(friendship, actions) {
 }
 
 function renderFriendRow(friendship) {
-  const row = document.createElement("article");
+  const row = document.createElement("tr");
   row.className = `friend-row${friendship.account?.online ? " online" : ""}`;
   const identity = document.createElement("div");
   identity.className = "friend-identity";
   identity.innerHTML = `
     <strong>${friendPresenceMarkup(friendship.account)}${escapeHtml(friendAccountLabel(friendship.account))}</strong>
-    <span>${friendship.account?.online ? "Available" : "Offline"}</span>
+    <span>@${escapeHtml(friendship.account?.username || "unknown")}</span>
   `;
+  const identityCell = document.createElement("td");
+  identityCell.className = "friend-identity-cell";
+  identityCell.append(identity);
+
+  const presenceCell = document.createElement("td");
+  presenceCell.className = "friend-presence-cell";
+  presenceCell.innerHTML = `${friendPresenceMarkup(friendship.account)}<span>${escapeHtml(friendPresenceText(friendship.account))}</span>`;
+
+  const inviteCell = document.createElement("td");
+  const inviteControls = document.createElement("div");
+  inviteControls.className = "friend-actions";
+  renderFriendGameInviteControls(friendship, inviteControls);
+  inviteCell.append(inviteControls);
+
+  const actionsCell = document.createElement("td");
   const actions = document.createElement("div");
   actions.className = "friend-actions";
-  renderFriendGameInviteControls(friendship, actions);
   const remove = document.createElement("button");
   remove.type = "button";
   remove.className = "secondary";
   remove.textContent = "Remove";
   remove.addEventListener("click", () => removeFriendship(friendship.id));
   actions.append(remove);
-  row.append(identity, actions);
+  actionsCell.append(actions);
+
+  row.append(identityCell, presenceCell, inviteCell, actionsCell);
   return row;
 }
 
@@ -3510,15 +3559,26 @@ function renderGameInviteRow(invite, direction) {
 function renderFriendsWorkspace() {
   if (!account || !els.accountFriendsView) return;
   const onlineCount = friendsData.friends.filter((friend) => friend.account?.online).length;
-  els.friendsSummary.textContent = `${friendsData.friends.length} friend${friendsData.friends.length === 1 ? "" : "s"}`;
-  els.friendsOnlineSummary.textContent = `${onlineCount} online`;
+  const friendRequestCount = friendsData.incoming.length + friendsData.outgoing.length;
+  const incomingGameInvites = friendsData.gameInvites.incoming || [];
+  const outgoingGameInvites = friendsData.gameInvites.outgoing || [];
+  const gameInviteCount = incomingGameInvites.length + outgoingGameInvites.length;
+  const activityCount = friendRequestCount + gameInviteCount;
+  els.friendsSummary.textContent = `${friendsData.friends.length} friend${friendsData.friends.length === 1 ? "" : "s"} - ${onlineCount} online`;
+  if (els.friendRequestsSummary) els.friendRequestsSummary.textContent = `${friendRequestCount} pending`;
+  if (els.gameInvitesSummary) els.gameInvitesSummary.textContent = `${gameInviteCount} pending`;
+  if (els.friendsActivityBadge) {
+    els.friendsActivityBadge.textContent = String(activityCount);
+    els.friendsActivityBadge.classList.toggle("hidden", activityCount === 0);
+  }
+  syncFriendsActivityRail();
   els.friendsList.innerHTML = "";
   els.incomingFriendRequests.innerHTML = "";
   els.outgoingFriendRequests.innerHTML = "";
   els.gameInvitesList.innerHTML = "";
 
   if (friendsData.friends.length) friendsData.friends.forEach((friend) => els.friendsList.append(renderFriendRow(friend)));
-  else emptyFriendsMessage(els.friendsList, "No friends yet. Send an invite by username.");
+  else els.friendsList.append(emptyFriendTableRow("No friends yet. Send an invite by username."));
 
   if (friendsData.incoming.length) {
     friendsData.incoming.forEach((request) => els.incomingFriendRequests.append(renderFriendRequestRow(request, "incoming")));
@@ -3531,8 +3591,6 @@ function renderFriendsWorkspace() {
     emptyFriendsMessage(els.outgoingFriendRequests, "No sent friend invites.");
   }
 
-  const incomingGameInvites = friendsData.gameInvites.incoming || [];
-  const outgoingGameInvites = friendsData.gameInvites.outgoing || [];
   if (!incomingGameInvites.length && !outgoingGameInvites.length) {
     emptyFriendsMessage(els.gameInvitesList, "No pending game invites.");
   } else {
@@ -7929,6 +7987,8 @@ els.logoutButton.addEventListener("click", async () => {
 els.accountDecksTab.addEventListener("click", () => setAccountWorkspaceTab("decks"));
 els.accountGamesTab.addEventListener("click", () => setAccountWorkspaceTab("games"));
 if (els.accountFriendsTab) els.accountFriendsTab.addEventListener("click", () => setAccountWorkspaceTab("friends"));
+if (els.friendsActivityButton) els.friendsActivityButton.addEventListener("click", () => setFriendsActivityOpen(!friendsActivityOpen));
+if (els.closeFriendsActivityButton) els.closeFriendsActivityButton.addEventListener("click", () => setFriendsActivityOpen(false));
 els.accountStartGameButton.addEventListener("click", openAccountStartGameDialog);
 els.collapseDeckRailButton.addEventListener("click", () => {
   deckRailCollapsed = !deckRailCollapsed;

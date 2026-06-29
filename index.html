@@ -44,7 +44,7 @@
             <button id="joinGameButton" class="secondary" data-landing-action="join" type="button">Join Game</button>
             <button id="loginButton" class="secondary" data-landing-action="account" type="button">Log In</button>
           </div>
-          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.5.0</p>
+          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.5.1</p>
         </div>
         <section id="createModePanel" class="landing-subpanel create-mode-panel hidden">
           <header class="create-room-header">
@@ -359,38 +359,60 @@
                   <h2>Friends</h2>
                   <span id="friendsSummary">0 friends</span>
                 </div>
-                <button id="refreshFriendsButton" class="secondary" type="button">Refresh</button>
+                <div class="friends-heading-actions">
+                  <button id="friendsActivityButton" class="secondary" type="button" aria-expanded="true" title="Friend requests and game invites">
+                    Activity <span id="friendsActivityBadge" class="friends-activity-badge hidden">0</span>
+                  </button>
+                  <button id="refreshFriendsButton" class="secondary" type="button">Refresh</button>
+                </div>
               </header>
-              <form id="friendInviteForm" class="friend-invite-form">
-                <label>
-                  Send friend invite
-                  <input id="friendInviteUsernameInput" type="text" maxlength="24" placeholder="Username" autocomplete="off">
-                </label>
-                <button id="sendFriendInviteButton" type="submit">Send Invite</button>
-              </form>
               <div class="friends-layout">
-                <section class="friends-panel">
+                <main class="friends-main-panel">
+                  <form id="friendInviteForm" class="friend-invite-form">
+                    <label>
+                      Send friend invite
+                      <input id="friendInviteUsernameInput" type="text" maxlength="24" placeholder="Username" autocomplete="off">
+                    </label>
+                    <button id="sendFriendInviteButton" type="submit">Send Invite</button>
+                  </form>
+                  <div class="friends-table-wrap">
+                    <table class="friends-table">
+                      <thead>
+                        <tr>
+                          <th>Friend</th>
+                          <th>Presence</th>
+                          <th>Invite to game</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody id="friendsList"></tbody>
+                    </table>
+                  </div>
+                </main>
+                <aside id="friendsActivityRail" class="friends-activity-rail">
                   <header>
-                    <h3>Friends</h3>
-                    <span id="friendsOnlineSummary">0 online</span>
+                    <div>
+                      <h3>Activity</h3>
+                      <span>Friend requests and game invites</span>
+                    </div>
+                    <button id="closeFriendsActivityButton" class="popover-close" type="button" title="Close activity rail" aria-label="Close activity rail">x</button>
                   </header>
-                  <div id="friendsList" class="friends-list"></div>
-                </section>
-                <section class="friends-panel">
-                  <header>
-                    <h3>Friend Invites</h3>
-                    <span>Incoming and sent</span>
-                  </header>
-                  <div id="incomingFriendRequests" class="friends-list"></div>
-                  <div id="outgoingFriendRequests" class="friends-list"></div>
-                </section>
-                <section class="friends-panel">
-                  <header>
-                    <h3>Game Invites</h3>
-                    <span>Pending rooms</span>
-                  </header>
-                  <div id="gameInvitesList" class="friends-list"></div>
-                </section>
+                  <section class="friends-rail-section">
+                    <header>
+                      <h4>Friend Requests</h4>
+                      <span id="friendRequestsSummary">0 pending</span>
+                    </header>
+                    <div id="incomingFriendRequests" class="friends-list"></div>
+                    <div id="outgoingFriendRequests" class="friends-list"></div>
+                  </section>
+                  <section class="friends-rail-section">
+                    <header>
+                      <h4>Game Invites</h4>
+                      <span id="gameInvitesSummary">0 pending</span>
+                    </header>
+                    <div id="gameInvitesList" class="friends-list"></div>
+                  </section>
+                </aside>
               </div>
             </section>
           </div>

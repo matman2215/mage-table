@@ -658,6 +658,7 @@ body.landing-mode .landing-panel button:not(.landing-actions button) {
 .deck-library-heading button,
 .deck-builder-header-actions button,
 .active-games-heading button,
+.friends-heading button,
 .active-game-actions button {
   min-height: 32px;
   padding: 0 10px;
@@ -2559,18 +2560,41 @@ body.shift-cascade .deck-stack-card strong {
 
 .friends-workspace {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
-  gap: 12px;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
   padding: 16px;
   min-height: 0;
 }
 
 .friends-heading,
-.friends-panel header {
+.friends-activity-rail > header,
+.friends-rail-section header {
   display: flex;
   justify-content: space-between;
   gap: 12px;
   align-items: center;
+}
+
+.friends-heading-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.friends-activity-badge {
+  display: inline-grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #06110d;
+  font-size: 0.62rem;
+  font-weight: 900;
+}
+
+.friends-activity-badge.hidden {
+  display: none;
 }
 
 .friend-invite-form {
@@ -2578,36 +2602,132 @@ body.shift-cascade .deck-stack-card strong {
   grid-template-columns: minmax(180px, 1fr) auto;
   gap: 10px;
   align-items: end;
-  border-block: 1px solid #34433e;
-  padding: 10px 0;
+  border-bottom: 1px solid #34433e;
+  padding-bottom: 10px;
 }
 
 .friends-layout {
   display: grid;
-  grid-template-columns: minmax(260px, 1.1fr) minmax(240px, 0.9fr) minmax(260px, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(284px, 340px);
   gap: 12px;
   min-height: 0;
 }
 
-.friends-panel {
+.friends-workspace.friends-activity-collapsed .friends-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.friends-workspace.friends-activity-collapsed .friends-activity-rail {
+  display: none;
+}
+
+.friends-main-panel {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 8px;
+  gap: 10px;
   min-height: 0;
   border: 1px solid #34433e;
   background: #111815;
   padding: 10px;
+  overflow: hidden;
 }
 
-.friends-panel h3 {
+.friends-table-wrap {
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid #293832;
+  background: #0d1512;
+}
+
+.friends-table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+}
+
+.friends-table th,
+.friends-table td {
+  border-bottom: 1px solid #26362f;
+  padding: 10px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.friends-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #16211d;
+  color: #a6b4ae;
+  font-size: 0.65rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.friends-table .friend-row {
+  display: table-row;
+  background: #111b17;
+}
+
+.friends-table .friend-row.online {
+  background: #13231b;
+}
+
+.friends-table .friend-row.online .friend-identity-cell {
+  box-shadow: inset 3px 0 0 rgba(80, 202, 138, 0.78);
+}
+
+.friend-table-empty-row td {
+  color: #a6b4ae;
+  padding: 24px 12px;
+  text-align: center;
+}
+
+.friend-presence-cell {
+  color: #cbd7d2;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.friend-presence-cell .presence-dot {
+  margin-right: 7px;
+}
+
+.friends-activity-rail {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  min-height: 0;
+  border: 1px solid #34433e;
+  background: #131a17;
+  padding: 10px;
+  overflow: hidden;
+}
+
+.friends-activity-rail h3,
+.friends-rail-section h4 {
   margin: 0;
   font-size: 0.9rem;
 }
 
-.friends-panel header span,
+.friends-rail-section h4 {
+  font-size: 0.78rem;
+}
+
+.friends-activity-rail > header span,
+.friends-rail-section header span,
 .friend-action-note {
   color: #a6b4ae;
   font-size: 0.68rem;
+}
+
+.friends-rail-section {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
+  min-height: 0;
+  border-top: 1px solid #293832;
+  padding-top: 10px;
 }
 
 .friends-list {
@@ -2618,7 +2738,7 @@ body.shift-cascade .deck-stack-card strong {
   overflow: auto;
 }
 
-.friend-row {
+.friends-list .friend-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
@@ -2628,7 +2748,7 @@ body.shift-cascade .deck-stack-card strong {
   padding: 9px;
 }
 
-.friend-row.online {
+.friends-list .friend-row.online {
   border-color: rgba(80, 202, 138, 0.55);
 }
 
@@ -6343,7 +6463,7 @@ body.cosmic-table-theme .counter-step {
     grid-template-columns: 1fr;
   }
 
-  .friend-row {
+  .friends-list .friend-row {
     grid-template-columns: 1fr;
   }
 
