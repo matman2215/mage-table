@@ -295,6 +295,11 @@ const els = {
   deckActionSummary: document.querySelector("#deckActionSummary"),
   deckActionList: document.querySelector("#deckActionList"),
   closeDeckActionButton: document.querySelector("#closeDeckActionButton"),
+  printingDialog: document.querySelector("#printingDialog"),
+  printingDialogTitle: document.querySelector("#printingDialogTitle"),
+  printingDialogSummary: document.querySelector("#printingDialogSummary"),
+  closePrintingDialogButton: document.querySelector("#closePrintingDialogButton"),
+  printingList: document.querySelector("#printingList"),
   deckStatsDialog: document.querySelector("#deckStatsDialog"),
   deckStatsDialogTitle: document.querySelector("#deckStatsDialogTitle"),
   deckStatsDialogSummary: document.querySelector("#deckStatsDialogSummary"),
@@ -408,6 +413,9 @@ let selectedBuilderDeckId = "";
 let deckBuilderInitialized = false;
 let deckCardSearchResults = [];
 let deckCardSearchTimer = null;
+let deckPrintingCardName = "";
+let deckPrintingResults = [];
+let deckPrintingRequestId = 0;
 let deckHistoryOpen = localStorage.getItem("mage-table-deck-history-open") === "1";
 let friendsActivityOpen = localStorage.getItem("mage-table-friends-activity-open") !== "0";
 let deckHistoryChangeTimer = null;
@@ -1872,6 +1880,7 @@ function deckStackCard(card, index, query) {
     <span class="deck-card-edit-controls" aria-label="Edit ${escapeHtml(card.name)} quantity">
       <button type="button" data-deck-adjust="-1" title="Remove one ${escapeHtml(card.name)}" aria-label="Remove one ${escapeHtml(card.name)}">-</button>
       <button type="button" data-deck-adjust="1" title="Add one ${escapeHtml(card.name)}" aria-label="Add one ${escapeHtml(card.name)}">+</button>
+      <button type="button" data-deck-printings title="Choose printing for ${escapeHtml(card.name)}" aria-label="Choose printing for ${escapeHtml(card.name)}">...</button>
     </span>
   `;
   attachDeckCardEditControls(item, card.name);
@@ -1885,6 +1894,13 @@ function attachDeckCardEditControls(root, cardName) {
       event.preventDefault();
       event.stopPropagation();
       adjustBuilderCard(cardName, Number(button.dataset.deckAdjust) || 0);
+    });
+  });
+  root.querySelectorAll("[data-deck-printings]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openDeckPrintingDialog(cardName);
     });
   });
 }
@@ -2008,6 +2024,7 @@ function deckTextTableRow(card, query) {
     <td class="deck-table-edit-cell">
       <button type="button" data-deck-adjust="-1" title="Remove one ${escapeHtml(card.name)}" aria-label="Remove one ${escapeHtml(card.name)}">-</button>
       <button type="button" data-deck-adjust="1" title="Add one ${escapeHtml(card.name)}" aria-label="Add one ${escapeHtml(card.name)}">+</button>
+      <button type="button" data-deck-printings title="Choose printing for ${escapeHtml(card.name)}" aria-label="Choose printing for ${escapeHtml(card.name)}">...</button>
     </td>
   `;
   attachDeckCardEditControls(row, card.name);
@@ -2991,6 +3008,111 @@ function titleCase(value) {
   return String(value || "").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function currentBuilderEntryForCard(cardName) {
+  const target = normalizedDeckCardName(cardName);
+  return parseDeckBuilderEntries(els.deckBuilderListInput.value)
+    .find((entry) => normalizedDeckCardName(entry.name) === target) || null;
+}
+
+function deckBuilderEntryRawName(entry, printing = {}) {
+  const set = String(printing.set || entry.set || "").trim().toLowerCase();
+  const collectorNumber = String(printing.collectorNumber || entry.collectorNumber || "").trim();
+  const parts = [entry.name || printing.name || ""];
+  if (set && collectorNumber) parts.push(`(${set}) ${collectorNumber}`);
+  if (entry.finish) parts.push(`*${entry.finish}*`);
+  if (entry.category) parts.push(`[${entry.category}]`);
+  if (Array.isArray(entry.tags) && entry.tags.length) parts.push(`^${entry.tags.join(",")}^`);
+  return parts.filter(Boolean).join(" ");
+}
+
+function printingMatchesEntry(printing, entry) {
+  if (!printing || !entry) return false;
+  return String(printing.set || "").toLowerCase() === String(entry.set || "").toLowerCase()
+    && String(printing.collectorNumber || "").toLowerCase() === String(entry.collectorNumber || "").toLowerCase();
+}
+
+async function openDeckPrintingDialog(cardName) {
+  deckPrintingCardName = String(cardName || "").trim();
+  if (!deckPrintingCardName) return;
+  const requestId = deckPrintingRequestId + 1;
+  deckPrintingRequestId = requestId;
+  deckPrintingResults = [];
+  els.printingDialogTitle.textContent = `${deckPrintingCardName} Printings`;
+  els.printingDialogSummary.textContent = "Loading exact printings from Scryfall...";
+  els.printingList.innerHTML = '<p class="empty-list-message">Loading printings...</p>';
+  if (!els.printingDialog.open) els.printingDialog.showModal();
+  try {
+    const result = await api(`/api/scryfall/printings?name=${encodeURIComponent(deckPrintingCardName)}`);
+    if (requestId !== deckPrintingRequestId) return;
+    deckPrintingResults = result.cards || [];
+    renderDeckPrintingDialog();
+  } catch (error) {
+    if (requestId !== deckPrintingRequestId) return;
+    els.printingDialogSummary.textContent = error.message;
+    els.printingList.innerHTML = '<p class="empty-list-message">Could not load printings.</p>';
+  }
+}
+
+function renderDeckPrintingDialog() {
+  const currentEntry = currentBuilderEntryForCard(deckPrintingCardName);
+  els.printingDialogSummary.textContent = deckPrintingResults.length
+    ? `${deckPrintingResults.length} printing${deckPrintingResults.length === 1 ? "" : "s"} found. Applying one writes its set and collector number into the decklist.`
+    : "No printings were found.";
+  els.printingList.innerHTML = "";
+  if (!deckPrintingResults.length) {
+    els.printingList.innerHTML = '<p class="empty-list-message">No printings found.</p>';
+    return;
+  }
+  deckPrintingResults.forEach((printing, index) => {
+    const card = document.createElement("article");
+    card.className = "printing-card";
+    if (printingMatchesEntry(printing, currentEntry)) card.classList.add("selected");
+    const preview = deckPrintingPreview(printing, index);
+    const details = document.createElement("div");
+    details.className = "printing-details";
+    details.innerHTML = `
+      <strong>${escapeHtml(printing.name)}</strong>
+      <span>${escapeHtml(printing.set?.toUpperCase() || "SET")} #${escapeHtml(printing.collectorNumber || "?")} · ${escapeHtml(printing.setName || "Unknown set")}</span>
+      <span>${escapeHtml(titleCase(printing.rarity || "unknown"))} · ${formatUsd(searchCardUnitPrice(printing))} ${priceSourceShortLabel(deckPriceSource)}</span>
+    `;
+    const apply = document.createElement("button");
+    apply.type = "button";
+    apply.textContent = currentEntry ? "Apply" : "Add";
+    apply.addEventListener("click", () => applyDeckPrinting(printing));
+    card.append(preview, details, apply);
+    els.printingList.append(card);
+  });
+}
+
+function deckPrintingPreview(printing, index) {
+  const preview = cardElement(deckSearchCardPreview(printing), null, "librarySearch", index);
+  preview.classList.add("printing-preview-card");
+  attachCardZoomHandlers(preview, "deck-printing", index);
+  return preview;
+}
+
+function applyDeckPrinting(printing) {
+  const before = deckHistorySnapshot();
+  const entries = parseDeckBuilderEntries(els.deckBuilderListInput.value);
+  const target = normalizedDeckCardName(deckPrintingCardName || printing.name);
+  let entry = entries.find((candidate) => normalizedDeckCardName(candidate.name) === target);
+  if (!entry) {
+    entry = { quantity: 1, name: printing.name || deckPrintingCardName };
+    entries.push(entry);
+  }
+  entry.set = String(printing.set || "").toLowerCase();
+  entry.collectorNumber = String(printing.collectorNumber || "");
+  entry.rawName = deckBuilderEntryRawName(entry, printing);
+  els.deckBuilderListInput.value = serializeDeckBuilderEntries(entries);
+  deckBuilderPreviewCollapsed = false;
+  invalidateDeckMetadata();
+  els.deckBuilderStatus.textContent = `${entry.name} printing set to ${entry.set.toUpperCase()} #${entry.collectorNumber}`;
+  renderDeckBuilderPreview();
+  renderDeckCardSearchResults();
+  renderDeckPrintingDialog();
+  recordDeckHistoryChange("Changed card printing", before);
+}
+
 function adjustBuilderCard(cardName, delta) {
   deckBuilderPreviewCollapsed = false;
   const before = deckHistorySnapshot();
@@ -3245,6 +3367,7 @@ function renderDeckCardSearchResults() {
     actions.innerHTML = `
       <button type="button" data-deck-adjust="-1" title="Remove one ${escapeHtml(card.name)}" aria-label="Remove one ${escapeHtml(card.name)}">-</button>
       <button type="button" data-deck-adjust="1" title="Add one ${escapeHtml(card.name)}" aria-label="Add one ${escapeHtml(card.name)}">+</button>
+      <button type="button" data-deck-printings title="Choose printing for ${escapeHtml(card.name)}" aria-label="Choose printing for ${escapeHtml(card.name)}">...</button>
     `;
     item.append(preview, details, price, owned, actions);
     attachDeckCardEditControls(item, card.name);
@@ -8028,6 +8151,7 @@ els.deckDetailsForm.addEventListener("submit", (event) => {
   recordDeckHistoryChange("Updated deck details", before);
 });
 els.closeDeckActionButton.addEventListener("click", () => els.deckActionDialog.close());
+els.closePrintingDialogButton.addEventListener("click", () => els.printingDialog.close());
 els.closeDeckStatsButton.addEventListener("click", (event) => {
   event.preventDefault();
   els.deckStatsDialog.close();

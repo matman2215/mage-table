@@ -1218,6 +1218,13 @@ body.landing-mode .account-workspace-shell label {
   font-size: 0.64rem;
 }
 
+.deck-card-edit-controls [data-deck-printings],
+.deck-table-edit-cell [data-deck-printings],
+.deck-search-actions [data-deck-printings] {
+  font-size: 0.58rem;
+  letter-spacing: 0;
+}
+
 .deck-builder-content {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -1679,7 +1686,7 @@ body.shift-cascade .deck-stack-card strong {
 
 .deck-text-table th:nth-child(7),
 .deck-text-table td:nth-child(7) {
-  width: 68px;
+  width: 96px;
 }
 
 .deck-text-table .highlight {
@@ -1768,6 +1775,76 @@ body.shift-cascade .deck-stack-card strong {
   gap: 4px;
   justify-content: flex-end;
   align-items: center;
+}
+
+.printing-dialog-card {
+  width: min(1180px, calc(100vw - 32px));
+  max-height: min(860px, calc(100vh - 32px));
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.printing-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 10px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.printing-card {
+  display: grid;
+  grid-template-rows: auto minmax(74px, auto) auto;
+  gap: 7px;
+  border: 1px solid #34433e;
+  border-radius: 8px;
+  background: #111815;
+  padding: 8px;
+}
+
+.printing-card.selected {
+  border-color: #f1ca70;
+  box-shadow: 0 0 0 2px rgba(241, 202, 112, 0.18);
+}
+
+.printing-preview-card {
+  width: 100%;
+  aspect-ratio: 488 / 680;
+  border-radius: 8px;
+  padding: 0;
+  pointer-events: auto;
+}
+
+.printing-preview-card > span,
+.printing-preview-card > strong,
+.printing-preview-card > small {
+  display: none;
+}
+
+.printing-preview-card img {
+  border-radius: inherit;
+}
+
+.printing-details {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.printing-details strong,
+.printing-details span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.printing-details strong {
+  font-size: 0.72rem;
+}
+
+.printing-details span {
+  color: #a6b4ae;
+  font-size: 0.62rem;
 }
 
 .deck-raw-list {

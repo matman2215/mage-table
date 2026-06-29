@@ -44,7 +44,7 @@
             <button id="joinGameButton" class="secondary" data-landing-action="join" type="button">Join Game</button>
             <button id="loginButton" class="secondary" data-landing-action="account" type="button">Log In</button>
           </div>
-          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.5.1</p>
+          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.5.2</p>
         </div>
         <section id="createModePanel" class="landing-subpanel create-mode-panel hidden">
           <header class="create-room-header">
@@ -724,6 +724,19 @@
           <button id="closeDeckActionButton" class="popover-close" type="button" title="Dismiss" aria-label="Dismiss deck actions">x</button>
         </header>
         <div id="deckActionList" class="dialog-actions deck-action-list"></div>
+      </form>
+    </dialog>
+
+    <dialog id="printingDialog">
+      <form method="dialog" class="dialog-card printing-dialog-card">
+        <header class="popover-header">
+          <div>
+            <h2 id="printingDialogTitle">Choose Printing</h2>
+            <p id="printingDialogSummary" class="dialog-note">Select the exact printing to use in this deck.</p>
+          </div>
+          <button id="closePrintingDialogButton" class="popover-close" type="button" title="Dismiss" aria-label="Dismiss printing picker">x</button>
+        </header>
+        <div id="printingList" class="printing-list"></div>
       </form>
     </dialog>
 

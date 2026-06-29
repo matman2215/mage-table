@@ -2,6 +2,7 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const zlib = require("node:zlib");
 const { AccountStore } = require("./account-store");
 const { GameStore } = require("./game-store");
 
@@ -13,14 +14,17 @@ const gameStore = new GameStore();
 const scryfallCache = new Map();
 const scryfallTokenSearchCache = new Map();
 const scryfallCardSearchCache = new Map();
-let mtgjsonPriceIndex = null;
-let mtgjsonPriceIndexPromise = null;
+const scryfallPrintSearchCache = new Map();
+let mtgjsonPriceMap = null;
+let mtgjsonPriceMapPromise = null;
+const mtgjsonSetIndexCache = new Map();
+const mtgjsonSetIndexPromiseCache = new Map();
 let lastScryfallRequestAt = 0;
 const scryfallRequestTimeoutMs = 25000;
 const scryfallMaxAttempts = 3;
 const mtgjsonPriceTimeoutMs = Number(process.env.MTGJSON_PRICE_TIMEOUT_MS || 45000);
 const mtgjsonPriceSoftTimeoutMs = Number(process.env.MTGJSON_PRICE_SOFT_TIMEOUT_MS || 3500);
-const mtgjsonBaseUrl = process.env.MTGJSON_BASE_URL || "https://mtgjson.com/api/v5";
+const mtgjsonBaseUrl = (process.env.MTGJSON_BASE_URL || "https://mtgjson.com/api/v5").replace(/\/+$/, "");
 const presenceTimeoutMs = 30000;
 const residentRoomUnloadMs = 2 * 60 * 1000;
 const guestHostDormantMs = 10 * 60 * 1000;
@@ -929,19 +933,19 @@ async function enrichCardSummariesWithProviderPrices(cards) {
   const summaries = [...cards].filter((card) => card?.scryfallId || card?.scryfallOracleId);
   if (!summaries.length) {
     return {
-      available: Boolean(mtgjsonPriceIndex && !mtgjsonPriceIndex.disabled),
-      pending: Boolean(mtgjsonPriceIndexPromise && !mtgjsonPriceIndex),
+      available: Boolean(mtgjsonPriceMap),
+      pending: Boolean(mtgjsonPriceMapPromise && !mtgjsonPriceMap),
       applied: 0,
     };
   }
   let index;
   try {
-    index = await mtgjsonProviderPriceIndex({ softTimeoutMs: mtgjsonPriceSoftTimeoutMs });
+    index = await mtgjsonProviderPriceIndex(summaries, { softTimeoutMs: mtgjsonPriceSoftTimeoutMs });
   } catch (error) {
     console.warn("MTGJSON price providers unavailable:", error.message);
     return { available: false, pending: false, applied: 0, error: error.message };
   }
-  if (!index) return { available: false, pending: Boolean(mtgjsonPriceIndexPromise), applied: 0 };
+  if (!index) return { available: false, pending: true, applied: 0 };
   if (index.disabled) return { available: false, pending: false, applied: 0 };
   let applied = 0;
   for (const card of summaries) {
@@ -962,49 +966,142 @@ function mergePriceProviderStatus(...statuses) {
   }), { available: false, pending: false, applied: 0, error: "" });
 }
 
-async function mtgjsonProviderPriceIndex({ softTimeoutMs = 0 } = {}) {
+async function mtgjsonProviderPriceIndex(cards, { softTimeoutMs = 0 } = {}) {
   if (process.env.MAGE_TABLE_DISABLE_MTGJSON_PRICES === "1") {
     return { byScryfallId: new Map(), byOracleId: new Map(), disabled: true };
   }
-  if (mtgjsonPriceIndex) return mtgjsonPriceIndex;
-  if (!mtgjsonPriceIndexPromise) {
-    mtgjsonPriceIndexPromise = buildMtgjsonProviderPriceIndex()
-      .then((index) => {
-        mtgjsonPriceIndex = index;
-        return index;
-      })
-      .catch((error) => {
-        mtgjsonPriceIndexPromise = null;
-        throw error;
-      });
-  }
+  const promise = buildMtgjsonProviderPriceIndex(cards);
   if (softTimeoutMs > 0) {
     return Promise.race([
-      mtgjsonPriceIndexPromise,
+      promise,
       sleep(softTimeoutMs).then(() => null),
     ]);
   }
-  return mtgjsonPriceIndexPromise;
+  return promise;
 }
 
-async function buildMtgjsonProviderPriceIndex() {
-  const [identifiersPayload, pricesPayload] = await Promise.all([
-    fetchJsonWithTimeout(`${mtgjsonBaseUrl}/AllIdentifiers.json`, mtgjsonPriceTimeoutMs),
-    fetchJsonWithTimeout(`${mtgjsonBaseUrl}/AllPricesToday.json`, mtgjsonPriceTimeoutMs),
+async function buildMtgjsonProviderPriceIndex(cards) {
+  const summaries = [...cards].filter(Boolean);
+  const setCodes = [...new Set(summaries.map((card) => normalizeMtgjsonSetCode(card.set)).filter(Boolean))];
+  const [prices, setIndexes] = await Promise.all([
+    mtgjsonDailyPriceMap(),
+    Promise.all(setCodes.map((setCode) => mtgjsonSetIndex(setCode))),
   ]);
-  const identifiers = identifiersPayload.data || identifiersPayload;
-  const prices = pricesPayload.data || pricesPayload;
+  const setIndexMap = new Map(setCodes.map((setCode, index) => [setCode, setIndexes[index]]));
   const byScryfallId = new Map();
   const byOracleId = new Map();
-  for (const [uuid, idData] of Object.entries(identifiers || {})) {
-    const priceData = prices?.[uuid];
+  for (const card of summaries) {
+    const setIndex = setIndexMap.get(normalizeMtgjsonSetCode(card.set));
+    const uuid = mtgjsonUuidForCard(card, setIndex);
+    if (!uuid) continue;
+    const priceData = prices[uuid];
     if (!priceData) continue;
     const providerPrices = mtgjsonProviderPrices(priceData);
     if (!Object.keys(providerPrices).length) continue;
-    if (idData?.scryfallId) byScryfallId.set(String(idData.scryfallId), providerPrices);
-    if (idData?.scryfallOracleId) byOracleId.set(String(idData.scryfallOracleId), providerPrices);
+    if (card.scryfallId) byScryfallId.set(String(card.scryfallId), providerPrices);
+    if (card.scryfallOracleId) byOracleId.set(String(card.scryfallOracleId), providerPrices);
   }
   return { byScryfallId, byOracleId, loadedAt: Date.now() };
+}
+
+async function mtgjsonDailyPriceMap() {
+  if (mtgjsonPriceMap) return mtgjsonPriceMap;
+  if (!mtgjsonPriceMapPromise) {
+    mtgjsonPriceMapPromise = fetchMtgjsonJson("AllPricesToday", mtgjsonPriceTimeoutMs)
+      .then((payload) => {
+        mtgjsonPriceMap = payload.data || payload || {};
+        return mtgjsonPriceMap;
+      })
+      .catch((error) => {
+        mtgjsonPriceMapPromise = null;
+        throw error;
+      });
+  }
+  return mtgjsonPriceMapPromise;
+}
+
+async function mtgjsonSetIndex(setCode) {
+  const normalizedSet = normalizeMtgjsonSetCode(setCode);
+  if (!normalizedSet) return emptyMtgjsonSetIndex();
+  if (mtgjsonSetIndexCache.has(normalizedSet)) return mtgjsonSetIndexCache.get(normalizedSet);
+  if (!mtgjsonSetIndexPromiseCache.has(normalizedSet)) {
+    mtgjsonSetIndexPromiseCache.set(normalizedSet, fetchMtgjsonJson(normalizedSet, mtgjsonPriceTimeoutMs)
+      .then((payload) => {
+        const index = buildMtgjsonSetIndex(payload);
+        mtgjsonSetIndexCache.set(normalizedSet, index);
+        mtgjsonSetIndexPromiseCache.delete(normalizedSet);
+        return index;
+      })
+      .catch((error) => {
+        mtgjsonSetIndexPromiseCache.delete(normalizedSet);
+        console.warn(`MTGJSON set ${normalizedSet} unavailable:`, error.message);
+        return emptyMtgjsonSetIndex();
+      }));
+  }
+  return mtgjsonSetIndexPromiseCache.get(normalizedSet);
+}
+
+function emptyMtgjsonSetIndex() {
+  return {
+    byScryfallId: new Map(),
+    byOracleId: new Map(),
+    byCollectorNumber: new Map(),
+    byNameCollector: new Map(),
+  };
+}
+
+function buildMtgjsonSetIndex(payload) {
+  const index = emptyMtgjsonSetIndex();
+  const cards = Array.isArray(payload?.data?.cards) ? payload.data.cards : [];
+  for (const card of cards) {
+    const uuid = String(card?.uuid || "");
+    if (!uuid) continue;
+    const identifiers = card.identifiers || {};
+    if (identifiers.scryfallId) index.byScryfallId.set(String(identifiers.scryfallId), uuid);
+    if (identifiers.scryfallOracleId && !index.byOracleId.has(String(identifiers.scryfallOracleId))) {
+      index.byOracleId.set(String(identifiers.scryfallOracleId), uuid);
+    }
+    for (const collector of mtgjsonCollectorKeys(card.number)) {
+      if (!index.byCollectorNumber.has(collector)) index.byCollectorNumber.set(collector, uuid);
+      const nameCollectorKey = `${normalizedDeckName(card.name)}::${collector}`;
+      if (!index.byNameCollector.has(nameCollectorKey)) index.byNameCollector.set(nameCollectorKey, uuid);
+    }
+  }
+  return index;
+}
+
+function mtgjsonUuidForCard(card, setIndex) {
+  if (!setIndex) return "";
+  const scryfallId = String(card?.scryfallId || "");
+  if (scryfallId && setIndex.byScryfallId.has(scryfallId)) return setIndex.byScryfallId.get(scryfallId);
+  for (const collector of mtgjsonCollectorKeys(card?.collectorNumber)) {
+    const nameCollectorKey = `${normalizedDeckName(card?.name)}::${collector}`;
+    if (setIndex.byNameCollector.has(nameCollectorKey)) return setIndex.byNameCollector.get(nameCollectorKey);
+    if (setIndex.byCollectorNumber.has(collector)) return setIndex.byCollectorNumber.get(collector);
+  }
+  const oracleId = String(card?.scryfallOracleId || "");
+  if (oracleId && setIndex.byOracleId.has(oracleId)) return setIndex.byOracleId.get(oracleId);
+  return "";
+}
+
+function normalizeMtgjsonSetCode(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function mtgjsonCollectorKeys(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  const compact = raw.replace(/\s+/g, "");
+  const withoutLeadingZero = compact.replace(/^0+(?=\d)/, "");
+  return [...new Set([raw, compact, withoutLeadingZero])].filter(Boolean);
+}
+
+async function fetchMtgjsonJson(fileBase, timeoutMs) {
+  try {
+    return await fetchJsonWithTimeout(`${mtgjsonBaseUrl}/${fileBase}.json.gz`, timeoutMs);
+  } catch (error) {
+    if (!/returned 404\b/.test(error.message)) throw error;
+    return fetchJsonWithTimeout(`${mtgjsonBaseUrl}/${fileBase}.json`, timeoutMs);
+  }
 }
 
 async function fetchJsonWithTimeout(url, timeoutMs) {
@@ -1016,6 +1113,15 @@ async function fetchJsonWithTimeout(url, timeoutMs) {
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (!response.ok) throw new Error(`${new URL(url).pathname} returned ${response.status}`);
+  if (url.endsWith(".gz")) {
+    if (typeof response.arrayBuffer !== "function") {
+      if (typeof response.json === "function") return response.json();
+      if (typeof response.text === "function") return JSON.parse(await response.text());
+      throw new Error(`${new URL(url).pathname} did not return readable JSON`);
+    }
+    const buffer = Buffer.from(await response.arrayBuffer());
+    return JSON.parse(zlib.gunzipSync(buffer).toString("utf8"));
+  }
   return response.json();
 }
 
@@ -1208,6 +1314,30 @@ async function searchScryfallCards(query) {
   const cards = (payload.data || []).slice(0, 24).map(summarizeScryfallCard);
   await enrichCardSummariesWithProviderPrices(cards);
   scryfallCardSearchCache.set(cacheKey, cards);
+  return cards;
+}
+
+async function searchScryfallPrintings(name) {
+  const cardName = String(name || "").trim().slice(0, 160);
+  if (cardName.length < 2) return [];
+  const cacheKey = normalizedDeckName(cardName);
+  if (scryfallPrintSearchCache.has(cacheKey)) return scryfallPrintSearchCache.get(cacheKey);
+  const scryfallQuery = `!"${cardName.replace(/"/g, "").trim()}" lang:en -is:digital`;
+  let nextUrl = `https://api.scryfall.com/cards/search?order=released&dir=desc&unique=prints&q=${encodeURIComponent(scryfallQuery)}`;
+  const rawCards = [];
+  for (let page = 0; nextUrl && page < 8 && rawCards.length < 240; page += 1) {
+    const response = await throttledScryfallFetch(nextUrl);
+    if (!response.ok) {
+      if (response.status === 404) return [];
+      throw new Error("Scryfall printings search failed");
+    }
+    const payload = await response.json();
+    rawCards.push(...(payload.data || []));
+    nextUrl = payload.has_more && payload.next_page ? payload.next_page : "";
+  }
+  const cards = rawCards.slice(0, 240).map(summarizeScryfallCard);
+  await enrichCardSummariesWithProviderPrices(cards);
+  scryfallPrintSearchCache.set(cacheKey, cards);
   return cards;
 }
 
@@ -3563,6 +3693,12 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && requestUrl.pathname === "/api/scryfall/cards") {
       const query = requestUrl.searchParams.get("q") || "";
       const cards = await searchScryfallCards(query);
+      return sendJson(res, 200, { cards });
+    }
+
+    if (req.method === "GET" && requestUrl.pathname === "/api/scryfall/printings") {
+      const name = requestUrl.searchParams.get("name") || "";
+      const cards = await searchScryfallPrintings(name);
       return sendJson(res, 200, { cards });
     }
 
