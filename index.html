@@ -44,7 +44,7 @@
             <button id="joinGameButton" class="secondary" data-landing-action="join" type="button">Join Game</button>
             <button id="loginButton" class="secondary" data-landing-action="account" type="button">Log In</button>
           </div>
-          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.4.25</p>
+          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.4.26</p>
         </div>
         <section id="createModePanel" class="landing-subpanel create-mode-panel hidden">
           <header class="create-room-header">
@@ -200,8 +200,19 @@
                     <h2>Deck Library</h2>
                     <span id="savedDeckSummary">0 decks</span>
                   </div>
-                  <button id="collapseDeckRailButton" class="secondary compact-icon-button" type="button" title="Collapse deck library" aria-label="Collapse deck library">☰</button>
-                  <button id="newSavedDeckButton" type="button">New Deck</button>
+                  <div class="deck-library-heading-actions">
+                    <button id="collapseDeckRailButton" class="secondary compact-icon-button" type="button" title="Collapse deck library" aria-label="Collapse deck library">☰</button>
+                    <button id="deckHistoryButton" class="secondary compact-icon-button deck-history-button" type="button" title="Deck source control" aria-label="Open deck source control" aria-expanded="false">
+                      <svg class="source-control-icon" viewBox="0 0 24 24" aria-hidden="true">
+                        <circle cx="6" cy="5" r="2"></circle>
+                        <circle cx="6" cy="19" r="2"></circle>
+                        <circle cx="18" cy="12" r="2"></circle>
+                        <path d="M6 7v10"></path>
+                        <path d="M8 5h3a7 7 0 0 1 7 7"></path>
+                      </svg>
+                    </button>
+                    <button id="newSavedDeckButton" type="button">New Deck</button>
+                  </div>
                 </header>
                 <input id="savedDeckSearchInput" type="search" placeholder="Filter decks" aria-label="Filter saved decks">
                 <aside id="deckMaybeBoardRail" class="deck-maybe-board-rail hidden">
@@ -213,6 +224,16 @@
                     <button id="closeMaybeBoardButton" class="popover-close" type="button" title="Close maybe board" aria-label="Close maybe board">x</button>
                   </header>
                   <textarea id="deckMaybeBoardInput" rows="8" maxlength="20000" placeholder="Cards to consider"></textarea>
+                </aside>
+                <aside id="deckHistoryRail" class="deck-history-rail hidden">
+                  <header>
+                    <div>
+                      <h3>Source Control</h3>
+                      <span id="deckHistorySummary">No changes recorded</span>
+                    </div>
+                    <button id="closeDeckHistoryButton" class="popover-close" type="button" title="Close source control" aria-label="Close source control">x</button>
+                  </header>
+                  <div id="deckHistoryList" class="deck-history-list"></div>
                 </aside>
                 <div id="savedDeckList" class="saved-deck-list"></div>
               </aside>

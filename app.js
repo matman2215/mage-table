@@ -42,6 +42,11 @@ const els = {
   accountGamesView: document.querySelector("#accountGamesView"),
   newSavedDeckButton: document.querySelector("#newSavedDeckButton"),
   collapseDeckRailButton: document.querySelector("#collapseDeckRailButton"),
+  deckHistoryButton: document.querySelector("#deckHistoryButton"),
+  closeDeckHistoryButton: document.querySelector("#closeDeckHistoryButton"),
+  deckHistoryRail: document.querySelector("#deckHistoryRail"),
+  deckHistorySummary: document.querySelector("#deckHistorySummary"),
+  deckHistoryList: document.querySelector("#deckHistoryList"),
   savedDeckSearchInput: document.querySelector("#savedDeckSearchInput"),
   savedDeckSummary: document.querySelector("#savedDeckSummary"),
   savedDeckList: document.querySelector("#savedDeckList"),
@@ -383,6 +388,10 @@ let accountWorkspaceTab = "decks";
 let selectedBuilderDeckId = "";
 let deckBuilderInitialized = false;
 let deckCardSearchResults = [];
+let deckCardSearchTimer = null;
+let deckHistoryOpen = localStorage.getItem("mage-table-deck-history-open") === "1";
+let deckHistoryChangeTimer = null;
+let deckHistoryBaseline = null;
 let deckBuilderPreviewCollapsed = false;
 let deckBuilderMetadata = null;
 let deckBuilderMetadataKey = "";
@@ -923,6 +932,7 @@ function renderAccountPanel() {
     els.toggleMaybeBoardButton.setAttribute("aria-expanded", String(deckMaybeBoardOpen));
     els.deckMaybeBoardRail.classList.toggle("hidden", !deckMaybeBoardOpen);
   }
+  renderDeckHistoryPanel();
   renderSavedDecks();
   renderDeckBuilderPreview();
   renderActiveGames();
@@ -994,6 +1004,7 @@ function loadMaybeBoard(deckId = selectedBuilderDeckId || "new") {
 
 function saveMaybeBoard() {
   localStorage.setItem(maybeBoardKey(), els.deckMaybeBoardInput.value);
+  queueDeckHistoryChange("Updated maybe board");
 }
 
 function setMaybeBoardOpen(open) {
@@ -1001,6 +1012,173 @@ function setMaybeBoardOpen(open) {
   localStorage.setItem("mage-table-maybeboard-open", deckMaybeBoardOpen ? "1" : "0");
   renderAccountPanel();
   if (deckMaybeBoardOpen) requestAnimationFrame(() => els.deckMaybeBoardInput?.focus());
+}
+
+function deckHistoryKey(deckId = selectedBuilderDeckId || "draft") {
+  return `mage-table-deck-history:${account?.id || "guest"}:${deckId || "draft"}`;
+}
+
+function readDeckHistory(deckId = selectedBuilderDeckId || "draft") {
+  try {
+    const history = JSON.parse(localStorage.getItem(deckHistoryKey(deckId)) || "[]");
+    return Array.isArray(history) ? history : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeDeckHistory(history, deckId = selectedBuilderDeckId || "draft") {
+  localStorage.setItem(deckHistoryKey(deckId), JSON.stringify(history.slice(0, 120)));
+}
+
+function deckHistorySnapshot(deck = currentBuilderDeck()) {
+  return {
+    name: String(deck.name || "").trim(),
+    commander: String(deck.commander || "").trim(),
+    decklist: String(deck.decklist || "").trim(),
+    maybeBoard: String(els.deckMaybeBoardInput?.value || ""),
+  };
+}
+
+function deckHistorySavedSnapshot(deckId = selectedBuilderDeckId) {
+  const deck = savedDecks.find((candidate) => candidate.id === deckId);
+  if (!deck) return null;
+  return {
+    name: String(deck.name || "").trim(),
+    commander: String(deck.commander || "").trim(),
+    decklist: String(deck.decklist || "").trim(),
+    maybeBoard: localStorage.getItem(maybeBoardKey(deckId)) || "",
+  };
+}
+
+function resetDeckHistoryBaseline() {
+  deckHistoryBaseline = deckHistorySnapshot();
+  renderDeckHistoryPanel();
+}
+
+function deckHistoryComparisonSnapshot(deckId = selectedBuilderDeckId || "draft") {
+  return readDeckHistory(deckId)[0]?.snapshot
+    || deckHistorySavedSnapshot(deckId)
+    || deckHistoryBaseline
+    || { name: "", commander: "", decklist: "", maybeBoard: "" };
+}
+
+function deckEntryMapForHistory(decklist) {
+  const map = new Map();
+  parseDeckBuilderEntries(decklist).forEach((entry) => {
+    const key = normalizedDeckCardName(entry.name);
+    if (!key) return;
+    const existing = map.get(key);
+    if (existing) existing.quantity += Number(entry.quantity) || 0;
+    else map.set(key, { name: entry.name, quantity: Number(entry.quantity) || 0 });
+  });
+  return map;
+}
+
+function deckHistoryChangeDetails(before, after) {
+  const details = [];
+  if ((before.name || "") !== (after.name || "")) details.push(`Deck name: ${before.name || "Untitled"} -> ${after.name || "Untitled"}`);
+  if ((before.commander || "") !== (after.commander || "")) details.push(`Commander: ${before.commander || "None"} -> ${after.commander || "None"}`);
+  const beforeCards = deckEntryMapForHistory(before.decklist || "");
+  const afterCards = deckEntryMapForHistory(after.decklist || "");
+  const keys = [...new Set([...beforeCards.keys(), ...afterCards.keys()])].sort((left, right) => {
+    const leftName = afterCards.get(left)?.name || beforeCards.get(left)?.name || "";
+    const rightName = afterCards.get(right)?.name || beforeCards.get(right)?.name || "";
+    return leftName.localeCompare(rightName);
+  });
+  keys.forEach((key) => {
+    const previous = beforeCards.get(key);
+    const next = afterCards.get(key);
+    const beforeQty = previous?.quantity || 0;
+    const afterQty = next?.quantity || 0;
+    if (beforeQty === afterQty) return;
+    const name = next?.name || previous?.name || "Card";
+    if (!beforeQty) details.push(`Added ${afterQty} ${name}`);
+    else if (!afterQty) details.push(`Removed ${beforeQty} ${name}`);
+    else details.push(`${name}: ${beforeQty} -> ${afterQty}`);
+  });
+  if ((before.decklist || "").trim() !== (after.decklist || "").trim() && !details.some((detail) => /Added|Removed|: \d+ -> \d+/.test(detail))) {
+    details.push("Edited decklist text");
+  }
+  if ((before.maybeBoard || "") !== (after.maybeBoard || "")) details.push("Updated maybe board");
+  return details;
+}
+
+function recordDeckHistoryChange(label, before = deckHistoryComparisonSnapshot(), options = {}) {
+  const after = deckHistorySnapshot();
+  const details = deckHistoryChangeDetails(before || {}, after);
+  if (!options.force && !details.length) return;
+  const history = readDeckHistory();
+  const entry = {
+    at: Date.now(),
+    label,
+    details: details.slice(0, 18),
+    overflow: Math.max(0, details.length - 18),
+    snapshot: after,
+  };
+  writeDeckHistory([entry, ...history]);
+  deckHistoryBaseline = after;
+  renderDeckHistoryPanel();
+}
+
+function queueDeckHistoryChange(label) {
+  window.clearTimeout(deckHistoryChangeTimer);
+  deckHistoryChangeTimer = window.setTimeout(() => recordDeckHistoryChange(label), 900);
+}
+
+function transferDeckHistory(fromDeckId, toDeckId) {
+  if (!fromDeckId || !toDeckId || fromDeckId === toDeckId) return;
+  const fromKey = deckHistoryKey(fromDeckId);
+  const fromHistory = readDeckHistory(fromDeckId);
+  if (!fromHistory.length) return;
+  const merged = [...fromHistory, ...readDeckHistory(toDeckId)]
+    .sort((left, right) => Number(right.at) - Number(left.at));
+  writeDeckHistory(merged, toDeckId);
+  localStorage.removeItem(fromKey);
+}
+
+function setDeckHistoryOpen(open) {
+  deckHistoryOpen = Boolean(open);
+  localStorage.setItem("mage-table-deck-history-open", deckHistoryOpen ? "1" : "0");
+  if (deckHistoryOpen && deckRailCollapsed) {
+    deckRailCollapsed = false;
+    localStorage.setItem("mage-table-deck-rail-collapsed", "0");
+  }
+  renderAccountPanel();
+}
+
+function renderDeckHistoryPanel() {
+  if (!els.deckHistoryRail || !els.deckHistoryList) return;
+  els.deckHistoryButton?.classList.toggle("active", deckHistoryOpen);
+  els.deckHistoryButton?.setAttribute("aria-expanded", String(deckHistoryOpen));
+  els.deckHistoryRail.classList.toggle("hidden", !deckHistoryOpen);
+  if (!deckHistoryOpen) return;
+  const history = readDeckHistory();
+  els.deckHistorySummary.textContent = history.length
+    ? `${history.length} change${history.length === 1 ? "" : "s"} recorded`
+    : "No changes recorded";
+  els.deckHistoryList.innerHTML = "";
+  if (!history.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-list-message";
+    empty.textContent = "Changes you make to this deck will appear here.";
+    els.deckHistoryList.append(empty);
+    return;
+  }
+  history.forEach((entry) => {
+    const row = document.createElement("article");
+    row.className = "deck-history-entry";
+    const time = new Date(Number(entry.at) || Date.now());
+    const details = Array.isArray(entry.details) ? entry.details : [];
+    row.innerHTML = `
+      <header>
+        <strong>${escapeHtml(entry.label || "Deck changed")}</strong>
+        <time datetime="${time.toISOString()}">${escapeHtml(time.toLocaleString())}</time>
+      </header>
+      <ul>${details.map((detail) => `<li>${escapeHtml(detail)}</li>`).join("")}${entry.overflow ? `<li>+${Number(entry.overflow)} more change${Number(entry.overflow) === 1 ? "" : "s"}</li>` : ""}</ul>
+    `;
+    els.deckHistoryList.append(row);
+  });
 }
 
 function openDeckActionDialog(deck) {
@@ -1045,14 +1223,30 @@ function openDeckDetailsDialog() {
 function parseDeckBuilderEntries(decklist = "") {
   return String(decklist || "")
     .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const match = line.match(/^(?:SB:\s*)?(\d+)\s*[xX]?\s+(.+)$/i);
-      if (!match) return { quantity: 1, name: cleanDeckBuilderCardName(line), rawName: line };
-      const rawName = match[2].trim();
-      return { quantity: Math.max(1, Number(match[1]) || 1), name: cleanDeckBuilderCardName(rawName), rawName };
-    });
+    .map(deckBuilderEntryFromLine)
+    .filter(Boolean);
+}
+
+function deckBuilderEntryFromLine(line) {
+  const trimmed = String(line || "").trim();
+  if (!trimmed || deckBuilderCommanderHeaderValue(trimmed) || isDeckBuilderMetadataLine(trimmed) || isDeckBuilderSectionHeader(trimmed)) return null;
+  const match = trimmed.match(/^(?:SB:\s*)?(\d+)\s*[xX]?\s+(.+)$/i);
+  if (!match) return { quantity: 1, name: cleanDeckBuilderCardName(trimmed), rawName: trimmed };
+  const rawName = match[2].trim();
+  return { quantity: Math.max(1, Number(match[1]) || 1), name: cleanDeckBuilderCardName(rawName), rawName };
+}
+
+function deckBuilderCommanderHeaderValue(line) {
+  const match = String(line || "").trim().match(/^commander(?:s)?\s*:\s*(.+)$/i);
+  return match ? cleanDeckBuilderCardName(match[1]) : "";
+}
+
+function isDeckBuilderMetadataLine(line) {
+  return /^(deck|name|format)\s*:\s*.+$/i.test(String(line || "").trim());
+}
+
+function isDeckBuilderSectionHeader(line) {
+  return /^(commander(?:s)?|main(?:board| deck)?|deck|sideboard|maybeboard|companions?|signature spells?)\s*:?\s*$/i.test(String(line || "").trim());
 }
 
 function serializeDeckBuilderEntries(entries) {
@@ -1222,6 +1416,7 @@ function selectBuilderDeck(deck) {
   els.deckBuilderListInput.value = deck.decklist;
   els.deckBuilderStatus.textContent = `Updated ${new Date(deck.updatedAt).toLocaleString()}`;
   loadMaybeBoard(deck.id);
+  resetDeckHistoryBaseline();
   renderSavedDecks();
   renderDeckBuilderPreview();
   scheduleDeckMetadataRefresh();
@@ -1239,6 +1434,7 @@ function newBuilderDeck() {
   els.deckMaybeBoardInput.value = "";
   loadMaybeBoard("new");
   els.deckBuilderStatus.textContent = "New unsaved deck";
+  resetDeckHistoryBaseline();
   renderSavedDecks();
   renderDeckBuilderPreview();
   openDeckDetailsDialog();
@@ -2755,6 +2951,7 @@ function titleCase(value) {
 
 function adjustBuilderCard(cardName, delta) {
   deckBuilderPreviewCollapsed = false;
+  const before = deckHistorySnapshot();
   const entries = parseDeckBuilderEntries(els.deckBuilderListInput.value);
   const entry = entries.find((candidate) => candidate.name.toLowerCase() === cardName.toLowerCase());
   if (entry) entry.quantity = Math.max(0, entry.quantity + delta);
@@ -2764,22 +2961,72 @@ function adjustBuilderCard(cardName, delta) {
   els.deckBuilderStatus.textContent = "Unsaved changes";
   renderDeckBuilderPreview();
   renderDeckCardSearchResults();
+  recordDeckHistoryChange(delta > 0 ? "Added card" : "Removed card", before);
 }
 
 function mergeDeckBuilderEntries(currentEntries, importedEntries) {
+  const current = aggregateDeckBuilderEntries(currentEntries, { sumBasicLands: false });
+  const imported = aggregateDeckBuilderEntries(importedEntries, { sumBasicLands: true });
+  return aggregateDeckBuilderEntries([...current, ...imported], { sumBasicLands: false });
+}
+
+function aggregateDeckBuilderEntries(entries, { sumBasicLands = false } = {}) {
   const merged = [];
   const byName = new Map();
-  [...currentEntries, ...importedEntries].forEach((entry) => {
-    const key = (entry.rawName || entry.name).toLowerCase();
+  (entries || []).forEach((entry) => {
+    const name = cleanDeckBuilderCardName(entry.name || entry.rawName || "");
+    if (!name) return;
+    const key = normalizedDeckCardName(name);
+    const quantity = Math.max(1, Number(entry.quantity) || 1);
+    const rawName = entry.rawName || name;
     const existing = byName.get(key);
-    if (existing) existing.quantity += entry.quantity;
-    else {
-      const next = { quantity: entry.quantity, name: entry.name, rawName: entry.rawName };
+    if (!existing) {
+      const next = { quantity, name, rawName };
       byName.set(key, next);
       merged.push(next);
+      return;
     }
+    const shouldSum = sumBasicLands && isBasicLandName(name);
+    existing.quantity = shouldSum
+      ? existing.quantity + quantity
+      : Math.max(existing.quantity, quantity);
+    if (!existing.rawName && rawName) existing.rawName = rawName;
   });
   return merged;
+}
+
+function isBasicLandName(name) {
+  return /^(?:snow-covered\s+)?(?:plains|island|swamp|mountain|forest|wastes)$/i.test(String(name || "").trim());
+}
+
+function parseBulkDeckImportText(text) {
+  const entries = [];
+  let commander = "";
+  let commanderSection = false;
+  String(text || "").split(/\r?\n/).forEach((rawLine) => {
+    const line = rawLine.trim();
+    if (!line) return;
+    const commanderHeader = deckBuilderCommanderHeaderValue(line);
+    if (commanderHeader) {
+      commander = commander || commanderHeader;
+      commanderSection = false;
+      return;
+    }
+    if (isDeckBuilderSectionHeader(line)) {
+      commanderSection = /^commander/i.test(line);
+      return;
+    }
+    if (isDeckBuilderMetadataLine(line)) return;
+    const entry = deckBuilderEntryFromLine(line);
+    if (!entry) return;
+    if (commanderSection && !commander) commander = entry.name;
+    commanderSection = false;
+    entries.push(entry);
+  });
+  return {
+    commander,
+    entries: aggregateDeckBuilderEntries(entries, { sumBasicLands: true }),
+  };
 }
 
 function openBulkImportDialog() {
@@ -2789,10 +3036,15 @@ function openBulkImportDialog() {
 }
 
 function applyBulkDeckImport(mode) {
-  const imported = parseDeckBuilderEntries(els.bulkImportInput.value);
+  const before = deckHistorySnapshot();
+  const importResult = parseBulkDeckImportText(els.bulkImportInput.value);
+  const imported = importResult.entries;
   if (!imported.length) {
     els.bulkImportInput.focus();
     return;
+  }
+  if (importResult.commander && !els.deckBuilderCommanderInput.value.trim()) {
+    els.deckBuilderCommanderInput.value = importResult.commander;
   }
   const entries = mode === "append"
     ? mergeDeckBuilderEntries(parseDeckBuilderEntries(els.deckBuilderListInput.value), imported)
@@ -2807,6 +3059,7 @@ function applyBulkDeckImport(mode) {
   renderDeckCardSearchResults();
   els.deckBuilderStatus.textContent = `${entries.reduce((total, entry) => total + entry.quantity, 0)} cards imported - unsaved changes`;
   renderDeckBuilderPreview();
+  recordDeckHistoryChange(mode === "append" ? "Appended bulk import" : "Replaced decklist", before);
 }
 
 function exportCurrentDeck() {
@@ -2928,23 +3181,30 @@ function renderDeckCardSearchResults() {
   const hasResults = deckCardSearchResults.length > 0;
   els.deckCardSearchResults.classList.toggle("hidden", !hasResults);
   setDeckCardSearchDismissable(hasResults);
-  deckCardSearchResults.forEach((card) => {
+  deckCardSearchResults.forEach((card, index) => {
     const item = document.createElement("article");
     item.className = "deck-search-result";
-    const imageUrl = card.images?.normal || card.images?.small || card.faces?.[0]?.imageUrl || "";
-    item.innerHTML = `
-      <div class="deck-search-thumb">${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(card.name)}" loading="lazy">` : ""}</div>
-      <div class="deck-search-details">
-        <strong>${escapeHtml(card.name)}</strong>
-        <span>${escapeHtml(card.typeLine || "Card")}</span>
-      </div>
-      <span class="deck-search-price">${formatUsd(searchCardUnitPrice(card))} ${priceSourceShortLabel(deckPriceSource)}</span>
-      <span class="deck-search-owned">In deck: ${currentBuilderCardQuantity(card.name)}</span>
-      <div class="deck-search-actions">
-        <button type="button" data-deck-adjust="-1" title="Remove one ${escapeHtml(card.name)}" aria-label="Remove one ${escapeHtml(card.name)}">-</button>
-        <button type="button" data-deck-adjust="1" title="Add one ${escapeHtml(card.name)}" aria-label="Add one ${escapeHtml(card.name)}">+</button>
-      </div>
+    const preview = cardElement(deckSearchCardPreview(card), null, "librarySearch", index);
+    preview.classList.add("deck-search-preview-card");
+    const details = document.createElement("div");
+    details.className = "deck-search-details";
+    details.innerHTML = `
+      <strong>${escapeHtml(card.name)}</strong>
+      <span>${escapeHtml(card.typeLine || "Card")}</span>
     `;
+    const price = document.createElement("span");
+    price.className = "deck-search-price";
+    price.textContent = `${formatUsd(searchCardUnitPrice(card))} ${priceSourceShortLabel(deckPriceSource)}`;
+    const owned = document.createElement("span");
+    owned.className = "deck-search-owned";
+    owned.textContent = `In deck: ${currentBuilderCardQuantity(card.name)}`;
+    const actions = document.createElement("div");
+    actions.className = "deck-search-actions";
+    actions.innerHTML = `
+      <button type="button" data-deck-adjust="-1" title="Remove one ${escapeHtml(card.name)}" aria-label="Remove one ${escapeHtml(card.name)}">-</button>
+      <button type="button" data-deck-adjust="1" title="Add one ${escapeHtml(card.name)}" aria-label="Add one ${escapeHtml(card.name)}">+</button>
+    `;
+    item.append(preview, details, price, owned, actions);
     attachDeckCardEditControls(item, card.name);
     els.deckCardSearchResults.append(item);
   });
@@ -2995,6 +3255,16 @@ function searchProviderPrice(value) {
   if (!value || typeof value !== "object") return null;
   const preferred = Number(value.normal ?? value.usd ?? value.foil ?? value.etched ?? 0);
   return Number.isFinite(preferred) ? preferred : null;
+}
+
+function deckSearchCardPreview(card) {
+  return {
+    ...card,
+    id: card.scryfallId || card.id || `search-${normalizedDeckCardName(card.name)}`,
+    imageUrl: card.imageUrl || card.images?.normal || card.images?.small || card.faces?.[0]?.imageUrl || "",
+    faces: Array.isArray(card.faces) ? card.faces : [],
+    counters: {},
+  };
 }
 
 function renderActiveGames() {
@@ -3098,6 +3368,7 @@ async function saveBuilderDeck() {
   const deck = currentBuilderDeck();
   if (!account) throw new Error("Sign in again before saving this deck.");
   if (!deck.decklist) throw new Error("Add at least one card before saving.");
+  const previousDeckId = selectedBuilderDeckId || "draft";
   const deckToSave = {
     ...deck,
     name: deck.name || fallbackBuilderDeckName(deck),
@@ -3115,6 +3386,7 @@ async function saveBuilderDeck() {
   }
   const savedDeck = result.deck;
   if (result.priceHistory && savedDeck?.id) deckPriceHistoryCache.set(savedDeck.id, result.priceHistory);
+  transferDeckHistory(previousDeckId, savedDeck.id);
   selectedBuilderDeckId = savedDeck.id;
   els.deckBuilderNameInput.value = savedDeck.name || deckToSave.name;
   els.deckBuilderCommanderInput.value = savedDeck.commander || deckToSave.commander || "";
@@ -3128,6 +3400,7 @@ async function saveBuilderDeck() {
   els.deckBuilderListInput.value = reloadedDeck.decklist || savedDeck.decklist || deckToSave.decklist;
   renderSavedDecks();
   renderDeckBuilderPreview({ preserveScroll: true });
+  recordDeckHistoryChange("Saved deck", deckHistoryComparisonSnapshot(savedDeck.id), { force: true });
   els.deckBuilderStatus.textContent = `Deck saved to library - ${savedDecks.length} deck${savedDecks.length === 1 ? "" : "s"}`;
   setAccountStatus("Deck saved to library.");
 }
@@ -3189,6 +3462,8 @@ async function searchDeckBuilderCards() {
   if (query.length < 2) {
     els.deckCardSearchSummary.textContent = "Enter at least two characters.";
     setDeckCardSearchDismissable(Boolean(query));
+    deckCardSearchResults = [];
+    renderDeckCardSearchResults();
     return;
   }
   setDisabled(els.deckCardSearchButton, true);
@@ -3196,6 +3471,7 @@ async function searchDeckBuilderCards() {
   els.deckCardSearchSummary.textContent = "Searching Scryfall...";
   try {
     const result = await api(`/api/scryfall/cards?q=${encodeURIComponent(query)}`);
+    if (els.deckCardSearchInput.value.trim() !== query) return;
     deckCardSearchResults = result.cards || [];
     els.deckCardSearchSummary.textContent = `${deckCardSearchResults.length} result${deckCardSearchResults.length === 1 ? "" : "s"}`;
     renderDeckCardSearchResults();
@@ -3208,6 +3484,20 @@ async function searchDeckBuilderCards() {
   } finally {
     setDisabled(els.deckCardSearchButton, false);
   }
+}
+
+function queueDeckBuilderCardSearch() {
+  window.clearTimeout(deckCardSearchTimer);
+  const query = els.deckCardSearchInput.value.trim();
+  setDeckCardSearchDismissable(Boolean(query) || deckCardSearchResults.length > 0);
+  if (query.length < 2) {
+    deckCardSearchResults = [];
+    renderDeckCardSearchResults();
+    els.deckCardSearchSummary.textContent = query ? "Enter at least two characters." : "Search for cards to add to this deck.";
+    return;
+  }
+  els.deckCardSearchSummary.textContent = "Searching Scryfall...";
+  deckCardSearchTimer = window.setTimeout(() => searchDeckBuilderCards(), 300);
 }
 
 function openDeleteDeckDialog(deck) {
@@ -4253,6 +4543,21 @@ function lifeRibbonCard(entry) {
   const identity = document.createElement("div");
   identity.className = "life-ribbon-identity";
   identity.innerHTML = `<strong>${isPlaytest ? "" : presenceDotMarkup(player)}${escapeHtml(player.name)}</strong><span>${escapeHtml(player.commander || (isPlaytest ? "Simulation" : "No commander"))}</span>`;
+  if (!isPlaytest) {
+    identity.setAttribute("role", "button");
+    identity.tabIndex = 0;
+    identity.title = `Open ${player.name}'s board`;
+    const openBoard = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openBoardReferenceDialog(player.seat);
+    };
+    identity.addEventListener("click", openBoard);
+    identity.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      openBoard(event);
+    });
+  }
   item.append(identity, lifeMenuControl(entry));
   return item;
 }
@@ -4428,13 +4733,25 @@ function renderBoardReference() {
     : state.players.filter((player) => player.seat === Number(focusSeat));
   const columns = focusSeat === "all" ? Math.max(1, Math.ceil(Math.sqrt(Math.max(1, shownPlayers.length)))) : 1;
   const rows = focusSeat === "all" ? Math.max(1, Math.ceil(Math.max(1, shownPlayers.length) / columns)) : 1;
-  const focusPlayer = state.players[focusSeatForBoard()];
-  els.boardReferenceSummary.textContent = `Default view follows ${focusPlayer?.name || "the active board"}. Choose any board below.`;
+  const followPlayer = state.players[focusSeatForBoard()];
+  const selectedPlayer = focusSeat === "all" ? null : state.players[Number(focusSeat)];
+  els.boardReferenceSummary.textContent = focusSeat === "all"
+    ? "Viewing all boards. Choose any board below."
+    : boardReferenceSeat === null
+      ? `Following ${followPlayer?.name || "the active board"}. Choose any board below.`
+      : `Viewing ${selectedPlayer?.name || "selected player"}'s board. Choose any board below.`;
   els.boardReferenceList.innerHTML = "";
   els.boardReferenceList.style.setProperty("--reference-columns", String(columns));
   els.boardReferenceList.style.setProperty("--reference-rows", String(rows));
   els.boardReferenceList.append(boardReferenceTabs(boardReferenceSeat));
   shownPlayers.forEach((player) => els.boardReferenceList.append(playerBoard(player, "reference")));
+}
+
+function openBoardReferenceDialog(seat = state?.currentSeat) {
+  if (!state) return;
+  boardReferenceSeat = Number.isInteger(Number(seat)) ? Number(seat) : state.currentSeat;
+  renderBoardReference();
+  if (!els.boardReferenceDialog.open) els.boardReferenceDialog.showModal();
 }
 
 function orderedBoardReferencePlayers() {
@@ -7170,6 +7487,8 @@ els.collapseDeckRailButton.addEventListener("click", () => {
   localStorage.setItem("mage-table-deck-rail-collapsed", deckRailCollapsed ? "1" : "0");
   renderAccountPanel();
 });
+if (els.deckHistoryButton) els.deckHistoryButton.addEventListener("click", () => setDeckHistoryOpen(!deckHistoryOpen));
+if (els.closeDeckHistoryButton) els.closeDeckHistoryButton.addEventListener("click", () => setDeckHistoryOpen(false));
 els.newSavedDeckButton.addEventListener("click", newBuilderDeck);
 els.bulkImportDeckButton.addEventListener("click", openBulkImportDialog);
 if (els.deckContextButton) els.deckContextButton.addEventListener("click", () => openDeckActionDialog(currentBuilderDeck()));
@@ -7187,12 +7506,14 @@ els.deckDetailsForm.addEventListener("submit", (event) => {
     els.deckDetailsDialog.close();
     return;
   }
+  const before = deckHistorySnapshot();
   els.deckBuilderNameInput.value = els.deckDetailsNameInput.value.trim();
   els.deckBuilderCommanderInput.value = els.deckDetailsCommanderInput.value.trim();
   els.deckBuilderStatus.textContent = "Unsaved changes";
   els.deckDetailsDialog.close();
   invalidateDeckMetadata();
   renderDeckBuilderPreview();
+  recordDeckHistoryChange("Updated deck details", before);
 });
 els.closeDeckActionButton.addEventListener("click", () => els.deckActionDialog.close());
 els.closeDeckStatsButton.addEventListener("click", (event) => {
@@ -7240,14 +7561,17 @@ els.deckBuilderListInput.addEventListener("input", () => {
   els.deckBuilderStatus.textContent = "Unsaved changes";
   invalidateDeckMetadata();
   renderDeckBuilderPreview();
+  queueDeckHistoryChange("Edited decklist");
 });
 els.deckBuilderNameInput.addEventListener("input", () => {
   els.deckBuilderStatus.textContent = "Unsaved changes";
+  queueDeckHistoryChange("Renamed deck");
 });
 els.deckBuilderCommanderInput.addEventListener("input", () => {
   els.deckBuilderStatus.textContent = "Unsaved changes";
   invalidateDeckMetadata();
   renderDeckBuilderPreview();
+  queueDeckHistoryChange("Changed commander");
 });
 els.deckBuilderForm.addEventListener("submit", handleDeckBuilderFormSubmit);
 els.deckBuilderForm.addEventListener("change", (event) => {
@@ -7275,9 +7599,11 @@ if (els.applyDeckViewButton) {
 els.deckMaybeBoardInput.addEventListener("input", saveMaybeBoard);
 els.deckCardSearchButton.addEventListener("click", searchDeckBuilderCards);
 if (els.dismissDeckCardSearchButton) els.dismissDeckCardSearchButton.addEventListener("click", dismissDeckCardSearch);
+els.deckCardSearchInput.addEventListener("input", queueDeckBuilderCardSearch);
 els.deckCardSearchInput.addEventListener("keydown", (event) => {
   if (event.key !== "Enter") return;
   event.preventDefault();
+  window.clearTimeout(deckCardSearchTimer);
   searchDeckBuilderCards();
 });
 els.refreshActiveGamesButton.addEventListener("click", async () => {
@@ -7794,9 +8120,7 @@ els.mulliganDialog.addEventListener("cancel", (event) => {
 });
 
 els.boardReferenceButton.addEventListener("click", () => {
-  boardReferenceSeat = null;
-  renderBoardReference();
-  els.boardReferenceDialog.showModal();
+  openBoardReferenceDialog(state?.currentSeat);
 });
 
 els.recapPreviousButton.addEventListener("click", () => {
