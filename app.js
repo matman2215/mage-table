@@ -398,6 +398,9 @@ let deckBuilderMetadata = null;
 let deckBuilderMetadataKey = "";
 let deckBuilderMetadataTimer = null;
 let deckPriceProviderRefreshTimer = null;
+let deckMetadataRequestInFlightKey = "";
+const deckPriceProviderRefreshKeys = new Set();
+const deckPriceProviderRefreshDelayMs = 45000;
 let deckBuilderSaveInFlight = false;
 let deckMetadataLoadingKey = "";
 let deckMetadataLoadingTimer = null;
@@ -484,9 +487,9 @@ function storeRoomPassword(roomId, password) {
 }
 
 async function api(path, options = {}) {
-  setLoading(true);
+  const { headers = {}, trackLoading = true, ...fetchOptions } = options;
+  if (trackLoading) setLoading(true);
   try {
-    const { headers = {}, ...fetchOptions } = options;
     const response = await fetch(path, {
       ...fetchOptions,
       credentials: "same-origin",
@@ -501,7 +504,7 @@ async function api(path, options = {}) {
     }
     return data;
   } finally {
-    setLoading(false);
+    if (trackLoading) setLoading(false);
   }
 }
 
@@ -1318,6 +1321,8 @@ function scheduleDeckMetadataRefresh() {
     if (deckMetadataLoadingKey) hideDeckMetadataLoading(deckMetadataLoadingKey);
     deckBuilderMetadata = null;
     deckBuilderMetadataKey = "";
+    deckMetadataRequestInFlightKey = "";
+    deckPriceProviderRefreshKeys.clear();
     return;
   }
   if (deckBuilderMetadataKey === key && deckBuilderMetadata) return;
@@ -1329,11 +1334,13 @@ function deckPriceProvidersPending(metadata = deckBuilderMetadata) {
 }
 
 function scheduleDeckPriceProviderRefresh(key) {
+  if (!key || deckPriceProviderRefreshKeys.has(key)) return;
+  deckPriceProviderRefreshKeys.add(key);
   window.clearTimeout(deckPriceProviderRefreshTimer);
   deckPriceProviderRefreshTimer = window.setTimeout(() => {
     if (deckMetadataKey() !== key) return;
     refreshDeckMetadata({ quiet: true });
-  }, 2500);
+  }, deckPriceProviderRefreshDelayMs);
 }
 
 function showDeckMetadataLoading(key, title = "Loading Deck Data", summary = "Resolving card images, printings, and price providers.") {
@@ -1360,6 +1367,8 @@ function cancelDeckBuilderBackgroundWork() {
   deckBuilderMetadataTimer = null;
   deckPriceProviderRefreshTimer = null;
   deckMetadataLoadingTimer = null;
+  deckMetadataRequestInFlightKey = "";
+  deckPriceProviderRefreshKeys.clear();
   const loadingKey = deckMetadataLoadingKey;
   deckMetadataLoadingKey = "";
   deckMetadataLoadingTitle = "";
@@ -1377,7 +1386,9 @@ async function refreshDeckMetadata({ quiet = false } = {}) {
     renderDeckBuilderPreview();
     return;
   }
+  if (deckMetadataRequestInFlightKey === key) return;
   deckBuilderMetadataKey = key;
+  deckMetadataRequestInFlightKey = key;
   const loadingTitle = deckMetadataLoadingTitle || "Loading Deck Data";
   const loadingSummary = deckMetadataLoadingSummary || "Resolving card images, printings, and price providers.";
   deckMetadataLoadingTitle = "";
@@ -1386,6 +1397,7 @@ async function refreshDeckMetadata({ quiet = false } = {}) {
   try {
     const result = await api("/api/decks/inspect", {
       method: "POST",
+      trackLoading: !quiet,
       body: JSON.stringify({ decklist: requestDecklist }),
     });
     if (deckBuilderMetadataKey !== key) return;
@@ -1400,6 +1412,7 @@ async function refreshDeckMetadata({ quiet = false } = {}) {
     renderSavedDecks();
     renderDeckBuilderPreview();
   } finally {
+    if (deckMetadataRequestInFlightKey === key) deckMetadataRequestInFlightKey = "";
     if (!quiet) hideDeckMetadataLoading(key);
   }
 }
@@ -1407,6 +1420,7 @@ async function refreshDeckMetadata({ quiet = false } = {}) {
 function invalidateDeckMetadata() {
   deckBuilderMetadata = null;
   deckBuilderMetadataKey = "";
+  deckPriceProviderRefreshKeys.clear();
   scheduleDeckMetadataRefresh();
 }
 
