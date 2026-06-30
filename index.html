@@ -44,7 +44,7 @@
             <button id="joinGameButton" class="secondary" data-landing-action="join" type="button">Join Game</button>
             <button id="loginButton" class="secondary" data-landing-action="account" type="button">Log In</button>
           </div>
-          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.6.4</p>
+          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.6.5</p>
         </div>
         <section id="createModePanel" class="landing-subpanel create-mode-panel hidden">
           <header class="create-room-header">
@@ -932,11 +932,11 @@
           <button id="closeCardInspectorButton" class="popover-close" type="button" title="Dismiss" aria-label="Dismiss card details">x</button>
         </header>
         <nav class="card-inspector-tabs" aria-label="Card menu sections">
-          <button type="button" class="active">Card options</button>
-          <button type="button">In decks</button>
-          <button type="button">Collection records</button>
-          <button type="button">Card info</button>
-          <button type="button">Rulings</button>
+          <button type="button" class="active" data-card-inspector-tab="options">Card options</button>
+          <button type="button" data-card-inspector-tab="decks">In decks</button>
+          <button type="button" data-card-inspector-tab="collections">Collection records</button>
+          <button type="button" data-card-inspector-tab="info">Card info</button>
+          <button type="button" data-card-inspector-tab="rulings">Rulings</button>
         </nav>
         <div id="cardInspectorContent" class="card-inspector-content"></div>
       </form>

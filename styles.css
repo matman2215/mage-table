@@ -967,7 +967,10 @@ body.landing-mode .account-workspace-shell label {
 
 .collection-bulk-add-card {
   width: min(860px, calc(100vw - 28px));
+  height: min(88vh, 880px);
+  height: min(88dvh, 880px);
   max-height: min(88vh, 880px);
+  max-height: min(88dvh, 880px);
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
 }
@@ -979,7 +982,9 @@ body.landing-mode .account-workspace-shell label {
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding-right: 5px;
+  scrollbar-gutter: stable;
 }
 
 .collection-bulk-panel {
@@ -1065,10 +1070,12 @@ body.landing-mode .account-workspace-shell label {
 }
 
 .collection-bulk-add-card textarea {
-  min-height: 0;
+  min-height: 180px;
+  height: clamp(180px, 34vh, 360px);
+  height: clamp(180px, 34dvh, 360px);
   width: 100%;
-  max-height: 42vh;
-  overflow-y: auto;
+  max-height: none;
+  overflow: auto;
   resize: none;
   font-size: 0.74rem;
 }
@@ -2064,8 +2071,8 @@ body.shift-cascade .deck-stack-card strong {
 }
 
 .printing-dialog-card {
-  width: fit-content;
-  max-width: calc(100vw - 32px);
+  width: min(1180px, calc(100vw - 32px));
+  max-width: 100%;
   max-height: min(860px, calc(100vh - 32px));
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
@@ -2073,14 +2080,10 @@ body.shift-cascade .deck-stack-card strong {
 
 .printing-list {
   --printing-card-width: 148px;
-  --printing-column-count: 6;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(var(--printing-card-width), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(var(--printing-card-width), 100%), 1fr));
   gap: 10px;
-  width: min(
-    calc(100vw - 80px),
-    calc((var(--printing-card-width) * var(--printing-column-count)) + (10px * (var(--printing-column-count) - 1)))
-  );
+  width: 100%;
   min-height: 0;
   max-width: 100%;
   overflow-y: auto;
@@ -2092,6 +2095,7 @@ body.shift-cascade .deck-stack-card strong {
   display: grid;
   grid-template-rows: auto minmax(74px, auto) auto;
   gap: 7px;
+  min-width: 0;
   border: 1px solid #34433e;
   border-radius: 8px;
   background: #111815;
@@ -2482,6 +2486,62 @@ body.shift-cascade .deck-stack-card strong {
   padding: 4px 8px;
 }
 
+.card-inspector-records {
+  align-content: start;
+}
+
+.card-inspector-record {
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(237, 244, 240, 0.14);
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.16);
+  padding: 9px 10px;
+}
+
+.card-inspector-record strong {
+  color: #edf4f0;
+  font-size: 0.78rem;
+}
+
+.card-inspector-record span {
+  color: #a6b4ae;
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
+.card-inspector-record.ruling span {
+  color: #cbd5d1;
+}
+
+.card-inspector-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.card-inspector-facts div {
+  display: grid;
+  gap: 3px;
+  border: 1px solid rgba(237, 244, 240, 0.12);
+  border-radius: 7px;
+  padding: 8px;
+}
+
+.card-inspector-facts dt {
+  color: #a6b4ae;
+  font-size: 0.62rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.card-inspector-facts dd {
+  margin: 0;
+  color: #edf4f0;
+  font-size: 0.74rem;
+}
+
 .legality-heatmap {
   display: grid;
   gap: 9px;
@@ -2543,6 +2603,15 @@ body.shift-cascade .deck-stack-card strong {
 .legality-heatmap.aggregate .legality-pill {
   justify-content: space-between;
   border-radius: 8px;
+}
+
+.legality-heatmap.aggregate .legality-pill.percentage {
+  background:
+    linear-gradient(
+      90deg,
+      var(--legality-color) 0 var(--legality-pct),
+      rgba(106, 109, 108, 0.56) var(--legality-pct) 100%
+    );
 }
 
 .legality-heatmap.aggregate .legality-pill b {
@@ -5967,6 +6036,13 @@ dialog {
   width: min(720px, calc(100vw - 28px));
 }
 
+#printingDialog {
+  width: min(1180px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  overflow: hidden;
+}
+
 #deckStatsDialog {
   width: calc(100vw - 12px);
   max-width: none;
@@ -5983,6 +6059,9 @@ dialog {
 
 #collectionBulkAddDialog {
   width: min(860px, calc(100vw - 28px));
+  max-height: calc(100vh - 28px);
+  max-height: calc(100dvh - 28px);
+  overflow: hidden;
 }
 
 #cardInspectorDialog {

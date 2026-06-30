@@ -15,6 +15,7 @@ const scryfallCache = new Map();
 const scryfallTokenSearchCache = new Map();
 const scryfallCardSearchCache = new Map();
 const scryfallPrintSearchCache = new Map();
+const scryfallRulingsCache = new Map();
 let mtgjsonPriceMap = null;
 let mtgjsonPriceMapPromise = null;
 const mtgjsonSetIndexCache = new Map();
@@ -1345,6 +1346,24 @@ async function searchScryfallPrintings(name) {
   return cards;
 }
 
+async function fetchScryfallRulings(cardId) {
+  const id = String(cardId || "").trim();
+  if (!/^[0-9a-f-]{32,40}$/i.test(id)) return [];
+  if (scryfallRulingsCache.has(id)) return scryfallRulingsCache.get(id);
+  const response = await throttledScryfallFetch(`https://api.scryfall.com/cards/${encodeURIComponent(id)}/rulings`);
+  if (!response.ok) {
+    if (response.status === 404) return [];
+    throw new Error("Scryfall rulings search failed");
+  }
+  const payload = await response.json();
+  const rulings = (payload.data || []).map((ruling) => ({
+    publishedAt: ruling.published_at || "",
+    comment: String(ruling.comment || "").slice(0, 1400),
+  }));
+  scryfallRulingsCache.set(id, rulings);
+  return rulings;
+}
+
 function accountGameSummary(room, accountId, origin) {
   const player = room.players.find((candidate) => candidate.accountId === accountId);
   if (!player) return null;
@@ -1619,11 +1638,15 @@ async function inspectDeck(text) {
     if (!cardData) {
       notFound.push(entry.name);
       cardData = {
+        scryfallId: "",
+        scryfallOracleId: "",
         name: entry.name,
         displayName: entry.name,
         typeLine: "",
         manaCost: "",
         manaValue: 0,
+        oracleText: "",
+        keywords: [],
         images: {},
         faces: [],
         colors: [],
@@ -1643,12 +1666,16 @@ async function inspectDeck(text) {
     const priceUsd = pricesUsd.scryfall || 0;
     cards.push({
       quantity: entry.count,
+      scryfallId: cardData.scryfallId || "",
+      scryfallOracleId: cardData.scryfallOracleId || "",
       name: cardData.name,
       displayName: cardData.displayName || cardData.name,
       typeLine: cardData.typeLine || "",
       manaCost: cardData.manaCost || "",
       manaValue: Number(cardData.manaValue) || manaValueFromCost(cardData.manaCost),
       producedMana: cardData.producedMana || [],
+      oracleText: cardData.oracleText || "",
+      keywords: cardData.keywords || [],
       imageUrl: cardData.faces?.[0]?.imageUrl || cardData.images?.normal || cardData.images?.small || "",
       colors: cardData.colors || [],
       colorIdentity: cardData.colorIdentity || [],
@@ -1663,6 +1690,8 @@ async function inspectDeck(text) {
       category: entry.category || "",
       tags: entry.tags || [],
       isLand: Boolean(cardData.isLand),
+      power: cardData.power || "",
+      toughness: cardData.toughness || "",
     });
   }
   return {
@@ -3834,6 +3863,12 @@ const server = http.createServer(async (req, res) => {
       const name = requestUrl.searchParams.get("name") || "";
       const cards = await searchScryfallPrintings(name);
       return sendJson(res, 200, { cards });
+    }
+
+    if (req.method === "GET" && requestUrl.pathname === "/api/scryfall/rulings") {
+      const id = requestUrl.searchParams.get("id") || "";
+      const rulings = await fetchScryfallRulings(id);
+      return sendJson(res, 200, { rulings });
     }
 
     const actionMatch = requestUrl.pathname.match(/^\/api\/rooms\/([^/]+)\/actions$/);
