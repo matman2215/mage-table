@@ -190,6 +190,7 @@ const els = {
   diceNoticeTitle: document.querySelector("#diceNoticeTitle"),
   diceNoticeResult: document.querySelector("#diceNoticeResult"),
   dismissDiceNoticeButton: document.querySelector("#dismissDiceNoticeButton"),
+  combatTrickFlash: document.querySelector("#combatTrickFlash"),
   chatButton: document.querySelector("#chatButton"),
   chatBadge: document.querySelector("#chatBadge"),
   chatDialog: document.querySelector("#chatDialog"),
@@ -472,6 +473,8 @@ let combatBlockSnapshotId = "";
 let combatAttackAssignments = {};
 let combatAttackTrickArmed = false;
 let combatAssignmentDrag = null;
+let combatTrickFlashSeenKey = "";
+let combatTrickFlashTimer = null;
 let dismissedDiceNoticeId = "";
 let lastDiceResult = "No rolls yet";
 let pendingCountPrompt = null;
@@ -6396,6 +6399,7 @@ function render() {
     els.exitGameButton.classList.add("hidden");
     closeActionPopovers();
     els.diceNotice.classList.add("hidden");
+    els.combatTrickFlash?.classList.add("hidden");
     els.showInvitesButton.classList.add("hidden");
     els.deckSetupOverlay.classList.add("hidden");
     if (els.mulliganDialog.open) els.mulliganDialog.close();
@@ -6434,6 +6438,7 @@ function render() {
   renderClockPanel();
   renderStatisticsPanel();
   renderCombatPanel();
+  renderCombatTrickFlash();
   renderAccountControls();
   renderKeybindSettings();
   renderBoardReference();
@@ -6922,13 +6927,19 @@ function combatVisibleSnapshotCards(snapshot, defenderSeat = snapshot?.defenderS
 
 function combatCardsTotal(cards = []) {
   return cards.reduce((totals, card) => {
-    if (!card?.isCreature) return totals;
+    if (!card?.isCreature && !isCreatureCard(card)) return totals;
     const quantity = Math.max(1, Number(card.quantity) || 1);
     totals.creatures += quantity;
-    totals.power += Math.max(0, Number(card.totalPower) || 0);
-    totals.toughness += Math.max(0, Number(card.totalToughness) || 0);
+    const power = Number.isFinite(Number(card.totalPower)) ? Number(card.totalPower) : cardPowerValue(card) * quantity;
+    const toughness = Number.isFinite(Number(card.totalToughness)) ? Number(card.totalToughness) : cardToughnessValue(card) * quantity;
+    totals.power += Math.max(0, power);
+    totals.toughness += Math.max(0, toughness);
     return totals;
   }, { creatures: 0, power: 0, toughness: 0 });
+}
+
+function combatBlockersLocked(snapshot, seat = state?.currentSeat) {
+  return new Set((snapshot?.blockerLocks || []).map(Number)).has(Number(seat));
 }
 
 function combatSnapshotTargetNames(snapshot) {
@@ -6971,13 +6982,17 @@ function combatBlockButton(snapshot, compact = false) {
   button.className = `combat-block-button secondary${compact ? " compact" : ""}`;
   const isDefender = Number(snapshot?.defenderSeat) === Number(state?.currentSeat);
   const trickPending = Boolean(snapshot?.combatTrickPending);
+  const locked = isDefender && combatBlockersLocked(snapshot);
   const hasAttackers = combatVisibleSnapshotCards(snapshot).some((card) => card.isCreature && !card.damageApplied);
-  button.textContent = snapshot?.blockersDeclared
+  button.textContent = locked
+    ? compact ? "Locked" : "Blockers Locked"
+    : snapshot?.blockersDeclared
     ? compact ? "Blocks" : "Edit Blockers"
     : compact ? "Block" : "Declare Blockers";
-  setDisabled(button, Boolean(snapshot?.damageApplied) || trickPending || !hasAttackers || !isDefender);
+  setDisabled(button, Boolean(snapshot?.damageApplied) || trickPending || locked || !hasAttackers || !isDefender);
   button.title = trickPending
     ? "Combat trick priority is with the attacking player"
+    : locked ? "Blockers are locked because combat priority was passed"
     : isDefender ? "Assign blockers from your battlefield" : "Only the defending player can declare blockers";
   button.addEventListener("click", (event) => {
     event.preventDefault();
@@ -7144,7 +7159,8 @@ function cancelCombatAssignmentDrag(event, node) {
 function renderDeclareAttackersPanel() {
   const attackers = currentAttackerCandidates();
   const defenders = combatDefenderCandidates();
-  els.combatPopoverTitle.textContent = combatAttackTrickArmed ? "Declare Attackers" : "Declare Attackers";
+  els.combatPopover.classList.toggle("combat-trick-armed", combatAttackTrickArmed);
+  els.combatPopoverTitle.textContent = combatAttackTrickArmed ? "Declare Attackers - Combat Trick" : "Declare Attackers";
   els.combatPopoverSummary.textContent = combatAttackTrickArmed
     ? "Assign attackers to each defending player. Combat trick priority will stay hidden until a defender makes a blocking or damage decision."
     : "Drag attacking creature copies under each defending player, then declare attackers.";
@@ -7183,7 +7199,7 @@ function renderDeclareAttackersPanel() {
   });
   const submit = document.createElement("button");
   submit.type = "button";
-  submit.textContent = "Declare Attackers";
+  submit.textContent = combatAttackTrickArmed ? "Declare Attackers with Combat Trick" : "Declare Attackers";
   submit.addEventListener("click", async () => {
     setDisabled(submit, true);
     try {
@@ -7228,6 +7244,8 @@ function attackerSourceElement(attacker) {
 function attackerAssignmentColumn(defender, attackers) {
   const column = document.createElement("article");
   column.className = "combat-blocker-column combat-attacker-column";
+  const assignedIds = combatAttackAssignments[defender.seat] || [];
+  column.style.setProperty("--combat-assigned-count", String(Math.max(1, assignedIds.length)));
   const title = document.createElement("div");
   title.className = "combat-blocker-column-title";
   title.innerHTML = `<strong>${escapeHtml(defender.name || `Player ${Number(defender.seat) + 1}`)}</strong><span>${escapeHtml(defender.commander || "Defender")}</span>`;
@@ -7238,7 +7256,6 @@ function attackerAssignmentColumn(defender, attackers) {
     event.preventDefault();
     event.stopPropagation();
   });
-  const assignedIds = combatAttackAssignments[defender.seat] || [];
   if (!assignedIds.length) {
     const empty = document.createElement("span");
     empty.className = "combat-empty-blocker-zone";
@@ -7306,12 +7323,13 @@ function openCombatPanel() {
 
 function renderCombatPanel() {
   const snapshot = state?.combatSnapshot;
+  els.combatPopover.classList.remove("combat-trick-armed");
   if (!snapshot?.cards?.length) {
     els.combatPopover.classList.add("hidden");
     els.combatPopoverCards.innerHTML = "";
     return;
   }
-  if (combatPanelMode === "blockers" && Number(snapshot.defenderSeat) === Number(state.currentSeat) && !snapshot.damageApplied) {
+  if (combatPanelMode === "blockers" && Number(snapshot.defenderSeat) === Number(state.currentSeat) && !snapshot.damageApplied && !combatBlockersLocked(snapshot)) {
     renderCombatBlockerPanel(snapshot);
     return;
   }
@@ -7388,6 +7406,23 @@ function renderCombatPopoverActions(snapshot) {
   els.combatPopoverDamageButton = damage;
 }
 
+function renderCombatTrickFlash() {
+  const snapshot = state?.combatSnapshot;
+  const key = snapshot?.combatTrickPending
+    ? `${state.id}:${snapshot.id}:${snapshot.combatTrickPending}`
+    : "";
+  if (!key || combatTrickFlashSeenKey === key) return;
+  combatTrickFlashSeenKey = key;
+  closeActionPopovers();
+  els.combatPopover.classList.add("hidden");
+  if (!els.combatTrickFlash) return;
+  window.clearTimeout(combatTrickFlashTimer);
+  els.combatTrickFlash.classList.remove("hidden");
+  combatTrickFlashTimer = window.setTimeout(() => {
+    els.combatTrickFlash?.classList.add("hidden");
+  }, 2000);
+}
+
 function combatSnapshotBlockers(snapshot, attackerId) {
   const entry = (snapshot?.blockers || []).find((block) => String(block.attackerId) === String(attackerId));
   return Array.isArray(entry?.blockers) ? entry.blockers : [];
@@ -7421,6 +7456,7 @@ function combatDeclaredBlockersElement(blockers) {
 }
 
 function renderCombatBlockerPanel(snapshot) {
+  els.combatPopover.classList.remove("combat-trick-armed");
   initializeCombatBlockAssignments(snapshot);
   const attackers = combatVisibleSnapshotCards(snapshot).filter((card) => card.isCreature && !card.damageApplied);
   const blockers = currentBlockerCandidates();
@@ -7524,18 +7560,23 @@ function blockerAssignmentColumn(snapshot, attacker, blockers) {
   zone.className = "combat-blocker-dropzone";
   zone.dataset.attackerId = attacker.id;
   const assignedIds = combatBlockAssignments[attacker.id] || [];
+  const assignedBlockers = assignedIds
+    .map((blockerId) => blockers.find((candidate) => candidate.id === blockerId))
+    .filter(Boolean);
+  const zoneStats = combatCardsTotal(assignedBlockers);
+  const stats = document.createElement("div");
+  stats.className = "combat-blocker-zone-stats";
+  stats.textContent = `${zoneStats.creatures} blocker${zoneStats.creatures === 1 ? "" : "s"} - ${zoneStats.power}/${zoneStats.toughness}`;
   if (!assignedIds.length) {
     const empty = document.createElement("span");
     empty.className = "combat-empty-blocker-zone";
     empty.textContent = "No blockers";
     zone.append(empty);
   }
-  assignedIds.forEach((blockerId) => {
-    const blocker = blockers.find((candidate) => candidate.id === blockerId);
-    if (!blocker) return;
+  assignedBlockers.forEach((blocker) => {
     zone.append(assignedBlockerElement(attacker.id, blocker));
   });
-  column.append(title, attackerCard, zone);
+  column.append(title, attackerCard, stats, zone);
   return column;
 }
 

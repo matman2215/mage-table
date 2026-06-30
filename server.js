@@ -2973,6 +2973,16 @@ function markCombatDefenderComplete(snapshot, seat) {
   snapshot.defenderStepsComplete = [...complete];
 }
 
+function lockCombatDefender(snapshot, seat) {
+  const locked = new Set((snapshot.blockerLocks || []).map(Number));
+  locked.add(Number(seat));
+  snapshot.blockerLocks = [...locked];
+}
+
+function combatDefenderBlockersLocked(snapshot, seat) {
+  return new Set((snapshot?.blockerLocks || []).map(Number)).has(Number(seat));
+}
+
 function advanceCombatAfterDefenderDecision(room, snapshot, defenderSeat) {
   markCombatDefenderComplete(snapshot, defenderSeat);
   const nextDefender = nextCombatDefenderSeat(snapshot, defenderSeat);
@@ -3223,6 +3233,7 @@ async function applyAction(room, actor, body) {
       const snapshot = room.combatSnapshot;
       if (room.priorityMode !== "combat" || !snapshot) throw new Error("There is no active combat to block.");
       if (!playerHasPriority(room, actor)) throw new Error("You do not have priority.");
+      if (combatDefenderBlockersLocked(snapshot, actor.seat)) throw new Error("Blockers are locked for this combat step.");
       const blocks = combatBlockAssignments(room, actor, snapshot, body.assignments);
       const activeAttackerIds = new Set(combatCardsForDefender(snapshot, actor.seat).map((card) => String(card.id)));
       snapshot.blockers = [
@@ -3231,11 +3242,6 @@ async function applyAction(room, actor, body) {
       ];
       snapshot.blockersDeclared = true;
       const totalBlockers = blocks.reduce((total, entry) => total + entry.blockers.length, 0);
-      if (combatTrickIsArmed(snapshot) && !snapshot.combatTrickResolved) {
-        openCombatTrickPriority(room, snapshot, "blockers");
-      } else {
-        advanceCombatAfterDefenderDecision(room, snapshot, actor.seat);
-      }
       addLog(room, `${actor.name} declared ${totalBlockers} blocker${totalBlockers === 1 ? "" : "s"}.`, actor, {
         kind: "combat",
         cards: snapshot.cards,
@@ -3248,6 +3254,7 @@ async function applyAction(room, actor, body) {
       if (combatTrickIsArmed(snapshot) && !snapshot.combatTrickResolved) {
         if (room.priorityMode !== "combat" || !playerHasPriority(room, actor)) throw new Error("You do not have priority.");
         if (actor.seat !== Number(snapshot.defenderSeat)) throw new Error("Only the defending player can take this combat damage.");
+        lockCombatDefender(snapshot, actor.seat);
         openCombatTrickPriority(room, snapshot, "damage");
         break;
       }
@@ -3261,6 +3268,7 @@ async function applyAction(room, actor, body) {
       if (combatTrickIsArmed(snapshot) && !snapshot.combatTrickResolved) {
         if (room.priorityMode !== "combat" || !playerHasPriority(room, actor)) throw new Error("You do not have priority.");
         if (actor.seat !== Number(snapshot.defenderSeat)) throw new Error("Only the defending player can take this combat damage.");
+        lockCombatDefender(snapshot, actor.seat);
         openCombatTrickPriority(room, snapshot, "damage");
         break;
       }
@@ -3292,6 +3300,16 @@ async function applyAction(room, actor, body) {
         room.prioritySeat = Number(combatSnapshot.defenderSeat);
         combatSnapshot.combatTrickPending = "";
         addLog(room, `${actor.name} resolved the combat trick and passed priority back to ${room.players[room.prioritySeat].name}.`, actor);
+        break;
+      }
+      if (combatSnapshot && room.priorityMode === "combat" && actor.seat === Number(combatSnapshot.defenderSeat)) {
+        lockCombatDefender(combatSnapshot, actor.seat);
+        if (combatTrickIsArmed(combatSnapshot) && !combatSnapshot.combatTrickResolved) {
+          openCombatTrickPriority(room, combatSnapshot, combatSnapshot.blockersDeclared ? "blockers" : "damage");
+        } else {
+          advanceCombatAfterDefenderDecision(room, combatSnapshot, actor.seat);
+        }
+        addLog(room, `${actor.name} passed combat priority.`, actor);
         break;
       }
       if (combatSnapshot && room.priorityMode === "combat" && actor.seat === Number(combatSnapshot.attackerSeat)) {

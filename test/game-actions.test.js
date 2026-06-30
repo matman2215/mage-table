@@ -267,6 +267,11 @@ test("declared blockers persist and combat trick priority returns to attacker", 
     state.combatSnapshot.blockers.find((entry) => entry.attackerId === "attacker-b").blockers.map((blocker) => blocker.id),
     ["token-blocker"],
   );
+  assert.equal(state.priorityMode, "combat");
+  assert.equal(state.prioritySeat, 1);
+  assert.equal(state.combatSnapshot.combatTrickPending, "");
+
+  await applyAction(state, state.players[1], { type: "passPriority" });
   assert.equal(state.priorityMode, "instant");
   assert.equal(state.prioritySeat, 0);
   assert.equal(viewRoom(state, "seat-1", "http://test").combatSnapshot.combatTrickPending, "blockers");
@@ -275,6 +280,13 @@ test("declared blockers persist and combat trick priority returns to attacker", 
   assert.equal(state.priorityMode, "combat");
   assert.equal(state.prioritySeat, 1);
   assert.equal(state.combatSnapshot.combatTrickPending, "");
+  await assert.rejects(
+    applyAction(state, state.players[1], {
+      type: "declareBlockers",
+      assignments: [{ attackerId: "attacker-a", blockerIds: [] }],
+    }),
+    /locked/i,
+  );
 
   await applyAction(state, state.players[1], { type: "takeCombatDamage" });
   assert.equal(state.players[1].life, 35);
@@ -319,6 +331,30 @@ test("attackers can be assigned to different defending players", async () => {
   await applyAction(state, state.players[0], { type: "passPriority" });
   assert.equal(state.priorityMode, "turn");
   assert.equal(state.combatSnapshot, null);
+});
+
+test("declared blockers hold defender priority until pass priority", async () => {
+  const state = room();
+  state.players[0].battlefield.push(card("attacker", "Attacker", { owner: 0, power: "3", toughness: "3" }));
+  state.players[1].battlefield.push(card("blocker", "Blocker", { owner: 1, power: "1", toughness: "4" }));
+
+  await applyAction(state, state.players[0], {
+    type: "combatPass",
+    assignments: [{ defenderSeat: 1, attackerIds: ["attacker"] }],
+  });
+  await applyAction(state, state.players[1], {
+    type: "declareBlockers",
+    assignments: [{ attackerId: "attacker", blockerIds: ["blocker"] }],
+  });
+
+  assert.equal(state.priorityMode, "combat");
+  assert.equal(state.prioritySeat, 1);
+  assert.equal(state.combatSnapshot.blockersDeclared, true);
+
+  await applyAction(state, state.players[1], { type: "passPriority" });
+  assert.equal(state.priorityMode, "combat");
+  assert.equal(state.prioritySeat, 0);
+  assert.deepEqual(state.combatSnapshot.blockerLocks, [1]);
 });
 
 test("tapping a land records produced mana at the next checkpoint", async () => {

@@ -4343,7 +4343,7 @@ body.dark-mode .action-popover {
   transform: translate(-50%, -50%);
   display: grid;
   gap: 10px;
-  width: min(780px, calc(100vw - 32px));
+  width: min(980px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
   overflow-y: auto;
   overflow-x: hidden;
@@ -4354,6 +4354,7 @@ body.dark-mode .action-popover {
 .combat-popover-summary {
   color: var(--muted);
   font-size: 0.78rem;
+  text-align: center;
 }
 
 .combat-popover-cards {
@@ -4467,17 +4468,18 @@ body.dark-mode .combat-blocker-source {
 
 .combat-blocker-source-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(58px, 1fr));
-  gap: 7px;
-  min-height: 74px;
-  max-height: min(216px, 34vh);
+  grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+  justify-items: center;
+  gap: 10px;
+  min-height: 104px;
+  max-height: min(250px, 36vh);
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 3px;
 }
 
 .combat-blocker-source-card {
-  width: 58px;
+  width: 76px;
   justify-self: center;
   cursor: grab;
   touch-action: none;
@@ -4493,15 +4495,24 @@ body.dark-mode .combat-blocker-source {
 
 .combat-blocker-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  justify-content: center;
+  gap: 12px;
   align-items: start;
+}
+
+.combat-attacker-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-start;
 }
 
 .combat-blocker-column {
   display: grid;
-  gap: 7px;
+  gap: 8px;
   justify-items: center;
+  text-align: center;
   min-width: 0;
   border: 1px solid rgba(159, 79, 22, 0.32);
   border-radius: 8px;
@@ -4510,10 +4521,11 @@ body.dark-mode .combat-blocker-source {
 }
 
 .combat-blocker-column-title {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
+  display: grid;
+  justify-items: center;
+  gap: 3px;
   font-size: 0.72rem;
+  text-align: center;
 }
 
 .combat-blocker-column-title strong {
@@ -4524,18 +4536,18 @@ body.dark-mode .combat-blocker-source {
 }
 
 .combat-blocker-attacker-card {
-  width: min(100%, 118px);
+  width: min(100%, 142px);
   justify-self: center;
 }
 
 .combat-blocker-dropzone {
   display: grid;
-  gap: 7px;
+  gap: 8px;
   place-items: center;
   align-content: start;
-  width: 74px;
-  min-height: 104px;
-  max-height: 152px;
+  width: 146px;
+  min-height: 248px;
+  max-height: 420px;
   overflow-y: auto;
   overflow-x: hidden;
   border: 1px dashed rgba(159, 79, 22, 0.56);
@@ -4545,8 +4557,21 @@ body.dark-mode .combat-blocker-source {
 }
 
 .combat-attacker-dropzone {
-  width: min(100%, 172px);
-  min-height: 146px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  align-content: center;
+  width: clamp(190px, calc(var(--combat-assigned-count, 1) * 92px + 56px), 720px);
+  max-width: 100%;
+  min-height: 210px;
+  max-height: 310px;
+}
+
+.combat-attacker-column {
+  width: clamp(220px, calc(var(--combat-assigned-count, 1) * 96px + 86px), 760px);
+  max-width: 100%;
+  flex: 0 1 auto;
 }
 
 .combat-assignment-drop-active {
@@ -4586,11 +4611,27 @@ body.dark-mode .combat-blocker-dropzone {
 
 .combat-assigned-blocker-card,
 .combat-blocker-result-card {
-  width: 64px;
+  width: 82px;
 }
 
 .combat-assigned-attacker-card {
-  width: 72px;
+  width: 88px;
+}
+
+.combat-blocker-zone-stats {
+  justify-self: center;
+  border: 1px solid rgba(159, 79, 22, 0.24);
+  border-radius: 999px;
+  background: rgba(159, 79, 22, 0.12);
+  color: var(--warn);
+  font-size: 0.68rem;
+  font-weight: 900;
+  padding: 4px 9px;
+}
+
+.combat-trick-armed {
+  border-color: rgba(212, 135, 69, 0.74);
+  box-shadow: 0 0 0 1px rgba(212, 135, 69, 0.28), var(--shadow);
 }
 
 .combat-block-arrow {
@@ -7242,6 +7283,36 @@ body.dark-mode .table-notice {
   overflow-wrap: anywhere;
 }
 
+.combat-trick-flash {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  background: rgba(12, 18, 16, 0.34);
+  animation: combatTrickFlash 2s ease both;
+}
+
+.combat-trick-flash strong {
+  border: 2px solid rgba(255, 189, 110, 0.88);
+  border-radius: 8px;
+  background: rgba(18, 12, 7, 0.92);
+  color: #ffbd6e;
+  font: 900 clamp(2.2rem, 8vw, 6.5rem)/1 Inter, ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0;
+  padding: clamp(18px, 4vw, 38px) clamp(24px, 6vw, 64px);
+  text-align: center;
+  text-shadow: 0 0 24px rgba(255, 189, 110, 0.54);
+}
+
+@keyframes combatTrickFlash {
+  0% { opacity: 0; transform: scale(0.96); }
+  12% { opacity: 1; transform: scale(1); }
+  78% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.03); }
+}
+
 @keyframes drawPulse {
   0% {
     box-shadow: 0 0 0 0 rgba(42, 157, 143, 0.58);
@@ -7274,6 +7345,7 @@ body.dark-mode .loading-indicator {
 .draw-reminder.hidden,
 .turn-reminder.hidden,
 .table-notice.hidden,
+.combat-trick-flash.hidden,
 .action-popover.hidden,
 .loading-indicator.hidden {
   display: none;
