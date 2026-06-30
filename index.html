@@ -44,7 +44,7 @@
             <button id="joinGameButton" class="secondary" data-landing-action="join" type="button">Join Game</button>
             <button id="loginButton" class="secondary" data-landing-action="account" type="button">Log In</button>
           </div>
-          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.6.3</p>
+          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.6.4</p>
         </div>
         <section id="createModePanel" class="landing-subpanel create-mode-panel hidden">
           <header class="create-room-header">
@@ -878,14 +878,31 @@
           </div>
           <button id="closeCollectionBulkAddButton" class="popover-close" type="button" title="Dismiss" aria-label="Dismiss collection bulk add">x</button>
         </header>
-        <textarea id="collectionBulkAddInput" rows="12" maxlength="200000" placeholder="4 Sol Ring&#10;2 Command Tower"></textarea>
-        <section class="collection-bulk-decks">
-          <header>
-            <strong>Include Sources</strong>
-            <span id="collectionBulkDeckSummary">0 sources selected</span>
-          </header>
-          <div id="collectionBulkDeckList" class="collection-bulk-deck-list"></div>
-        </section>
+        <div class="collection-bulk-scroll">
+          <details class="collection-bulk-panel" open>
+            <summary>
+              <span>
+                <strong>Bulk Import</strong>
+                <small>Paste copied card lists directly into this collection.</small>
+              </span>
+            </summary>
+            <div class="collection-bulk-panel-body">
+              <textarea id="collectionBulkAddInput" rows="12" maxlength="200000" placeholder="4 Sol Ring&#10;2 Command Tower"></textarea>
+            </div>
+          </details>
+          <details class="collection-bulk-panel collection-bulk-decks" open>
+            <summary>
+              <span>
+                <strong>Deck Import</strong>
+                <small>Add or remove cards from saved decks and collections.</small>
+              </span>
+              <span id="collectionBulkDeckSummary" class="collection-bulk-summary">0 sources selected</span>
+            </summary>
+            <div class="collection-bulk-panel-body">
+              <div id="collectionBulkDeckList" class="collection-bulk-deck-list"></div>
+            </div>
+          </details>
+        </div>
         <div class="dialog-actions bulk-import-actions">
           <button id="applyCollectionBulkAddButton" type="button">Apply To Collection</button>
         </div>
@@ -902,6 +919,26 @@
           <button id="closeCollectionStatsButton" class="popover-close" type="button" title="Dismiss" aria-label="Dismiss collection stats">x</button>
         </header>
         <div id="collectionStatsContent" class="deck-stats-content collection-stats-content"></div>
+      </form>
+    </dialog>
+
+    <dialog id="cardInspectorDialog">
+      <form method="dialog" class="dialog-card card-inspector-card">
+        <header class="card-inspector-header">
+          <div>
+            <h2 id="cardInspectorTitle">Card</h2>
+            <p id="cardInspectorSummary" class="dialog-note"></p>
+          </div>
+          <button id="closeCardInspectorButton" class="popover-close" type="button" title="Dismiss" aria-label="Dismiss card details">x</button>
+        </header>
+        <nav class="card-inspector-tabs" aria-label="Card menu sections">
+          <button type="button" class="active">Card options</button>
+          <button type="button">In decks</button>
+          <button type="button">Collection records</button>
+          <button type="button">Card info</button>
+          <button type="button">Rulings</button>
+        </nav>
+        <div id="cardInspectorContent" class="card-inspector-content"></div>
       </form>
     </dialog>
 

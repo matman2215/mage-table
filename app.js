@@ -342,6 +342,11 @@ const els = {
   collectionStatsSummary: document.querySelector("#collectionStatsSummary"),
   closeCollectionStatsButton: document.querySelector("#closeCollectionStatsButton"),
   collectionStatsContent: document.querySelector("#collectionStatsContent"),
+  cardInspectorDialog: document.querySelector("#cardInspectorDialog"),
+  cardInspectorTitle: document.querySelector("#cardInspectorTitle"),
+  cardInspectorSummary: document.querySelector("#cardInspectorSummary"),
+  cardInspectorContent: document.querySelector("#cardInspectorContent"),
+  closeCardInspectorButton: document.querySelector("#closeCardInspectorButton"),
   printingDialog: document.querySelector("#printingDialog"),
   printingDialogTitle: document.querySelector("#printingDialogTitle"),
   printingDialogSummary: document.querySelector("#printingDialogSummary"),
@@ -511,6 +516,7 @@ const probabilitySettings = {
 let deckRailCollapsed = localStorage.getItem("mage-table-deck-rail-collapsed") === "1";
 let deckMaybeBoardOpen = localStorage.getItem("mage-table-maybeboard-open") === "1";
 let pendingDeckActionDeck = null;
+let cardInspectorContext = null;
 let pendingGameDeck = null;
 let pendingCreateDeck = null;
 let pendingPlayDeck = null;
@@ -1423,6 +1429,7 @@ function collectionStackCard(card, index, query) {
   `;
   attachCollectionCardEditControls(item, card.name);
   attachCardZoomHandlers(item, "collection-viewer", index);
+  attachCardInspectorContext(item, card, "collection");
   return item;
 }
 
@@ -1479,6 +1486,7 @@ function collectionTextTableRow(card, query) {
     </td>
   `;
   attachCollectionCardEditControls(row, card.name);
+  attachCardInspectorContext(row, card, "collection");
   return row;
 }
 
@@ -1549,6 +1557,195 @@ function currentCollectionCardQuantity(cardName) {
   return match ? Number(match.quantity) || 0 : 0;
 }
 
+const legalityFormats = [
+  ["standard", "Standard"],
+  ["modern", "Modern"],
+  ["commander", "Commander"],
+  ["legacy", "Legacy"],
+  ["vintage", "Vintage"],
+  ["pauper", "Pauper"],
+  ["pioneer", "Pioneer"],
+  ["historic", "Historic"],
+  ["alchemy", "Alchemy"],
+  ["brawl", "Brawl"],
+  ["oathbreaker", "Oathbreaker"],
+  ["duel", "Duel Commander"],
+  ["penny", "Penny"],
+  ["paupercommander", "Pauper EDH"],
+  ["premodern", "Premodern"],
+  ["predh", "PreDH"],
+];
+
+function legalityStatusClass(status) {
+  const value = String(status || "unknown").toLowerCase();
+  if (value === "legal") return "legal";
+  if (value === "banned") return "banned";
+  if (value === "restricted") return "restricted";
+  if (value === "not_legal") return "not-legal";
+  return "unknown";
+}
+
+function legalityLabel(status) {
+  return titleCase(String(status || "unknown").replace(/_/g, " "));
+}
+
+function cardLegalityHeatmap(card, options = {}) {
+  const compact = Boolean(options.compact);
+  const legalities = card?.legalities && typeof card.legalities === "object" ? card.legalities : {};
+  const classes = `legality-heatmap${compact ? " compact" : ""}`;
+  const label = compact ? "" : '<h3>Legalities</h3>';
+  const cells = legalityFormats.map(([key, name]) => {
+    const status = legalities[key] || "unknown";
+    const shortName = name.replace(" Commander", "").replace("Pauper EDH", "PEDH");
+    return `<span class="legality-pill ${legalityStatusClass(status)}" title="${escapeHtml(name)}: ${escapeHtml(legalityLabel(status))}">${escapeHtml(compact ? shortName : name)}</span>`;
+  }).join("");
+  return `<section class="${classes}" aria-label="Card legalities">${label}<div>${cells}</div></section>`;
+}
+
+function collectionLegalityOverview(cards) {
+  const section = document.createElement("section");
+  section.className = "deck-stat-section collection-legality-overview";
+  section.innerHTML = "<h3>Collection Legalities</h3>";
+  const total = cards.reduce((sum, card) => sum + (Number(card.quantity) || 1), 0);
+  const grid = document.createElement("div");
+  grid.className = "legality-heatmap aggregate";
+  const cells = legalityFormats.map(([key, name]) => {
+    let legal = 0;
+    let banned = 0;
+    let restricted = 0;
+    cards.forEach((card) => {
+      const quantity = Number(card.quantity) || 1;
+      const status = String(card.legalities?.[key] || "unknown").toLowerCase();
+      if (status === "legal") legal += quantity;
+      else if (status === "banned") banned += quantity;
+      else if (status === "restricted") restricted += quantity;
+    });
+    const legalPct = total ? Math.round((legal / total) * 100) : 0;
+    const className = banned ? "banned" : restricted ? "restricted" : legal ? "legal" : "unknown";
+    return `<span class="legality-pill ${className}" title="${escapeHtml(name)}: ${legalPct}% legal">${escapeHtml(name)} <b>${legalPct}%</b></span>`;
+  }).join("");
+  grid.innerHTML = `<div>${cells}</div>`;
+  section.append(grid);
+  return section;
+}
+
+function findInspectorCard(context = cardInspectorContext) {
+  if (!context?.cardName) return null;
+  const source = context.surface === "deck" ? deckBuilderMetadata?.cards : collectionMetadata?.cards;
+  return (source || []).find((card) => normalizedDeckCardName(card.name) === normalizedDeckCardName(context.cardName)) || context.card || null;
+}
+
+function inspectorCardQuantity(card = findInspectorCard()) {
+  if (!card) return 0;
+  if (cardInspectorContext?.surface === "collection") return currentCollectionCardQuantity(card.name);
+  const match = parseDeckBuilderEntries(els.deckBuilderListInput?.value || "")
+    .find((entry) => normalizedDeckCardName(entry.name) === normalizedDeckCardName(card.name));
+  return match ? Number(match.quantity) || 0 : Number(card.quantity) || 0;
+}
+
+function openCardInspector(card, surface = "deck") {
+  if (!card || !els.cardInspectorDialog) return;
+  cardInspectorContext = { surface, cardName: card.name, card };
+  renderCardInspector();
+  if (!els.cardInspectorDialog.open) els.cardInspectorDialog.showModal();
+}
+
+function renderCardInspector() {
+  if (!els.cardInspectorContent) return;
+  const card = findInspectorCard();
+  if (!card) {
+    els.cardInspectorContent.innerHTML = '<p class="empty-list-message">Card data is not available.</p>';
+    return;
+  }
+  const surface = cardInspectorContext?.surface || "deck";
+  const quantity = inspectorCardQuantity(card);
+  const image = card.imageUrl
+    ? `<img src="${escapeHtml(card.imageUrl)}" alt="${escapeHtml(card.name)}">`
+    : `<div class="deck-stack-placeholder">${escapeHtml(card.name)}</div>`;
+  const memberships = deckMembershipForCard(card);
+  els.cardInspectorTitle.textContent = card.name || "Card";
+  els.cardInspectorSummary.textContent = [
+    card.typeLine || "Card",
+    card.set ? `${String(card.set).toUpperCase()} ${card.collectorNumber || ""}`.trim() : "",
+    `${formatUsd(deckCardUnitPrice(card))} ${priceSourceShortLabel(deckPriceSource)}`,
+  ].filter(Boolean).join(" - ");
+  els.cardInspectorContent.innerHTML = `
+    <aside class="card-inspector-preview">
+      ${image}
+      <div class="card-inspector-price-row">
+        <strong>${formatUsd(deckCardUnitPrice(card))}</strong>
+        <span>${formatUsd(deckCardTotalPrice(card))} total</span>
+      </div>
+    </aside>
+    <main class="card-inspector-main">
+      <section class="card-inspector-panel">
+        <div class="card-inspector-quantity">
+          <label>Quantity<input id="cardInspectorQuantityInput" type="number" min="0" max="999" value="${quantity}"></label>
+          <div>
+            <button id="cardInspectorMinusButton" class="secondary" type="button">-</button>
+            <button id="cardInspectorPlusButton" type="button">+</button>
+          </div>
+        </div>
+        <div class="card-inspector-actions">
+          <button id="cardInspectorCommanderButton" type="button"${surface === "deck" ? "" : " disabled"}>Set Commander</button>
+          <button id="cardInspectorPrintingButton" class="secondary" type="button"${surface === "deck" ? "" : " disabled"}>All Printings</button>
+        </div>
+      </section>
+      ${cardLegalityHeatmap(card)}
+      <section class="card-inspector-panel card-inspector-categories">
+        <h3>Categories</h3>
+        <div><span>${escapeHtml(deckCategory(card))}</span>${(card.tags || []).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>
+      </section>
+      <section class="card-inspector-panel">
+        <h3>In Decks</h3>
+        <p>${memberships.length ? memberships.map((deck) => escapeHtml(deck.name)).join(", ") : "Not currently used in a saved deck."}</p>
+      </section>
+      <section class="card-inspector-panel card-inspector-info">
+        <h3>Card Info</h3>
+        <p>${escapeHtml(card.oracleText || card.typeLine || "No oracle text available.")}</p>
+      </section>
+    </main>
+  `;
+  wireCardInspectorActions(card, surface);
+}
+
+function wireCardInspectorActions(card, surface) {
+  const adjust = (delta) => {
+    if (surface === "deck") adjustBuilderCard(card.name, delta);
+    else adjustCollectionCard(card.name, delta);
+    renderCardInspector();
+  };
+  els.cardInspectorContent.querySelector("#cardInspectorMinusButton")?.addEventListener("click", () => adjust(-1));
+  els.cardInspectorContent.querySelector("#cardInspectorPlusButton")?.addEventListener("click", () => adjust(1));
+  els.cardInspectorContent.querySelector("#cardInspectorQuantityInput")?.addEventListener("change", (event) => {
+    const target = Math.max(0, Number(event.target.value) || 0);
+    adjust(target - inspectorCardQuantity(card));
+  });
+  els.cardInspectorContent.querySelector("#cardInspectorCommanderButton")?.addEventListener("click", () => {
+    if (surface !== "deck") return;
+    const before = deckHistorySnapshot();
+    els.deckBuilderCommanderInput.value = card.name;
+    els.deckBuilderStatus.textContent = "Unsaved changes";
+    invalidateDeckMetadata();
+    renderDeckBuilderPreview();
+    recordDeckHistoryChange("Set commander", before);
+    renderCardInspector();
+  });
+  els.cardInspectorContent.querySelector("#cardInspectorPrintingButton")?.addEventListener("click", () => {
+    if (surface !== "deck") return;
+    els.cardInspectorDialog.close();
+    openDeckPrintingDialog(card.name);
+  });
+}
+
+function attachCardInspectorContext(root, card, surface) {
+  root.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openCardInspector(card, surface);
+  });
+}
+
 function openCollectionDetailsDialog(collection = currentCollection()) {
   if (!els.collectionDetailsDialog || !els.collectionDetailsNameInput) return;
   els.collectionDetailsNameInput.value = collection?.name || els.collectionNameInput?.value || "New Collection";
@@ -1574,6 +1771,10 @@ function openCollectionBulkAddDialog() {
   if (!els.collectionBulkAddDialog) return;
   if (els.collectionBulkAddInput) els.collectionBulkAddInput.value = "";
   renderCollectionBulkDeckChoices();
+  const bulkPanel = els.collectionBulkAddInput?.closest("details");
+  const deckPanel = els.collectionBulkDeckList?.closest("details");
+  if (bulkPanel) bulkPanel.open = true;
+  if (deckPanel) deckPanel.open = true;
   if (!els.collectionBulkAddDialog.open) els.collectionBulkAddDialog.showModal();
   requestAnimationFrame(() => els.collectionBulkAddInput?.focus());
 }
@@ -1784,6 +1985,7 @@ function renderCollectionStatsContent() {
   els.collectionStatsContent.append(
     collectionStatsMetricGrid(cards),
     collectionStatsBreakdownSection(cards),
+    collectionLegalityOverview(cards),
     collectionStatsTable(cards),
   );
 }
@@ -1895,7 +2097,7 @@ function collectionPriceBandRows(cards) {
 function collectionStatsTable(cards) {
   const table = document.createElement("table");
   table.className = "deck-text-table collection-stats-table";
-  table.innerHTML = "<thead><tr><th>Qty</th><th>Name</th><th>Type</th><th>Unit</th><th>Total</th><th>Decks</th></tr></thead>";
+  table.innerHTML = "<thead><tr><th>Qty</th><th>Legal</th><th>Name</th><th>Type</th><th>Unit</th><th>Total</th><th>Decks</th></tr></thead>";
   const body = document.createElement("tbody");
   cards
     .slice()
@@ -1905,12 +2107,14 @@ function collectionStatsTable(cards) {
       const row = document.createElement("tr");
       row.innerHTML = `
         <td>${Number(card.quantity) || 1}</td>
+        <td>${cardLegalityHeatmap(card, { compact: true })}</td>
         <td>${escapeHtml(card.name)}</td>
         <td>${escapeHtml(primaryType(card))}</td>
         <td>${formatUsd(deckCardUnitPrice(card))}</td>
         <td>${formatUsd(deckCardTotalPrice(card))}</td>
         <td>${memberships.length ? memberships.map((deck) => escapeHtml(deck.name)).join(", ") : ""}</td>
       `;
+      attachCardInspectorContext(row, card, "collection");
       body.append(row);
     });
   table.append(body);
@@ -2872,6 +3076,7 @@ function deckStackCard(card, index, query) {
   `;
   attachDeckCardEditControls(item, card.name);
   attachCardZoomHandlers(item, "deck-viewer", index);
+  attachCardInspectorContext(item, card, "deck");
   return item;
 }
 
@@ -3016,6 +3221,7 @@ function deckTextTableRow(card, query) {
     </td>
   `;
   attachDeckCardEditControls(row, card.name);
+  attachCardInspectorContext(row, card, "deck");
   return row;
 }
 
@@ -9666,6 +9872,7 @@ if (els.closeCollectionBulkAddButton) els.closeCollectionBulkAddButton.addEventL
 if (els.collectionBulkAddForm) els.collectionBulkAddForm.addEventListener("submit", (event) => event.preventDefault());
 if (els.applyCollectionBulkAddButton) els.applyCollectionBulkAddButton.addEventListener("click", applyCollectionBulkAdd);
 if (els.closeCollectionStatsButton) els.closeCollectionStatsButton.addEventListener("click", () => els.collectionStatsDialog.close());
+if (els.closeCardInspectorButton) els.closeCardInspectorButton.addEventListener("click", () => els.cardInspectorDialog.close());
 [
   els.collectionGroupSelect,
   els.collectionSortSelect,
