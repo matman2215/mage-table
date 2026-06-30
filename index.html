@@ -44,7 +44,7 @@
             <button id="joinGameButton" class="secondary" data-landing-action="join" type="button">Join Game</button>
             <button id="loginButton" class="secondary" data-landing-action="account" type="button">Log In</button>
           </div>
-          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.6.5</p>
+          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.6.6</p>
         </div>
         <section id="createModePanel" class="landing-subpanel create-mode-panel hidden">
           <header class="create-room-header">
@@ -581,7 +581,10 @@
             <section class="zone private-zone">
               <div class="zone-header">
                 <h2 id="handTitle">Your Hand</h2>
-                <span id="handCount">0 cards</span>
+                <span class="hand-zone-actions">
+                  <span id="handCount">0 cards</span>
+                  <button id="revealHandButton" class="tiny-action-button" type="button">Reveal</button>
+                </span>
               </div>
               <div id="handZone" class="card-grid"></div>
             </section>
@@ -669,7 +672,10 @@
       </header>
       <p id="combatPopoverSummary" class="combat-popover-summary">No combat is active.</p>
       <div id="combatPopoverCards" class="combat-popover-cards"></div>
-      <button id="combatPopoverDamageButton" class="combat-damage-button" type="button">Take All Damage</button>
+      <div id="combatPopoverActions" class="combat-popover-actions">
+        <button id="combatPopoverBlockButton" class="combat-block-button secondary" type="button">Declare Blockers</button>
+        <button id="combatPopoverDamageButton" class="combat-damage-button" type="button">Take All Damage</button>
+      </div>
     </section>
 
     <section id="diceNotice" class="table-notice dice-notice hidden" role="status">
@@ -684,6 +690,7 @@
       <button id="boardReferenceButton" class="secondary" type="button">Boards</button>
       <button id="instantButton" class="secondary" type="button">Instant</button>
       <button id="combatPassButton" class="secondary" type="button">Combat Pass</button>
+      <button id="combatTrickButton" class="secondary" type="button">Combat Trick</button>
       <button id="passPriorityButton" class="secondary" type="button">Pass Priority</button>
       <button id="drawButton" type="button">Draw</button>
       <button id="endTurnButton" type="button">End Turn</button>
@@ -1292,13 +1299,18 @@
 
     <dialog id="librarySearchDialog">
       <form method="dialog" class="dialog-card library-search-dialog-card">
-        <div>
-          <h2>Search Library</h2>
-          <p id="librarySearchSummary">0 cards</p>
-        </div>
+        <header class="library-search-header">
+          <div>
+            <h2>Search Library</h2>
+            <p id="librarySearchSummary">0 cards</p>
+          </div>
+          <div class="library-search-header-actions">
+            <button id="librarySearchShuffleButton" class="secondary" type="button">Shuffle</button>
+            <button id="librarySearchCloseButton" class="popover-close" type="button" title="Close" aria-label="Close library search">x</button>
+          </div>
+        </header>
         <input id="librarySearchInput" type="search" placeholder="Filter cards">
         <div id="librarySearchCards" class="library-search-cards"></div>
-        <button value="cancel" type="submit">Close</button>
       </form>
     </dialog>
 
@@ -1313,16 +1325,20 @@
     <dialog id="tokenDialog">
       <form method="dialog" class="dialog-card token-dialog-card">
         <div>
-          <h2>Create Token</h2>
-          <p id="tokenDialogSummary">Battlefield token</p>
+          <h2>Add To Battlefield</h2>
+          <p id="tokenDialogSummary">Battlefield object</p>
         </div>
+        <nav class="battlefield-add-tabs" aria-label="Battlefield add modes">
+          <button id="tokenModeButton" class="active" type="button" data-battlefield-add-mode="token">Token</button>
+          <button id="cardModeButton" type="button" data-battlefield-add-mode="card">Card</button>
+        </nav>
         <div class="token-search-row">
-          <input id="tokenSearchInput" type="search" placeholder="Search Scryfall token creatures">
+          <input id="tokenSearchInput" type="search" placeholder="Search Scryfall tokens">
           <button id="tokenSearchButton" type="button">Search</button>
         </div>
-        <p id="tokenSearchSummary" class="dialog-note">Press Enter to search token creatures.</p>
+        <p id="tokenSearchSummary" class="dialog-note">Press Enter to search tokens.</p>
         <div id="tokenSearchCards" class="library-search-cards"></div>
-        <div class="manual-token-panel">
+        <div id="manualTokenPanel" class="manual-token-panel">
           <h2>Custom Token</h2>
           <div class="manual-token-grid">
             <label>

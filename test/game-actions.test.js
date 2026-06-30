@@ -22,6 +22,8 @@ function card(id, name, values = {}) {
     tapped: Boolean(values.tapped),
     owner: Number(values.owner) || 0,
     isCommander: Boolean(values.isCommander),
+    isToken: Boolean(values.isToken),
+    tokenSourceId: values.tokenSourceId || "",
     counters: values.counters || {},
     position: values.position || { x: 20, y: 20, unit: "px" },
   };
@@ -211,6 +213,53 @@ test("combat damage can be taken per creature without double counting", async ()
   await applyAction(state, state.players[1], { type: "takeCombatDamage" });
   assert.equal(state.players[1].life, 35);
   assert.equal(state.combatSnapshot.damageTaken, 5);
+  assert.equal(state.combatSnapshot.damageApplied, true);
+});
+
+test("declared blockers persist and combat trick priority returns to attacker", async () => {
+  const state = room();
+  state.players[0].battlefield.push(
+    card("attacker-a", "Attacker A", { owner: 0, power: "3", toughness: "3" }),
+    card("attacker-b", "Attacker B", { owner: 0, power: "2", toughness: "2" }),
+  );
+  state.players[1].battlefield.push(
+    card("blocker-a", "Blocker A", { owner: 1, power: "1", toughness: "4" }),
+    card("token-blocker", "Token Blocker", { owner: 1, isToken: true, power: "1", toughness: "1" }),
+  );
+
+  await applyAction(state, state.players[0], {
+    type: "combatPass",
+    combatTrick: true,
+    cardIds: ["attacker-a", "attacker-b"],
+  });
+  assert.equal(state.priorityMode, "combat");
+  assert.equal(state.prioritySeat, 1);
+  assert.equal(state.combatSnapshot.combatTrick, true);
+
+  await applyAction(state, state.players[1], {
+    type: "declareBlockers",
+    assignments: [
+      { attackerId: "attacker-a", blockerIds: ["blocker-a", "token-blocker"] },
+      { attackerId: "attacker-b", blockerIds: ["blocker-a", "token-blocker"] },
+    ],
+  });
+  assert.equal(state.combatSnapshot.blockersDeclared, true);
+  assert.equal(state.combatSnapshot.blockers.find((entry) => entry.attackerId === "attacker-a").blockers.length, 2);
+  assert.deepEqual(
+    state.combatSnapshot.blockers.find((entry) => entry.attackerId === "attacker-b").blockers.map((blocker) => blocker.id),
+    ["token-blocker"],
+  );
+  assert.equal(state.priorityMode, "instant");
+  assert.equal(state.prioritySeat, 0);
+  assert.equal(viewRoom(state, "seat-1", "http://test").combatSnapshot.combatTrickPending, "blockers");
+
+  await applyAction(state, state.players[0], { type: "passPriority" });
+  assert.equal(state.priorityMode, "combat");
+  assert.equal(state.prioritySeat, 1);
+  assert.equal(state.combatSnapshot.combatTrickPending, "");
+
+  await applyAction(state, state.players[1], { type: "takeCombatDamage" });
+  assert.equal(state.players[1].life, 35);
   assert.equal(state.combatSnapshot.damageApplied, true);
 });
 

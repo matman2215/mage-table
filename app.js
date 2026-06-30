@@ -174,6 +174,8 @@ const els = {
   combatPopoverTitle: document.querySelector("#combatPopoverTitle"),
   combatPopoverSummary: document.querySelector("#combatPopoverSummary"),
   combatPopoverCards: document.querySelector("#combatPopoverCards"),
+  combatPopoverActions: document.querySelector("#combatPopoverActions"),
+  combatPopoverBlockButton: document.querySelector("#combatPopoverBlockButton"),
   combatPopoverDamageButton: document.querySelector("#combatPopoverDamageButton"),
   dicePopover: document.querySelector("#dicePopover"),
   closeDiceButton: document.querySelector("#closeDiceButton"),
@@ -203,6 +205,7 @@ const els = {
   endTurnButton: document.querySelector("#endTurnButton"),
   instantButton: document.querySelector("#instantButton"),
   combatPassButton: document.querySelector("#combatPassButton"),
+  combatTrickButton: document.querySelector("#combatTrickButton"),
   passPriorityButton: document.querySelector("#passPriorityButton"),
   boardReferenceButton: document.querySelector("#boardReferenceButton"),
   boardReferenceDialog: document.querySelector("#boardReferenceDialog"),
@@ -234,6 +237,7 @@ const els = {
   handTitle: document.querySelector("#handTitle"),
   handZone: document.querySelector("#handZone"),
   handCount: document.querySelector("#handCount"),
+  revealHandButton: document.querySelector("#revealHandButton"),
   cardDialog: document.querySelector("#cardDialog"),
   dialogTitle: document.querySelector("#dialogTitle"),
   dialogActions: document.querySelector("#dialogActions"),
@@ -290,15 +294,20 @@ const els = {
   librarySearchSummary: document.querySelector("#librarySearchSummary"),
   librarySearchInput: document.querySelector("#librarySearchInput"),
   librarySearchCards: document.querySelector("#librarySearchCards"),
+  librarySearchShuffleButton: document.querySelector("#librarySearchShuffleButton"),
+  librarySearchCloseButton: document.querySelector("#librarySearchCloseButton"),
   librarySearchActionDialog: document.querySelector("#librarySearchActionDialog"),
   librarySearchActionTitle: document.querySelector("#librarySearchActionTitle"),
   librarySearchActionButtons: document.querySelector("#librarySearchActionButtons"),
   tokenDialog: document.querySelector("#tokenDialog"),
   tokenDialogSummary: document.querySelector("#tokenDialogSummary"),
+  tokenModeButton: document.querySelector("#tokenModeButton"),
+  cardModeButton: document.querySelector("#cardModeButton"),
   tokenSearchInput: document.querySelector("#tokenSearchInput"),
   tokenSearchButton: document.querySelector("#tokenSearchButton"),
   tokenSearchSummary: document.querySelector("#tokenSearchSummary"),
   tokenSearchCards: document.querySelector("#tokenSearchCards"),
+  manualTokenPanel: document.querySelector("#manualTokenPanel"),
   customTokenNameInput: document.querySelector("#customTokenNameInput"),
   customTokenTypeInput: document.querySelector("#customTokenTypeInput"),
   customTokenPowerInput: document.querySelector("#customTokenPowerInput"),
@@ -440,6 +449,7 @@ let battlefieldGroupDrag = null;
 let battlefieldSelectionDrag = null;
 let pendingTokenPosition = null;
 let tokenSearchResults = [];
+let battlefieldAddMode = "token";
 let recapSessionKey = "";
 let recapEvents = [];
 let recapIndex = 0;
@@ -453,6 +463,9 @@ let selectedStatisticsTurnKey = "";
 let openLifeMenuKey = "";
 let boardReferenceSeat = null;
 let dismissedCombatSnapshotId = "";
+let combatPanelMode = "overview";
+let combatBlockAssignments = {};
+let combatBlockSnapshotId = "";
 let dismissedDiceNoticeId = "";
 let lastDiceResult = "No rolls yet";
 let pendingCountPrompt = null;
@@ -6538,10 +6551,12 @@ function renderTurn() {
   setDisabled(els.endTurnButton, !isMyTurn());
   setDisabled(els.drawButton, !canActNow());
   setDisabled(els.combatPassButton, !isMyTurn());
+  setDisabled(els.combatTrickButton, !isMyTurn());
   setDisabled(els.instantButton, isMyTurn() || isPriorityHolder());
   setDisabled(els.passPriorityButton, !isPriorityHolder());
   els.instantButton.classList.toggle("hidden", solo);
   els.combatPassButton.classList.toggle("hidden", solo);
+  els.combatTrickButton.classList.toggle("hidden", solo);
   els.passPriorityButton.classList.toggle("hidden", solo);
   setDisabled(els.boardReferenceButton, state.players.length <= 1);
   els.boardReferenceButton.classList.toggle("hidden", solo);
@@ -6657,6 +6672,7 @@ function combatSnapshotRibbon() {
   snapshot.cards.forEach((card) => cards.append(combatSnapshotCard(card)));
   const actions = document.createElement("div");
   actions.className = "combat-snapshot-actions";
+  const declareBlockers = combatBlockButton(snapshot, true);
   const takeDamage = combatDamageButton(snapshot, true);
   const dismiss = document.createElement("button");
   dismiss.type = "button";
@@ -6671,7 +6687,7 @@ function combatSnapshotRibbon() {
     renderPlayers();
     if (els.boardReferenceDialog.open) renderBoardReference();
   });
-  actions.append(takeDamage, dismiss);
+  actions.append(declareBlockers, takeDamage, dismiss);
   ribbon.append(label, cards, actions);
   ribbon.addEventListener("click", (event) => {
     if (event.target.closest("button")) return;
@@ -6703,20 +6719,47 @@ function combatSnapshotCard(card) {
   return item;
 }
 
+function combatBlockButton(snapshot, compact = false) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `combat-block-button secondary${compact ? " compact" : ""}`;
+  const isDefender = Number(snapshot?.defenderSeat) === Number(state?.currentSeat);
+  const trickPending = Boolean(snapshot?.combatTrickPending);
+  const hasAttackers = (snapshot?.cards || []).some((card) => card.isCreature && !card.damageApplied);
+  button.textContent = snapshot?.blockersDeclared
+    ? compact ? "Blocks" : "Edit Blockers"
+    : compact ? "Block" : "Declare Blockers";
+  setDisabled(button, Boolean(snapshot?.damageApplied) || trickPending || !hasAttackers || !isDefender);
+  button.title = trickPending
+    ? "Combat trick priority is with the attacking player"
+    : isDefender ? "Assign blockers from your battlefield" : "Only the defending player can declare blockers";
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (isDisabled(button)) return;
+    combatPanelMode = "blockers";
+    openCombatPanel();
+  });
+  return button;
+}
+
 function combatDamageButton(snapshot, compact = false) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = `combat-damage-button${compact ? " compact" : ""}`;
   const isDefender = Number(snapshot?.defenderSeat) === Number(state?.currentSeat);
+  const trickPending = Boolean(snapshot?.combatTrickPending);
   const remainingCards = (snapshot?.cards || []).filter((card) => card.isCreature && !card.damageApplied);
   const includesCommander = remainingCards.some((card) => card.isCommander);
   button.textContent = snapshot?.damageApplied
     ? includesCommander ? "Combat + Commander Applied" : "Damage Applied"
-    : compact ? includesCommander ? "Combat + CMD" : "All Damage"
-      : includesCommander ? "Take Combat + Commander Damage" : "Take All Damage";
-  setDisabled(button, Boolean(snapshot?.damageApplied) || !remainingCards.length || !isDefender);
+    : trickPending ? compact ? "Trick Priority" : "Waiting on Combat Trick"
+      : compact ? includesCommander ? "Combat + CMD" : "All Damage"
+        : includesCommander ? "Take Combat + Commander Damage" : "Take All Damage";
+  setDisabled(button, Boolean(snapshot?.damageApplied) || trickPending || !remainingCards.length || !isDefender);
   button.title = snapshot?.damageApplied
     ? "Combat damage has already been applied"
+    : trickPending ? "Combat trick priority is with the attacking player"
     : isDefender ? "Take all remaining attacking power as damage" : "Only the defending player can take this damage";
   button.addEventListener("click", async (event) => {
     event.preventDefault();
@@ -6746,6 +6789,11 @@ function renderCombatPanel() {
     els.combatPopoverCards.innerHTML = "";
     return;
   }
+  if (combatPanelMode === "blockers" && Number(snapshot.defenderSeat) === Number(state.currentSeat) && !snapshot.damageApplied) {
+    renderCombatBlockerPanel(snapshot);
+    return;
+  }
+  combatPanelMode = "overview";
   const totals = snapshot.totals || { creatures: 0, power: 0, toughness: 0 };
   els.combatPopoverTitle.textContent = `${snapshot.attackerName || "Attacker"} Attacking`;
   const commanderDamage = Array.isArray(snapshot.commanderDamage) ? snapshot.commanderDamage : [];
@@ -6754,8 +6802,17 @@ function renderCombatPanel() {
       ? ` Combat + commander damage applied: ${snapshot.damageTaken || 0} combat; ${commanderDamage.map((entry) => `${entry.damage} from ${entry.name}`).join(", ")}.`
       : ` ${snapshot.damageTaken || 0} combat damage applied.`
     : "";
-  els.combatPopoverSummary.textContent = `${snapshot.cards.length} card${snapshot.cards.length === 1 ? "" : "s"} attacking ${snapshot.defenderName || "the defending player"}. Total attacking power: ${totals.power}. Party toughness: ${totals.toughness}.${damageStatus}`;
+  const blockStatus = snapshot.blockersDeclared ? " Blockers have been declared." : "";
+  const trickStatus = snapshot.combatTrick
+    ? snapshot.combatTrickPending
+      ? ` Combat trick priority is with ${snapshot.attackerName || "the attacking player"}.`
+      : snapshot.combatTrickResolved
+        ? " Combat trick window used."
+        : " Combat trick mode is active."
+    : "";
+  els.combatPopoverSummary.textContent = `${snapshot.cards.length} card${snapshot.cards.length === 1 ? "" : "s"} attacking ${snapshot.defenderName || "the defending player"}. Total attacking power: ${totals.power}. Party toughness: ${totals.toughness}.${blockStatus}${trickStatus}${damageStatus}`;
   els.combatPopoverCards.innerHTML = "";
+  els.combatPopoverCards.className = "combat-popover-cards";
   snapshot.cards.forEach((card) => {
     const wrap = document.createElement("article");
     wrap.className = `combat-popover-card-wrap${card.isCommander ? " commander-attacker" : ""}${card.damageApplied ? " damage-applied" : ""}`;
@@ -6785,12 +6842,233 @@ function renderCombatPanel() {
       });
     }
     wrap.append(item, detail);
+    const blockers = combatSnapshotBlockers(snapshot, card.id);
+    if (blockers.length) wrap.append(combatDeclaredBlockersElement(blockers));
     els.combatPopoverCards.append(wrap);
   });
-  const replacement = combatDamageButton(snapshot);
-  els.combatPopoverDamageButton.replaceWith(replacement);
-  replacement.id = "combatPopoverDamageButton";
-  els.combatPopoverDamageButton = replacement;
+  renderCombatPopoverActions(snapshot);
+}
+
+function renderCombatPopoverActions(snapshot) {
+  if (!els.combatPopoverActions) return;
+  els.combatPopoverActions.innerHTML = "";
+  const block = combatBlockButton(snapshot);
+  block.id = "combatPopoverBlockButton";
+  const damage = combatDamageButton(snapshot);
+  damage.id = "combatPopoverDamageButton";
+  els.combatPopoverActions.append(block, damage);
+  els.combatPopoverBlockButton = block;
+  els.combatPopoverDamageButton = damage;
+}
+
+function combatSnapshotBlockers(snapshot, attackerId) {
+  const entry = (snapshot?.blockers || []).find((block) => String(block.attackerId) === String(attackerId));
+  return Array.isArray(entry?.blockers) ? entry.blockers : [];
+}
+
+function combatDeclaredBlockersElement(blockers) {
+  const section = document.createElement("div");
+  section.className = "combat-declared-blockers";
+  const label = document.createElement("strong");
+  label.textContent = "Blocked by";
+  const list = document.createElement("div");
+  list.className = "combat-declared-blocker-list";
+  blockers.forEach((blocker) => {
+    const item = document.createElement("div");
+    item.className = "combat-declared-blocker";
+    const arrow = document.createElement("span");
+    arrow.className = "combat-block-arrow";
+    arrow.textContent = "\u2191";
+    const card = displayCardElement(blocker, blocker.typeLine || "Blocker", "combatBlockerResult");
+    card.classList.add("combat-blocker-result-card");
+    card.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openReadOnlyCardDialog(blocker, "Declared blocker");
+    });
+    item.append(arrow, card);
+    list.append(item);
+  });
+  section.append(label, list);
+  return section;
+}
+
+function renderCombatBlockerPanel(snapshot) {
+  initializeCombatBlockAssignments(snapshot);
+  const attackers = (snapshot.cards || []).filter((card) => card.isCreature && !card.damageApplied);
+  const blockers = currentBlockerCandidates();
+  els.combatPopoverTitle.textContent = "Declare Blockers";
+  els.combatPopoverSummary.textContent = `${snapshot.attackerName || "The attacking player"} is attacking ${snapshot.defenderName || "you"}. Drag your creature copies below each attacker, then submit blockers. Empty blocker zones are allowed.`;
+  els.combatPopoverCards.innerHTML = "";
+  els.combatPopoverCards.className = "combat-block-builder";
+
+  const available = document.createElement("section");
+  available.className = "combat-blocker-source";
+  const availableTitle = document.createElement("h3");
+  availableTitle.textContent = "Available Blockers";
+  const availableList = document.createElement("div");
+  availableList.className = "combat-blocker-source-list";
+  if (!blockers.length) {
+    const empty = document.createElement("p");
+    empty.className = "dialog-note";
+    empty.textContent = "No creature permanents are currently available to block.";
+    availableList.append(empty);
+  }
+  blockers.forEach((blocker) => availableList.append(blockerSourceElement(blocker)));
+  available.append(availableTitle, availableList);
+
+  const grid = document.createElement("section");
+  grid.className = "combat-blocker-grid";
+  attackers.forEach((attacker) => grid.append(blockerAssignmentColumn(snapshot, attacker, blockers)));
+  els.combatPopoverCards.append(available, grid);
+
+  els.combatPopoverActions.innerHTML = "";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "secondary";
+  cancel.textContent = "Back";
+  cancel.addEventListener("click", () => {
+    combatPanelMode = "overview";
+    renderCombatPanel();
+  });
+  const submit = document.createElement("button");
+  submit.type = "button";
+  submit.textContent = "Blocking Declared";
+  submit.addEventListener("click", async () => {
+    setDisabled(submit, true);
+    try {
+      combatPanelMode = "overview";
+      await sendAction("declareBlockers", { assignments: combatBlockerPayload() });
+      if (!els.combatPopover.classList.contains("hidden")) renderCombatPanel();
+    } catch (error) {
+      alert(error.message);
+      combatPanelMode = "blockers";
+      setDisabled(submit, false);
+    }
+  });
+  els.combatPopoverActions.append(cancel, submit);
+}
+
+function initializeCombatBlockAssignments(snapshot) {
+  if (combatBlockSnapshotId === snapshot.id) return;
+  combatBlockSnapshotId = snapshot.id;
+  combatBlockAssignments = {};
+  (snapshot.blockers || []).forEach((entry) => {
+    combatBlockAssignments[entry.attackerId] = (entry.blockers || []).map((blocker) => blocker.id);
+  });
+}
+
+function currentBlockerCandidates() {
+  const player = state?.players?.find((candidate) => Number(candidate.seat) === Number(state.currentSeat));
+  return (player?.battlefield || []).filter((card) => isCreatureCard(card));
+}
+
+function blockerSourceElement(blocker) {
+  const item = displayCardElement(blocker, blocker.typeLine || "Blocker", "combatBlockerSource");
+  item.classList.add("combat-blocker-source-card");
+  item.draggable = true;
+  item.addEventListener("dragstart", (event) => {
+    event.dataTransfer.effectAllowed = "copy";
+    event.dataTransfer.setData("text/plain", blocker.id);
+  });
+  item.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openReadOnlyCardDialog(blocker, "Available blocker");
+  });
+  return item;
+}
+
+function blockerAssignmentColumn(snapshot, attacker, blockers) {
+  const column = document.createElement("article");
+  column.className = "combat-blocker-column";
+  const attackerCard = displayCardElement(attacker, attacker.typeLine || "Attacker", "combatBlockerAttacker");
+  attackerCard.classList.add("combat-blocker-attacker-card");
+  const title = document.createElement("div");
+  title.className = "combat-blocker-column-title";
+  title.innerHTML = `<strong>${escapeHtml(cardDisplayName(attacker))}</strong><span>${Number(attacker.totalPower) || 0}/${Number(attacker.totalToughness) || 0}</span>`;
+  const zone = document.createElement("div");
+  zone.className = "combat-blocker-dropzone";
+  zone.dataset.attackerId = attacker.id;
+  zone.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    zone.classList.add("drop-active");
+  });
+  zone.addEventListener("dragleave", () => zone.classList.remove("drop-active"));
+  zone.addEventListener("drop", (event) => {
+    event.preventDefault();
+    zone.classList.remove("drop-active");
+    const blockerId = event.dataTransfer.getData("text/plain");
+    addBlockerAssignment(attacker.id, blockerId);
+    renderCombatBlockerPanel(snapshot);
+  });
+  const assignedIds = combatBlockAssignments[attacker.id] || [];
+  if (!assignedIds.length) {
+    const empty = document.createElement("span");
+    empty.className = "combat-empty-blocker-zone";
+    empty.textContent = "No blockers";
+    zone.append(empty);
+  }
+  assignedIds.forEach((blockerId) => {
+    const blocker = blockers.find((candidate) => candidate.id === blockerId);
+    if (!blocker) return;
+    zone.append(assignedBlockerElement(attacker.id, blocker));
+  });
+  column.append(title, attackerCard, zone);
+  return column;
+}
+
+function assignedBlockerElement(attackerId, blocker) {
+  const wrap = document.createElement("div");
+  wrap.className = "combat-assigned-blocker";
+  const arrow = document.createElement("span");
+  arrow.className = "combat-block-arrow";
+  arrow.textContent = "\u2191";
+  const card = displayCardElement(blocker, blocker.typeLine || "Blocker", "combatBlockerAssigned");
+  card.classList.add("combat-assigned-blocker-card");
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "combat-remove-blocker";
+  remove.textContent = "x";
+  remove.title = "Remove blocker";
+  remove.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    removeBlockerAssignment(attackerId, blocker.id);
+    renderCombatBlockerPanel(state.combatSnapshot);
+  });
+  wrap.append(arrow, card, remove);
+  return wrap;
+}
+
+function blockerCanRepeat(blocker) {
+  return Boolean(blocker?.isToken || blocker?.tokenSourceId);
+}
+
+function addBlockerAssignment(attackerId, blockerId) {
+  if (!attackerId || !blockerId) return;
+  const blocker = currentBlockerCandidates().find((candidate) => candidate.id === blockerId);
+  if (!blocker) return;
+  if (!blockerCanRepeat(blocker)) {
+    Object.keys(combatBlockAssignments).forEach((key) => {
+      combatBlockAssignments[key] = (combatBlockAssignments[key] || []).filter((id) => id !== blockerId);
+    });
+  }
+  const current = combatBlockAssignments[attackerId] || [];
+  if (!current.includes(blockerId) || blockerCanRepeat(blocker)) current.push(blockerId);
+  combatBlockAssignments[attackerId] = current;
+}
+
+function removeBlockerAssignment(attackerId, blockerId) {
+  combatBlockAssignments[attackerId] = (combatBlockAssignments[attackerId] || []).filter((id) => id !== blockerId);
+}
+
+function combatBlockerPayload() {
+  return Object.entries(combatBlockAssignments).map(([attackerId, blockerIds]) => ({
+    attackerId,
+    blockerIds,
+  }));
 }
 
 function isCombatSnapshotCard(cardId) {
@@ -6807,7 +7085,9 @@ function lifeRibbonCard(entry) {
     : `life-ribbon-card${player.seat === state.activePlayer ? " active-life-card" : ""}${player.seat === (state.prioritySeat ?? state.activePlayer) ? " priority-life-card" : ""}`;
   const identity = document.createElement("div");
   identity.className = "life-ribbon-identity";
-  identity.innerHTML = `<strong>${isPlaytest ? "" : presenceDotMarkup(player)}${escapeHtml(player.name)}</strong><span>${escapeHtml(player.commander || (isPlaytest ? "Simulation" : "No commander"))}</span>`;
+  const handCount = Number(player.handCount) || 0;
+  const handMarkup = isPlaytest ? "" : `<em class="public-hand-count" title="${handCount} card${handCount === 1 ? "" : "s"} in hand">${handCount} hand</em>`;
+  identity.innerHTML = `<strong>${isPlaytest ? "" : presenceDotMarkup(player)}${escapeHtml(player.name)}${handMarkup}</strong><span>${escapeHtml(player.commander || (isPlaytest ? "Simulation" : "No commander"))}</span>`;
   if (!isPlaytest) {
     identity.setAttribute("role", "button");
     identity.tabIndex = 0;
@@ -7247,6 +7527,10 @@ function publicZone(player, zoneName, label, className, role = "") {
 function renderHand() {
   els.handTitle.textContent = `${state.players[state.currentSeat].name} Hand`;
   els.handCount.textContent = `${state.hand.length} cards`;
+  if (els.revealHandButton) {
+    setDisabled(els.revealHandButton, !state.hand.length || !canActNow());
+    els.revealHandButton.title = state.hand.length ? "Reveal your hand to the playgroup for 30 seconds" : "No cards in hand";
+  }
   els.handZone.innerHTML = "";
   els.handZone.style.setProperty("--hand-count", String(Math.max(1, state.hand.length)));
   const handScale = currentCardScale();
@@ -7773,10 +8057,11 @@ function cardElement(card, seat, zone, index = 0) {
       button.classList.add("equipped-card");
       button.style.setProperty("--equip-index", String(Number(card.attachmentIndex) || 1));
     }
+    if (battlefieldCardHasAttachments(seat, card.id)) button.classList.add("attachment-host-card");
     const pos = normalizeBattlefieldPosition(card.position, isTapped);
     button.style.left = `${pos.x}px`;
     button.style.top = `${pos.y}px`;
-    button.style.zIndex = String(index + 1);
+    button.style.zIndex = battlefieldCardZIndex(card, index, seat);
   }
   if (seat !== null && zone !== "library" && zone !== "librarySearch") {
     button.draggable = false;
@@ -7981,9 +8266,20 @@ function attachCardZoomHandlers(button, zone, index = 0) {
     if (document.body.classList.contains("ctrl-zoom")) return;
     if (hoveredZoomCard === button) hoveredZoomCard = null;
     hideCardZoom(button);
-    if (zone === "battlefield") button.style.zIndex = String(index + 1);
+    if (zone === "battlefield") button.style.zIndex = battlefieldCardZIndex(card, index, seat);
     else button.style.removeProperty("z-index");
   });
+}
+
+function battlefieldCardHasAttachments(seat, cardId) {
+  const player = state?.players?.[Number(seat)];
+  return Boolean(player?.battlefield?.some((card) => card.attachedTo === cardId));
+}
+
+function battlefieldCardZIndex(card, index = 0, seat = state?.currentSeat) {
+  if (card?.attachedTo) return String(260 - Math.max(1, Number(card.attachmentIndex) || 1));
+  if (battlefieldCardHasAttachments(seat, card?.id)) return "320";
+  return String(index + 1);
 }
 
 function attachCardPointerDrag(button, card, seat, zone, index = 0) {
@@ -8542,9 +8838,10 @@ async function tapSelectedBattlefieldCards(mode = "toggle") {
   await sendAction("tapCards", { seat: state.currentSeat, cardIds, mode });
 }
 
-async function sendCombatPass() {
+async function sendCombatPass(combatTrick = false) {
   await sendAction("combatPass", {
     cardIds: selectedBattlefieldCardData().map((card) => card.id),
+    combatTrick: Boolean(combatTrick),
   });
 }
 
@@ -8576,9 +8873,9 @@ async function equipSelectedBattlefieldCards() {
   if (cards.length < 2 || !canActNow()) return;
   const creature = cards.find((card) => isCreatureCard(card));
   if (!creature) return;
-  const equipment = cards.filter((card) => card.id !== creature.id && isEquipmentCard(card));
-  if (!equipment.length) return;
-  const ordered = [creature, ...equipment];
+  const attachments = cards.filter((card) => card.id !== creature.id && isAttachableCard(card));
+  if (!attachments.length) return;
+  const ordered = [creature, ...attachments];
   const arranged = arrangedCardEntries(ordered, "equipment").map((entry, index) => {
     if (entry.cardId === creature.id) return { ...entry, clearAttachment: true };
     return {
@@ -8601,6 +8898,7 @@ function arrangedCardEntries(cards, layout = "stack") {
   const entries = [];
   const spacingX = cardSize.width + 6;
   const spacingY = cardSize.height + 6;
+  const attachmentStep = Math.max(38, Math.round(cardSize.height * 0.28));
   cards.forEach((card, index) => {
     let x = anchor.x;
     let y = anchor.y;
@@ -8614,6 +8912,8 @@ function arrangedCardEntries(cards, layout = "stack") {
       y += index * spacingY;
     } else if (layout === "horizontal") {
       x += index * spacingX;
+    } else if (layout === "equipment") {
+      y += index * attachmentStep;
     } else {
       x += index * 18;
       y += index * 14;
@@ -8640,6 +8940,10 @@ function selectionAnchor(cards) {
 
 function isEquipmentCard(card) {
   return /\bEquipment\b/i.test(card?.typeLine || "");
+}
+
+function isAttachableCard(card) {
+  return /\b(Equipment|Aura)\b/i.test(card?.typeLine || "");
 }
 
 function pointerDragSource(drag) {
@@ -9251,6 +9555,7 @@ function promptLibrarySearch() {
 }
 
 function openLibrarySearchDialog() {
+  els.librarySearchInput.value = "";
   renderLibrarySearchDialog();
   els.librarySearchDialog.showModal();
 }
@@ -9260,6 +9565,7 @@ function renderLibrarySearchDialog() {
   const query = els.librarySearchInput.value.trim().toLowerCase();
   const filtered = query ? cards.filter((card) => card.name.toLowerCase().includes(query)) : cards;
   els.librarySearchSummary.textContent = `${filtered.length} of ${cards.length} cards`;
+  setDisabled(els.librarySearchShuffleButton, !canActNow());
   els.librarySearchCards.innerHTML = "";
   if (!filtered.length) {
     const empty = document.createElement("p");
@@ -9274,6 +9580,13 @@ function renderLibrarySearchDialog() {
     wrap.append(librarySearchCardElement(card));
     els.librarySearchCards.append(wrap);
   });
+}
+
+async function shuffleAndCloseLibrarySearch() {
+  if (!canActNow()) return;
+  await sendAction("libraryAction", { mode: "shuffle" });
+  els.librarySearchDialog.close();
+  if (els.libraryDialog.open) renderLibraryDialog();
 }
 
 function librarySearchCardElement(card) {
@@ -9334,9 +9647,10 @@ async function moveLibraryCard(cardId, destination) {
 function openTokenDialog(event, player, battlefieldZone) {
   pendingTokenPosition = battlefieldPositionFromEvent(event, battlefieldZone, "battlefield");
   tokenSearchResults = [];
+  setBattlefieldAddMode("token", false);
   els.tokenDialogSummary.textContent = `${player.name} battlefield`;
   els.tokenSearchInput.value = "";
-  els.tokenSearchSummary.textContent = "Press Enter to search token creatures.";
+  els.tokenSearchSummary.textContent = "Press Enter to search tokens.";
   els.tokenSearchCards.innerHTML = "";
   els.customTokenNameInput.value = "";
   els.customTokenTypeInput.value = "Token Creature";
@@ -9346,53 +9660,89 @@ function openTokenDialog(event, player, battlefieldZone) {
   setTimeout(() => els.tokenSearchInput.focus(), 0);
 }
 
+function setBattlefieldAddMode(mode, clearResults = true) {
+  battlefieldAddMode = mode === "card" ? "card" : "token";
+  els.tokenModeButton?.classList.toggle("active", battlefieldAddMode === "token");
+  els.cardModeButton?.classList.toggle("active", battlefieldAddMode === "card");
+  els.tokenModeButton?.setAttribute("aria-selected", String(battlefieldAddMode === "token"));
+  els.cardModeButton?.setAttribute("aria-selected", String(battlefieldAddMode === "card"));
+  if (els.tokenSearchInput) {
+    els.tokenSearchInput.placeholder = battlefieldAddMode === "token"
+      ? "Search Scryfall tokens"
+      : "Search Scryfall cards";
+  }
+  els.manualTokenPanel?.classList.toggle("hidden", battlefieldAddMode !== "token");
+  if (clearResults) {
+    tokenSearchResults = [];
+    if (els.tokenSearchInput) els.tokenSearchInput.value = "";
+    renderTokenSearchResults();
+  } else if (els.tokenSearchSummary) {
+    els.tokenSearchSummary.textContent = battlefieldAddMode === "token"
+      ? "Press Enter to search tokens."
+      : "Press Enter to search normal cards.";
+  }
+}
+
 async function runTokenSearch() {
   const query = els.tokenSearchInput.value.trim();
-  els.tokenSearchSummary.textContent = "Searching token creatures...";
+  if (query.length < 2) {
+    tokenSearchResults = [];
+    renderTokenSearchResults();
+    els.tokenSearchSummary.textContent = "Enter at least two characters.";
+    return;
+  }
+  els.tokenSearchSummary.textContent = battlefieldAddMode === "token" ? "Searching tokens..." : "Searching cards...";
   els.tokenSearchCards.innerHTML = "";
-  const payload = await api(`/api/scryfall/tokens?q=${encodeURIComponent(query)}`);
+  const endpoint = battlefieldAddMode === "token" ? "/api/scryfall/tokens" : "/api/scryfall/cards";
+  const payload = await api(`${endpoint}?q=${encodeURIComponent(query)}`);
   tokenSearchResults = payload.cards || [];
   renderTokenSearchResults();
 }
 
 function renderTokenSearchResults() {
-  els.tokenSearchSummary.textContent = `${tokenSearchResults.length} token option${tokenSearchResults.length === 1 ? "" : "s"}`;
+  const label = battlefieldAddMode === "token" ? "token option" : "card option";
+  els.tokenSearchSummary.textContent = tokenSearchResults.length
+    ? `${tokenSearchResults.length} ${label}${tokenSearchResults.length === 1 ? "" : "s"}`
+    : battlefieldAddMode === "token" ? "Press Enter to search tokens." : "Press Enter to search normal cards.";
   els.tokenSearchCards.innerHTML = "";
   if (!tokenSearchResults.length) {
     const empty = document.createElement("p");
     empty.className = "dialog-note";
-    empty.textContent = "No token creatures found.";
+    empty.textContent = battlefieldAddMode === "token" ? "No tokens found." : "No cards found.";
     els.tokenSearchCards.append(empty);
     return;
   }
-  tokenSearchResults.forEach((token) => {
+  tokenSearchResults.forEach((result) => {
     const wrap = document.createElement("div");
     wrap.className = "library-search-card";
-    const button = cardElement(tokenCardPreview(token), state.currentSeat, "librarySearch");
+    const button = cardElement(battlefieldAddPreview(result), state.currentSeat, "librarySearch");
     button.addEventListener("click", async (event) => {
       event.preventDefault();
       event.stopPropagation();
-      await createTokenFromData(token);
+      if (battlefieldAddMode === "token") await createTokenFromData(result);
+      else await createCardFromData(result);
     });
     wrap.append(button);
     els.tokenSearchCards.append(wrap);
   });
 }
 
-function tokenCardPreview(token) {
+function battlefieldAddPreview(card) {
   return {
-    id: token.scryfallId || token.name,
-    name: token.name,
-    typeLine: token.typeLine || "Token Creature",
-    imageUrl: token.images?.normal || token.images?.small || token.imageUrl || "",
-    isToken: true,
+    id: card.scryfallId || card.name,
+    name: card.name,
+    displayName: card.displayName || card.name,
+    typeLine: card.typeLine || (battlefieldAddMode === "token" ? "Token" : "Card"),
+    imageUrl: card.images?.normal || card.images?.small || card.imageUrl || "",
+    isToken: battlefieldAddMode === "token",
     counters: {},
   };
 }
 
-async function createTokenFromData(token) {
+async function createTokenFromData(token, count = 1) {
   await sendAction("createToken", {
     position: pendingTokenPosition,
+    count,
     tokenData: {
       name: token.name,
       typeLine: token.typeLine,
@@ -9401,6 +9751,30 @@ async function createTokenFromData(token) {
       artUrl: token.images?.artCrop || token.artUrl || "",
       power: token.power,
       toughness: token.toughness,
+    },
+  });
+  els.tokenDialog.close();
+}
+
+async function createCardFromData(card) {
+  await sendAction("createCard", {
+    position: pendingTokenPosition,
+    cardData: {
+      scryfallId: card.scryfallId || "",
+      scryfallOracleId: card.scryfallOracleId || "",
+      name: card.name,
+      displayName: card.displayName || card.name,
+      typeLine: card.typeLine || "",
+      manaCost: card.manaCost || "",
+      manaValue: Number(card.manaValue) || 0,
+      producedMana: card.producedMana || [],
+      oracleText: card.oracleText || "",
+      imageUrl: card.images?.normal || card.images?.small || card.imageUrl || "",
+      artUrl: card.images?.artCrop || card.artUrl || "",
+      faces: card.faces || [],
+      isLand: Boolean(card.isLand),
+      power: card.power || "",
+      toughness: card.toughness || "",
     },
   });
   els.tokenDialog.close();
@@ -9425,6 +9799,16 @@ async function createCustomToken() {
 function copyBattlefieldToken(card) {
   const position = offsetBattlefieldPosition(card.position);
   return sendAction("copyBattlefieldToken", { cardId: card.id, position });
+}
+
+function promptTokenCopyCount(card) {
+  openCountDialog({
+    title: "Create Token Copies",
+    summary: `Create how many token copies of ${cardDisplayName(card)}?`,
+    value: 1,
+    max: 50,
+    onSubmit: (count) => sendAction("copyBattlefieldTokens", { cardId: card.id, count }),
+  });
 }
 
 function offsetBattlefieldPosition(position) {
@@ -9455,12 +9839,27 @@ function openCardDialog(card, seat, zone) {
   els.dialogTitle.textContent = cardDisplayName(card);
   els.dialogActions.innerHTML = "";
   const actions = [];
+  const inspectCard = () => {
+    const subtitle = `${labelForZone(zone)}${seat === state.currentSeat ? "" : ` - ${state.players?.[seat]?.name || "Opponent"}`}`;
+    window.setTimeout(() => openReadOnlyCardDialog(card, subtitle), 0);
+  };
+  const appendInspectButton = () => {
+    const inspect = document.createElement("button");
+    inspect.type = "button";
+    inspect.textContent = "Inspect Card";
+    inspect.addEventListener("click", () => {
+      els.cardDialog.close();
+      openReadOnlyCardDialog(card, `${labelForZone(zone)}${seat === state.currentSeat ? "" : ` - ${state.players?.[seat]?.name || "Opponent"}`}`);
+    });
+    els.dialogActions.append(inspect);
+  };
 
   if (!canActNow() && ["hand", "commanderZone", "battlefield", "graveyard", "exile"].includes(zone)) {
     const note = document.createElement("p");
     note.className = "dialog-note";
     note.textContent = "You do not have priority.";
     els.dialogActions.append(note);
+    appendInspectButton();
     els.cardDialog.showModal();
     return;
   }
@@ -9470,9 +9869,12 @@ function openCardDialog(card, seat, zone) {
     note.className = "dialog-note";
     note.textContent = "You can only edit your own board state.";
     els.dialogActions.append(note);
+    appendInspectButton();
     els.cardDialog.showModal();
     return;
   }
+
+  actions.push(["Inspect Card", inspectCard]);
 
   if (zone === "hand") {
     actions.push(["Reveal to Playgroup", () => sendAction("revealHandCard", { cardId: card.id })]);
@@ -9490,6 +9892,7 @@ function openCardDialog(card, seat, zone) {
       actions.push([card.tapped ? "Untap" : "Tap", () => sendAction("tap", { seat, zone, cardId: card.id })]);
       actions.push([card.faceDown ? "Turn Face Up" : "Turn Face Down", () => sendAction("toggleFaceDown", { zone, cardId: card.id })]);
       actions.push(["Make Token Copy", () => copyBattlefieldToken(card)]);
+      actions.push(["Make X Token Copies", () => promptTokenCopyCount(card)]);
       if (card.isToken) actions.push(["Remove Token", () => removeBattlefieldToken(card)]);
       if (card.isToken && isCreatureCard(card)) {
         actions.push(["Quantity +", () => adjustCounter(card, "creatureQuantity", 1)]);
@@ -10353,6 +10756,7 @@ els.seatSelect.addEventListener("change", () => {
 els.endTurnButton.addEventListener("click", () => sendAction("turn"));
 els.instantButton.addEventListener("click", () => sendAction("takePriority"));
 els.combatPassButton.addEventListener("click", () => sendCombatPass());
+els.combatTrickButton.addEventListener("click", () => sendCombatPass(true));
 els.passPriorityButton.addEventListener("click", () => sendAction("passPriority"));
 
 els.diceButton.addEventListener("click", () => {
@@ -10665,6 +11069,9 @@ els.librarySearchInput.addEventListener("input", () => {
   renderLibrarySearchDialog();
 });
 
+els.librarySearchShuffleButton?.addEventListener("click", shuffleAndCloseLibrarySearch);
+els.librarySearchCloseButton?.addEventListener("click", () => els.librarySearchDialog.close());
+
 els.countDialogForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const submitterValue = event.submitter?.value || "";
@@ -10684,6 +11091,9 @@ els.tokenSearchButton.addEventListener("click", () => {
   runTokenSearch();
 });
 
+els.tokenModeButton?.addEventListener("click", () => setBattlefieldAddMode("token"));
+els.cardModeButton?.addEventListener("click", () => setBattlefieldAddMode("card"));
+
 els.tokenSearchInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     event.preventDefault();
@@ -10693,6 +11103,16 @@ els.tokenSearchInput.addEventListener("keydown", (event) => {
 
 els.createCustomTokenButton.addEventListener("click", () => {
   createCustomToken();
+});
+
+els.revealHandButton?.addEventListener("click", async () => {
+  if (!state?.hand?.length || !canActNow()) return;
+  setDisabled(els.revealHandButton, true);
+  try {
+    await sendAction("revealHand");
+  } finally {
+    setDisabled(els.revealHandButton, false);
+  }
 });
 
 function shortcutTargetIsTextInput(target) {

@@ -4253,6 +4253,13 @@ body.dark-mode .action-popover {
   align-items: start;
 }
 
+.combat-popover-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .combat-popover-card {
   position: relative;
   width: min(100%, clamp(118px, calc(118px * var(--card-scale)), 190px));
@@ -4315,11 +4322,169 @@ body.dark-mode .action-popover {
   background: var(--warn);
 }
 
+.combat-block-button.compact,
 .combat-damage-button.compact {
   min-height: 28px;
   padding: 0 8px;
   font-size: 0.68rem;
   white-space: nowrap;
+}
+
+.combat-block-builder {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.combat-blocker-source {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.38);
+  padding: 8px;
+}
+
+body.dark-mode .combat-blocker-source {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.combat-blocker-source h3 {
+  margin: 0;
+  font-size: 0.78rem;
+}
+
+.combat-blocker-source-list {
+  display: flex;
+  gap: 7px;
+  min-height: 74px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 3px;
+}
+
+.combat-blocker-source-card {
+  flex: 0 0 58px;
+  width: 58px;
+  cursor: grab;
+}
+
+.combat-blocker-source-card:active {
+  cursor: grabbing;
+}
+
+.combat-blocker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(154px, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+
+.combat-blocker-column {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  border: 1px solid rgba(159, 79, 22, 0.32);
+  border-radius: 8px;
+  background: rgba(159, 79, 22, 0.08);
+  padding: 8px;
+}
+
+.combat-blocker-column-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.72rem;
+}
+
+.combat-blocker-column-title strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.combat-blocker-attacker-card {
+  width: min(100%, 126px);
+  justify-self: center;
+}
+
+.combat-blocker-dropzone {
+  display: grid;
+  gap: 7px;
+  place-items: center;
+  min-height: 118px;
+  border: 1px dashed rgba(159, 79, 22, 0.56);
+  border-radius: 7px;
+  background: rgba(255, 247, 237, 0.5);
+  padding: 7px;
+}
+
+body.dark-mode .combat-blocker-dropzone {
+  background: rgba(159, 79, 22, 0.08);
+}
+
+.combat-empty-blocker-zone {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.combat-assigned-blocker,
+.combat-declared-blocker {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  position: relative;
+}
+
+.combat-assigned-blocker-card,
+.combat-blocker-result-card {
+  width: 64px;
+}
+
+.combat-block-arrow {
+  color: var(--warn);
+  font-size: 1.1rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.combat-remove-blocker {
+  position: absolute;
+  top: 14px;
+  right: -5px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  min-height: 22px;
+  padding: 0;
+  border-radius: 999px;
+  background: rgba(12, 18, 16, 0.86);
+  color: #fff;
+  font-size: 0.78rem;
+}
+
+.combat-declared-blockers {
+  display: grid;
+  gap: 5px;
+  border-top: 1px solid var(--line);
+  padding-top: 5px;
+}
+
+.combat-declared-blockers > strong {
+  color: var(--warn);
+  font-size: 0.68rem;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.combat-declared-blocker-list {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 .utility-note {
@@ -5625,6 +5790,36 @@ body.dark-mode .private-zone .zone-header {
   font-size: 0.78rem;
 }
 
+.hand-zone-actions {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.tiny-action-button {
+  min-height: 22px;
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 0.58rem;
+  line-height: 1;
+}
+
+.public-hand-count {
+  display: inline-flex;
+  align-items: center;
+  min-height: 16px;
+  border: 1px solid rgba(15, 118, 110, 0.28);
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.1);
+  color: var(--muted);
+  font-size: 0.56rem;
+  font-style: normal;
+  font-weight: 900;
+  line-height: 1;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+
 .card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
@@ -6656,11 +6851,47 @@ body.dark-mode .recap-card {
   font-size: 0.78rem;
 }
 
+.library-search-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+
+.library-search-header-actions {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
 .token-dialog-card {
   width: 100%;
   max-height: min(90vh, 920px);
   grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
   overflow: hidden;
+}
+
+.battlefield-add-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(15, 118, 110, 0.06);
+  padding: 4px;
+}
+
+.battlefield-add-tabs button {
+  min-height: 30px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+}
+
+.battlefield-add-tabs button.active {
+  background: var(--accent);
+  color: #fff;
 }
 
 .token-search-row {
@@ -7057,8 +7288,12 @@ body.dark-mode .selection-tool-popover {
   box-shadow: 0 0 0 2px rgba(124, 63, 18, 0.28), 0 10px 24px rgba(27, 35, 32, 0.16);
 }
 
+.attachment-host-card {
+  box-shadow: 0 0 0 2px rgba(241, 202, 112, 0.34), 0 14px 28px rgba(27, 35, 32, 0.2);
+}
+
 body.shift-cascade .equipped-card {
-  --card-shift: translate(calc(var(--equip-index, 1) * 34px), calc(var(--equip-index, 1) * -10px));
+  --card-shift: translate(calc(var(--equip-index, 1) * 42px), 0);
   z-index: 980 !important;
 }
 
