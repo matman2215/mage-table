@@ -2124,10 +2124,20 @@ function createBattlefieldCard(actor, cardData = {}, position = null) {
     manaValue: Number(cardData.manaValue) || manaValueFromCost(cardData.manaCost),
     producedMana: Array.isArray(cardData.producedMana) ? cardData.producedMana.slice(0, 8) : [],
     oracleText: String(cardData.oracleText || "").trim().slice(0, 1800),
+    keywords: Array.isArray(cardData.keywords) ? cardData.keywords.slice(0, 20) : [],
+    legalities: cardData.legalities && typeof cardData.legalities === "object" ? cardData.legalities : {},
     imageUrl: String(cardData.imageUrl || "").trim(),
     artUrl: String(cardData.artUrl || "").trim(),
     faces,
     faceIndex: 0,
+    colors: Array.isArray(cardData.colors) ? cardData.colors.slice(0, 5) : [],
+    colorIdentity: Array.isArray(cardData.colorIdentity) ? cardData.colorIdentity.slice(0, 5) : [],
+    rarity: String(cardData.rarity || "unknown").trim().slice(0, 32),
+    set: String(cardData.set || "").trim().slice(0, 16),
+    setName: String(cardData.setName || "").trim().slice(0, 120),
+    collectorNumber: String(cardData.collectorNumber || "").trim().slice(0, 32),
+    priceUsd: Number(cardData.priceUsd) || 0,
+    pricesUsd: cardData.pricesUsd && typeof cardData.pricesUsd === "object" ? cardData.pricesUsd : {},
     isLand: Boolean(cardData.isLand) || /\bLand\b/i.test(typeLine),
     power: String(cardData.power || "").trim().slice(0, 8),
     toughness: String(cardData.toughness || "").trim().slice(0, 8),
@@ -2835,7 +2845,24 @@ function compactCardSnapshot(card) {
     name: card.name,
     displayName: card.displayName || card.name,
     typeLine: card.typeLine || "",
+    manaCost: card.manaCost || "",
+    manaValue: Number(card.manaValue) || 0,
+    producedMana: Array.isArray(card.producedMana) ? card.producedMana : [],
+    oracleText: card.oracleText || "",
+    keywords: Array.isArray(card.keywords) ? card.keywords : [],
+    legalities: card.legalities && typeof card.legalities === "object" ? card.legalities : {},
     imageUrl: card.imageUrl || "",
+    artUrl: card.artUrl || "",
+    faces: Array.isArray(card.faces) ? card.faces : [],
+    faceIndex: Number(card.faceIndex) || 0,
+    colors: Array.isArray(card.colors) ? card.colors : [],
+    colorIdentity: Array.isArray(card.colorIdentity) ? card.colorIdentity : [],
+    rarity: card.rarity || "unknown",
+    set: card.set || "",
+    setName: card.setName || "",
+    collectorNumber: card.collectorNumber || "",
+    priceUsd: Number(card.priceUsd) || 0,
+    pricesUsd: card.pricesUsd && typeof card.pricesUsd === "object" ? card.pricesUsd : {},
     tapped: Boolean(card.tapped),
     counters: normalizeCounters(card.counters || {}),
     power: card.power || "",
@@ -3276,7 +3303,6 @@ async function applyAction(room, actor, body) {
       break;
     }
     case "revealHandCard": {
-      assertCanAct(room, actor);
       const card = actor.hand.find((item) => item.id === body.cardId);
       if (!card) throw new Error("Card not found in hand.");
       room.reveals = (room.reveals || []).filter((reveal) => Number(reveal.expiresAt) > Date.now());
@@ -3296,7 +3322,6 @@ async function applyAction(room, actor, body) {
       break;
     }
     case "revealHand": {
-      assertCanAct(room, actor);
       if (!actor.hand.length) throw new Error("No cards in hand.");
       room.reveals = (room.reveals || []).filter((reveal) => Number(reveal.expiresAt) > Date.now());
       const reveal = {

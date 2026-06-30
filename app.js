@@ -469,6 +469,7 @@ let dismissedCombatSnapshotId = "";
 let combatPanelMode = "overview";
 let combatBlockAssignments = {};
 let combatBlockSnapshotId = "";
+let combatDraggedBlockerId = "";
 let dismissedDiceNoticeId = "";
 let lastDiceResult = "No rolls yet";
 let pendingCountPrompt = null;
@@ -1804,13 +1805,18 @@ function collectionLegalityOverview(cards) {
 
 function findInspectorCard(context = cardInspectorContext) {
   if (!context?.cardName) return null;
-  const source = context.surface === "deck" ? deckBuilderMetadata?.cards : collectionMetadata?.cards;
+  const source = context.surface === "deck"
+    ? deckBuilderMetadata?.cards
+    : context.surface === "collection"
+      ? collectionMetadata?.cards
+      : [];
   return (source || []).find((card) => normalizedDeckCardName(card.name) === normalizedDeckCardName(context.cardName)) || context.card || null;
 }
 
 function inspectorCardQuantity(card = findInspectorCard()) {
   if (!card) return 0;
   if (cardInspectorContext?.surface === "collection") return currentCollectionCardQuantity(card.name);
+  if (cardInspectorContext?.surface !== "deck") return Number(card.quantity) || 1;
   const match = parseDeckBuilderEntries(els.deckBuilderListInput?.value || "")
     .find((entry) => normalizedDeckCardName(entry.name) === normalizedDeckCardName(card.name));
   return match ? Number(match.quantity) || 0 : Number(card.quantity) || 0;
@@ -1883,6 +1889,19 @@ function cardInspectorTabMarkup(card, surface, tab, quantity, memberships) {
 }
 
 function cardInspectorOptionsMarkup(card, surface, quantity) {
+  if (surface === "game") {
+    return `
+      <section class="card-inspector-panel">
+        <h3>Card Options</h3>
+        <p>Inspecting from the table.</p>
+      </section>
+      ${cardLegalityHeatmap(card)}
+      <section class="card-inspector-panel card-inspector-categories">
+        <h3>Categories</h3>
+        <div><span>${escapeHtml(deckCategory(card))}</span>${(card.tags || []).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>
+      </section>
+    `;
+  }
   return `
     <section class="card-inspector-panel">
       <div class="card-inspector-quantity">
@@ -7040,7 +7059,7 @@ function renderCombatBlockerPanel(snapshot) {
   const grid = document.createElement("section");
   grid.className = "combat-blocker-grid";
   attackers.forEach((attacker) => grid.append(blockerAssignmentColumn(snapshot, attacker, blockers)));
-  els.combatPopoverCards.append(available, grid);
+  els.combatPopoverCards.append(grid, available);
 
   els.combatPopoverActions.innerHTML = "";
   const cancel = document.createElement("button");
@@ -7086,10 +7105,18 @@ function currentBlockerCandidates() {
 function blockerSourceElement(blocker) {
   const item = displayCardElement(blocker, blocker.typeLine || "Blocker", "combatBlockerSource");
   item.classList.add("combat-blocker-source-card");
+  item.dataset.blockerId = blocker.id;
   item.draggable = true;
   item.addEventListener("dragstart", (event) => {
+    combatDraggedBlockerId = blocker.id;
+    item.classList.add("dragging");
     event.dataTransfer.effectAllowed = "copy";
+    event.dataTransfer.setData("application/x-mage-table-blocker-id", blocker.id);
     event.dataTransfer.setData("text/plain", blocker.id);
+  });
+  item.addEventListener("dragend", () => {
+    combatDraggedBlockerId = "";
+    item.classList.remove("dragging");
   });
   item.addEventListener("click", (event) => {
     event.preventDefault();
@@ -7110,16 +7137,25 @@ function blockerAssignmentColumn(snapshot, attacker, blockers) {
   const zone = document.createElement("div");
   zone.className = "combat-blocker-dropzone";
   zone.dataset.attackerId = attacker.id;
+  zone.addEventListener("dragenter", (event) => {
+    if (!combatDraggedBlockerId) return;
+    event.preventDefault();
+    zone.classList.add("drop-active");
+  });
   zone.addEventListener("dragover", (event) => {
     event.preventDefault();
-    event.dataTransfer.dropEffect = "copy";
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
     zone.classList.add("drop-active");
   });
   zone.addEventListener("dragleave", () => zone.classList.remove("drop-active"));
   zone.addEventListener("drop", (event) => {
     event.preventDefault();
+    event.stopPropagation();
     zone.classList.remove("drop-active");
-    const blockerId = event.dataTransfer.getData("text/plain");
+    const blockerId = event.dataTransfer.getData("application/x-mage-table-blocker-id")
+      || event.dataTransfer.getData("text/plain")
+      || combatDraggedBlockerId;
+    combatDraggedBlockerId = "";
     addBlockerAssignment(attacker.id, blockerId);
     renderCombatBlockerPanel(snapshot);
   });
@@ -7648,7 +7684,7 @@ function renderHand() {
   els.handTitle.textContent = `${state.players[state.currentSeat].name} Hand`;
   els.handCount.textContent = `${state.hand.length} cards`;
   if (els.revealHandButton) {
-    setDisabled(els.revealHandButton, !state.hand.length || !canActNow());
+    setDisabled(els.revealHandButton, !state.hand.length);
     els.revealHandButton.title = state.hand.length ? "Reveal your hand to the playgroup for 30 seconds" : "No cards in hand";
   }
   els.handZone.innerHTML = "";
@@ -8991,7 +9027,7 @@ async function arrangeSelectedBattlefieldCards(layout = "stack") {
 async function equipSelectedBattlefieldCards() {
   const cards = selectedBattlefieldCardData();
   if (cards.length < 2 || !canActNow()) return;
-  const creature = cards.find((card) => isCreatureCard(card));
+  const creature = cards.find((card) => isCreatureCard(card) && !isAttachableCard(card)) || cards.find((card) => isCreatureCard(card));
   if (!creature) return;
   const attachments = cards.filter((card) => card.id !== creature.id && isAttachableCard(card));
   if (!attachments.length) return;
@@ -9005,6 +9041,12 @@ async function equipSelectedBattlefieldCards() {
     };
   });
   await sendAction("arrangeCards", { cards: arranged });
+}
+
+function selectedBattlefieldCardsCanAttach(cards = selectedBattlefieldCardData()) {
+  if (!cards || cards.length < 2) return false;
+  const creature = cards.find((card) => isCreatureCard(card) && !isAttachableCard(card)) || cards.find((card) => isCreatureCard(card));
+  return Boolean(creature && cards.some((card) => card.id !== creature.id && isAttachableCard(card)));
 }
 
 function arrangedCardEntries(cards, layout = "stack") {
@@ -9063,7 +9105,7 @@ function isEquipmentCard(card) {
 }
 
 function isAttachableCard(card) {
-  return /\b(Equipment|Aura)\b/i.test(card?.typeLine || "");
+  return /\b(Equipment|Aura|Enchantment)\b/i.test(card?.typeLine || "");
 }
 
 function pointerDragSource(drag) {
@@ -9889,9 +9931,19 @@ async function createCardFromData(card) {
       manaValue: Number(card.manaValue) || 0,
       producedMana: card.producedMana || [],
       oracleText: card.oracleText || "",
+      keywords: card.keywords || [],
+      legalities: card.legalities || {},
       imageUrl: card.images?.normal || card.images?.small || card.imageUrl || "",
       artUrl: card.images?.artCrop || card.artUrl || "",
       faces: card.faces || [],
+      colors: card.colors || [],
+      colorIdentity: card.colorIdentity || [],
+      rarity: card.rarity || "unknown",
+      set: card.set || "",
+      setName: card.setName || "",
+      collectorNumber: card.collectorNumber || "",
+      priceUsd: Number(card.priceUsd) || 0,
+      pricesUsd: card.pricesUsd || {},
       isLand: Boolean(card.isLand),
       power: card.power || "",
       toughness: card.toughness || "",
@@ -9960,8 +10012,7 @@ function openCardDialog(card, seat, zone) {
   els.dialogActions.innerHTML = "";
   const actions = [];
   const inspectCard = () => {
-    const subtitle = `${labelForZone(zone)}${seat === state.currentSeat ? "" : ` - ${state.players?.[seat]?.name || "Opponent"}`}`;
-    window.setTimeout(() => openReadOnlyCardDialog(card, subtitle), 0);
+    window.setTimeout(() => openCardInspector(card, "game"), 0);
   };
   const appendInspectButton = () => {
     const inspect = document.createElement("button");
@@ -9969,12 +10020,12 @@ function openCardDialog(card, seat, zone) {
     inspect.textContent = "Inspect Card";
     inspect.addEventListener("click", () => {
       els.cardDialog.close();
-      openReadOnlyCardDialog(card, `${labelForZone(zone)}${seat === state.currentSeat ? "" : ` - ${state.players?.[seat]?.name || "Opponent"}`}`);
+      openCardInspector(card, "game");
     });
     els.dialogActions.append(inspect);
   };
 
-  if (!canActNow() && ["hand", "commanderZone", "battlefield", "graveyard", "exile"].includes(zone)) {
+  if (!canActNow() && ["commanderZone", "battlefield", "graveyard", "exile"].includes(zone)) {
     const note = document.createElement("p");
     note.className = "dialog-note";
     note.textContent = "You do not have priority.";
@@ -9998,17 +10049,22 @@ function openCardDialog(card, seat, zone) {
 
   if (zone === "hand") {
     actions.push(["Reveal to Playgroup", () => sendAction("revealHandCard", { cardId: card.id })]);
-    actions.push([card.faceDown ? "Turn Face Up" : "Turn Face Down", () => sendAction("toggleFaceDown", { zone: "hand", cardId: card.id })]);
-    actions.push(["To Battlefield", () => moveCard(state.currentSeat, "hand", "battlefield", card.id)]);
-    if (isCommanderForSeat(card, state.currentSeat)) actions.push(["To Commander", () => moveCard(state.currentSeat, "hand", "commanderZone", card.id)]);
-    actions.push(["To Graveyard", () => moveCard(state.currentSeat, "hand", "graveyard", card.id)]);
-    actions.push(["To Exile", () => moveCard(state.currentSeat, "hand", "exile", card.id)]);
-    actions.push(["Top of Library", () => sendAction("handToLibrary", { cardId: card.id, position: "top" })]);
-    actions.push(["Bottom of Library", () => sendAction("handToLibrary", { cardId: card.id, position: "bottom" })]);
+    if (canActNow()) {
+      actions.push([card.faceDown ? "Turn Face Up" : "Turn Face Down", () => sendAction("toggleFaceDown", { zone: "hand", cardId: card.id })]);
+      actions.push(["To Battlefield", () => moveCard(state.currentSeat, "hand", "battlefield", card.id)]);
+      if (isCommanderForSeat(card, state.currentSeat)) actions.push(["To Commander", () => moveCard(state.currentSeat, "hand", "commanderZone", card.id)]);
+      actions.push(["To Graveyard", () => moveCard(state.currentSeat, "hand", "graveyard", card.id)]);
+      actions.push(["To Exile", () => moveCard(state.currentSeat, "hand", "exile", card.id)]);
+      actions.push(["Top of Library", () => sendAction("handToLibrary", { cardId: card.id, position: "top" })]);
+      actions.push(["Bottom of Library", () => sendAction("handToLibrary", { cardId: card.id, position: "bottom" })]);
+    }
   }
 
   if (zone === "battlefield" || zone === "commanderZone") {
     if (zone === "battlefield") {
+      if (seat === state.currentSeat && selectedBattlefieldCards.has(card.id) && selectedBattlefieldCardsCanAttach()) {
+        actions.push(["Equip / Attach Selected", () => equipSelectedBattlefieldCards()]);
+      }
       actions.push([card.tapped ? "Untap" : "Tap", () => sendAction("tap", { seat, zone, cardId: card.id })]);
       actions.push([card.faceDown ? "Turn Face Up" : "Turn Face Down", () => sendAction("toggleFaceDown", { zone, cardId: card.id })]);
       actions.push(["Make Token Copy", () => copyBattlefieldToken(card)]);
@@ -10038,11 +10094,11 @@ function openCardDialog(card, seat, zone) {
     if (isCommanderForSeat(card, seat)) actions.push(["To Commander", () => moveCard(seat, zone, "commanderZone", card.id)]);
   }
 
-  if (["hand", "commanderZone", "battlefield", "graveyard", "exile"].includes(zone)) {
+  if (["hand", "commanderZone", "battlefield", "graveyard", "exile"].includes(zone) && (zone !== "hand" || canActNow())) {
     actions.push(["Exile Face Down", () => sendAction("exileFaceDown", { fromZone: zone, cardId: card.id })]);
   }
 
-  if (Array.isArray(card.faces) && card.faces.length > 1) {
+  if (Array.isArray(card.faces) && card.faces.length > 1 && (zone !== "hand" || canActNow())) {
     const nextFace = card.faces[(Number(card.faceIndex) + 1) % card.faces.length];
     actions.unshift([
       `Flip to ${nextFace?.name || "other face"}`,
@@ -11228,7 +11284,7 @@ els.createCustomTokenButton.addEventListener("click", () => {
 });
 
 els.revealHandButton?.addEventListener("click", async () => {
-  if (!state?.hand?.length || !canActNow()) return;
+  if (!state?.hand?.length) return;
   setDisabled(els.revealHandButton, true);
   try {
     await sendAction("revealHand");

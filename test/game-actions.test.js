@@ -136,6 +136,22 @@ test("face-down tag persists when moving cards between zones", async () => {
   assert.equal(opponentGraveyardCard.name, "Face-down card");
 });
 
+test("hand reveal works without turn priority", async () => {
+  const state = room();
+  state.activePlayer = 0;
+  state.prioritySeat = 0;
+  state.players[1].hand.push(card("offturn-card", "Offturn Card", { owner: 1 }));
+
+  await applyAction(state, state.players[1], { type: "revealHand" });
+  assert.equal(state.reveals.length, 1);
+  assert.equal(state.reveals[0].cards[0].name, "Offturn Card");
+
+  state.reveals = [];
+  await applyAction(state, state.players[1], { type: "revealHandCard", cardId: "offturn-card" });
+  assert.equal(state.reveals.length, 1);
+  assert.equal(state.reveals[0].cards[0].name, "Offturn Card");
+});
+
 test("loading a deck shuffles, moves commander, and prompts mulligan", async () => {
   const originalFetch = global.fetch;
   global.fetch = async () => ({
