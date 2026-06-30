@@ -426,11 +426,19 @@ For a GitHub-connected host such as Render or Railway:
 4. Leave the build command blank or use the host default, since this app has no build step.
 5. Open the public URL assigned by the host and create rooms from there.
 
-For persistence, attach a disk or volume to the single Node service and point `MAGE_TABLE_DB_PATH` at that mount. For example:
+For persistence, attach a disk or volume to the single Node service and point `MAGE_TABLE_DB_PATH` at that mount. The value can be either the mounted directory or the exact database file path:
 
 ```text
 MAGE_TABLE_DB_PATH=/var/data/mage-table.db
 ```
+
+or:
+
+```text
+MAGE_TABLE_DB_PATH=/var/data
+```
+
+When `MAGE_TABLE_DB_PATH` is not set, the app will also use a host-provided volume mount path such as `RAILWAY_VOLUME_MOUNT_PATH` when that directory exists. If no persistent path is configured, the app falls back to `data/mage-table.db`; that is only appropriate for local development because hosted deploys can replace that directory and make accounts, decks, and collections appear to disappear. Set `REQUIRE_PERSISTENT_STORAGE=1` in production if you want startup to fail instead of running on non-persistent storage.
 
 The mount directory must survive deploys and service restarts. This SQLite deployment model supports one Mage Table server instance. Running multiple instances requires a shared database such as PostgreSQL plus cross-instance room event delivery.
 

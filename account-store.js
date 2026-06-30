@@ -2,6 +2,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
+const { databasePathFromEnvironment, storageInfo, warnIfEphemeralStorage } = require("./storage-config");
 
 const sessionLifetimeMs = 30 * 24 * 60 * 60 * 1000;
 
@@ -95,13 +96,17 @@ function normalizeCollectionSources(sources) {
 }
 
 class AccountStore {
-  constructor(databasePath = process.env.MAGE_TABLE_DB_PATH || path.join(__dirname, "data", "mage-table.db")) {
+  constructor(databasePath = databasePathFromEnvironment()) {
     this.databasePath = databasePath;
     this.presenceTouchCache = new Map();
     if (databasePath !== ":memory:") fs.mkdirSync(path.dirname(databasePath), { recursive: true });
     this.db = new DatabaseSync(databasePath);
+    warnIfEphemeralStorage(databasePath);
     this.db.exec("PRAGMA foreign_keys = ON;");
     this.db.exec("PRAGMA journal_mode = WAL;");
+    this.db.exec("PRAGMA synchronous = FULL;");
+    this.db.exec("PRAGMA busy_timeout = 5000;");
+    this.db.exec("PRAGMA wal_autocheckpoint = 100;");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS accounts (
         id TEXT PRIMARY KEY,
@@ -213,6 +218,19 @@ class AccountStore {
     this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS accounts_email_normalized_unique ON accounts(email_normalized) WHERE email_normalized <> '';");
   }
 
+  storageInfo() {
+    return storageInfo(this.databasePath);
+  }
+
+  flush() {
+    if (this.databasePath === ":memory:") return;
+    try {
+      this.db.exec("PRAGMA wal_checkpoint(PASSIVE);");
+    } catch {
+      // A passive checkpoint can be skipped while another connection is active.
+    }
+  }
+
   ensureColumn(table, column, definition) {
     const columns = this.db.prepare(`PRAGMA table_info(${table})`).all().map((row) => row.name);
     if (!columns.includes(column)) {
@@ -242,7 +260,9 @@ class AccountStore {
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(account.id, account.username, normalized, account.firstName, account.lastName, account.email, account.email, passwordHash(password, salt), salt, account.createdAt, now);
-    return { account, sessionToken: this.createSession(account.id) };
+    const sessionToken = this.createSession(account.id);
+    this.flush();
+    return { account, sessionToken };
   }
 
   login(usernameValue, passwordValue) {
@@ -264,6 +284,7 @@ class AccountStore {
       INSERT INTO sessions (token_hash, account_id, created_at, expires_at)
       VALUES (?, ?, ?, ?)
     `).run(sessionHash(token), accountId, now, now + sessionLifetimeMs);
+    this.flush();
     return token;
   }
 
@@ -284,6 +305,7 @@ class AccountStore {
   deleteSession(token) {
     if (!token) return;
     this.db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(sessionHash(token));
+    this.flush();
   }
 
   touchAccountPresence(accountId, now = Date.now(), force = false) {
@@ -573,6 +595,7 @@ class AccountStore {
         WHERE id = ? AND account_id = ?
       `).run(name, commander, decklist, now, deckId, accountId);
       if (Number(result.changes) === 0) throw new Error("Saved deck was not found.");
+      this.flush();
       return this.deckFromRow(this.db.prepare("SELECT * FROM decks WHERE id = ? AND account_id = ?").get(deckId, accountId));
     }
     const id = newId("deck");
@@ -580,11 +603,13 @@ class AccountStore {
       INSERT INTO decks (id, account_id, name, commander, decklist, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(id, accountId, name, commander, decklist, now, now);
+    this.flush();
     return this.deckFromRow(this.db.prepare("SELECT * FROM decks WHERE id = ?").get(id));
   }
 
   deleteDeck(accountId, deckId) {
     const result = this.db.prepare("DELETE FROM decks WHERE id = ? AND account_id = ?").run(deckId, accountId);
+    if (Number(result.changes) > 0) this.flush();
     return Number(result.changes) > 0;
   }
 
@@ -615,6 +640,7 @@ class AccountStore {
         WHERE id = ? AND account_id = ?
       `).run(name, cardlist, sourcesJson, now, collectionId, accountId);
       if (Number(result.changes) === 0) throw new Error("Collection was not found.");
+      this.flush();
       return this.collectionFromRow(this.db.prepare("SELECT * FROM account_collections WHERE id = ? AND account_id = ?").get(collectionId, accountId));
     }
     const id = newId("collection");
@@ -622,11 +648,13 @@ class AccountStore {
       INSERT INTO account_collections (id, account_id, name, cardlist, sources_json, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(id, accountId, name, cardlist, sourcesJson, now, now);
+    this.flush();
     return this.collectionFromRow(this.db.prepare("SELECT * FROM account_collections WHERE id = ?").get(id));
   }
 
   deleteCollection(accountId, collectionId) {
     const result = this.db.prepare("DELETE FROM account_collections WHERE id = ? AND account_id = ?").run(collectionId, accountId);
+    if (Number(result.changes) > 0) this.flush();
     return Number(result.changes) > 0;
   }
 
@@ -649,6 +677,7 @@ class AccountStore {
         SET captured_at = ?, total_usd = ?, totals_json = ?, cards_json = ?
         WHERE id = ?
       `).run(capturedAt, totalUsd, totalsJson, cardsJson, existing.id);
+      this.flush();
       return this.priceSnapshotFromRow(this.db.prepare("SELECT * FROM deck_price_snapshots WHERE id = ?").get(existing.id));
     }
     const id = newId("price");
@@ -656,6 +685,7 @@ class AccountStore {
       INSERT INTO deck_price_snapshots (id, account_id, deck_id, captured_at, captured_day, source, total_usd, totals_json, cards_json)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(id, accountId, deckId, capturedAt, capturedDay, source, totalUsd, totalsJson, cardsJson);
+    this.flush();
     return this.priceSnapshotFromRow(this.db.prepare("SELECT * FROM deck_price_snapshots WHERE id = ?").get(id));
   }
 
@@ -713,6 +743,7 @@ class AccountStore {
       JSON.stringify(events),
       JSON.stringify(logEvents),
     );
+    this.flush();
     return this.deckPlayStatCommitFromRow(this.db.prepare(`
       SELECT * FROM deck_play_stat_commits
       WHERE account_id = ? AND deck_id = ? AND room_id = ? AND commit_id = ? AND actor_seat = ?

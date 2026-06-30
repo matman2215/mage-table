@@ -146,6 +146,9 @@ const els = {
   singlePlayerInput: document.querySelector("#singlePlayerInput"),
   playerCountLabel: document.querySelector("#playerCountLabel"),
   playerCountInput: document.querySelector("#playerCountInput"),
+  createFriendInvitePanel: document.querySelector("#createFriendInvitePanel"),
+  createFriendInviteSummary: document.querySelector("#createFriendInviteSummary"),
+  createFriendInviteList: document.querySelector("#createFriendInviteList"),
   inviteDebugDetails: document.querySelector("#inviteDebugDetails"),
   inviteMethodFieldset: document.querySelector("#inviteMethodFieldset"),
   inviteMethodInputs: [...document.querySelectorAll('input[name="inviteMethod"]')],
@@ -476,6 +479,7 @@ let savedDecks = [];
 let savedCollections = [];
 let activeGames = [];
 let friendsData = { friends: [], incoming: [], outgoing: [], gameInvites: { incoming: [], outgoing: [] } };
+let accountStorage = null;
 let accountMode = "login";
 let accountWorkspaceTab = "decks";
 let selectedBuilderDeckId = "";
@@ -533,6 +537,7 @@ let cardInspectorContext = null;
 let cardInspectorRulingsCache = new Map();
 let pendingGameDeck = null;
 let pendingCreateDeck = null;
+let pendingCreateFriendInviteIds = new Set();
 let pendingPlayDeck = null;
 let pendingJoinDeck = null;
 let pendingPasswordJoin = null;
@@ -782,6 +787,7 @@ function updateRoomCreationControls() {
   els.createRoomSubmitButton.textContent = solo
     ? "Create Solo Game"
     : "Create Join Code";
+  renderCreateFriendInvitePanel();
 }
 
 function setInviteMode(value) {
@@ -793,9 +799,15 @@ function setInviteMode(value) {
 
 function openCreateMode(deck = null) {
   pendingCreateDeck = deck ? { ...deck } : null;
+  pendingCreateFriendInviteIds = new Set();
   landingView = "createMode";
   setAccountStatus();
   renderLanding();
+  if (pendingCreateDeck && account) {
+    loadFriends()
+      .then(renderCreateFriendInvitePanel)
+      .catch((error) => setAccountStatus(error.message, true));
+  }
 }
 
 function openLiveGameSetup(deck = null) {
@@ -806,11 +818,103 @@ function openLiveGameSetup(deck = null) {
   landingView = "create";
   setAccountStatus();
   renderLanding();
+  if (pendingCreateDeck && account) {
+    loadFriends()
+      .then(renderCreateFriendInvitePanel)
+      .catch((error) => setAccountStatus(error.message, true));
+  }
   requestAnimationFrame(() => els.roomNameInput.focus());
+}
+
+function createFriendInviteCapacity() {
+  if (els.singlePlayerInput?.checked) return 0;
+  return Math.max(0, Math.min(3, Number(els.playerCountInput?.value) - 1 || 0));
+}
+
+function acceptedCreateInviteFriends() {
+  return (friendsData.friends || [])
+    .filter((friendship) => friendship?.account?.id)
+    .sort((left, right) => friendAccountLabel(left.account).localeCompare(friendAccountLabel(right.account)));
+}
+
+function trimCreateFriendInviteSelection() {
+  const validIds = new Set(acceptedCreateInviteFriends().map((friendship) => friendship.account.id));
+  pendingCreateFriendInviteIds = new Set([...pendingCreateFriendInviteIds].filter((id) => validIds.has(id)));
+  const capacity = createFriendInviteCapacity();
+  if (pendingCreateFriendInviteIds.size <= capacity) return;
+  pendingCreateFriendInviteIds = new Set([...pendingCreateFriendInviteIds].slice(0, capacity));
+}
+
+function renderCreateFriendInvitePanel() {
+  if (!els.createFriendInvitePanel || !els.createFriendInviteList || !els.createFriendInviteSummary) return;
+  const visible = Boolean(account && pendingCreateDeck && !els.singlePlayerInput?.checked);
+  els.createFriendInvitePanel.classList.toggle("hidden", !visible);
+  if (!visible) {
+    els.createFriendInviteList.innerHTML = "";
+    return;
+  }
+
+  trimCreateFriendInviteSelection();
+  const friends = acceptedCreateInviteFriends();
+  const capacity = createFriendInviteCapacity();
+  const selectedCount = pendingCreateFriendInviteIds.size;
+  els.createFriendInviteSummary.textContent = friends.length
+    ? `${selectedCount}/${capacity} seat${capacity === 1 ? "" : "s"} selected`
+    : "Accepted friends will appear here.";
+  els.createFriendInviteList.innerHTML = "";
+
+  if (!friends.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-list-message";
+    empty.textContent = "No accepted friends yet. Add friends from the Friends tab to invite them here.";
+    els.createFriendInviteList.append(empty);
+    return;
+  }
+
+  friends.forEach((friendship) => {
+    const friend = friendship.account;
+    const checked = pendingCreateFriendInviteIds.has(friend.id);
+    const row = document.createElement("label");
+    row.className = `create-friend-invite-row${friend.online ? " online" : ""}`;
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = friend.id;
+    input.checked = checked;
+    input.disabled = !checked && selectedCount >= capacity;
+    input.addEventListener("change", () => {
+      if (input.checked) {
+        if (pendingCreateFriendInviteIds.size < createFriendInviteCapacity()) pendingCreateFriendInviteIds.add(friend.id);
+      } else {
+        pendingCreateFriendInviteIds.delete(friend.id);
+      }
+      renderCreateFriendInvitePanel();
+    });
+    const identity = document.createElement("span");
+    identity.className = "create-friend-invite-identity";
+    identity.innerHTML = `<strong>${friendPresenceMarkup(friend)}${escapeHtml(friendAccountLabel(friend))}</strong><small>${escapeHtml(friendPresenceText(friend))}</small>`;
+    row.append(input, identity);
+    els.createFriendInviteList.append(row);
+  });
+}
+
+async function sendCreateFriendInvites(roomId, friendIds = []) {
+  if (!account || !roomId || !friendIds.length) return { sent: 0, failed: 0 };
+  const results = await Promise.allSettled(friendIds.map((friendAccountId) => accountApi("/api/account/game-invites", {
+    method: "POST",
+    trackLoading: false,
+    body: JSON.stringify({ friendAccountId, roomId }),
+  })));
+  const lastSuccess = [...results].reverse().find((result) => result.status === "fulfilled");
+  if (lastSuccess) normalizeFriendsPayload(lastSuccess.value);
+  return {
+    sent: results.filter((result) => result.status === "fulfilled").length,
+    failed: results.filter((result) => result.status === "rejected").length,
+  };
 }
 
 async function createGameFromSetup({ solo = false, deck = null } = {}) {
   const selectedDeck = deck || pendingCreateDeck || null;
+  const selectedFriendInviteIds = solo ? [] : [...pendingCreateFriendInviteIds];
   showGameLoading(solo ? "Creating Solo Game" : "Creating Game", selectedDeck ? "Resolving Scryfall cards and shuffling your opening hand." : "Preparing your table.");
   try {
     const room = await api("/api/rooms", {
@@ -830,12 +934,21 @@ async function createGameFromSetup({ solo = false, deck = null } = {}) {
         } : null,
       }),
     });
+    let friendInviteResult = { sent: 0, failed: 0 };
+    if (selectedFriendInviteIds.length) {
+      showGameLoading("Sending Invites", "Creating your table and sending friend invites.");
+      friendInviteResult = await sendCreateFriendInvites(room.id, selectedFriendInviteIds);
+    }
     pendingCreateDeck = null;
+    pendingCreateFriendInviteIds = new Set();
     storeRoomPassword(room.id, solo ? "" : els.roomPasswordInput.value);
     history.replaceState(null, "", sameOriginRoomUrl(room.selfUrl));
     forceInviteDialog = !solo && !room.currentPlayer.deckLoaded;
     setAccountStatus();
     enterRoomView(room);
+    if (friendInviteResult.failed) {
+      window.setTimeout(() => alert(`Game created, but ${friendInviteResult.failed} friend invite${friendInviteResult.failed === 1 ? "" : "s"} could not be sent.`), 0);
+    }
     await refreshState({ quiet: true });
   } finally {
     hideGameLoading();
@@ -1009,9 +1122,12 @@ function sendGuestHostLeaveBeacon() {
 }
 
 function setAccountStatus(message = "", isError = false) {
-  els.accountStatus.textContent = message;
-  els.accountStatus.classList.toggle("hidden", !message);
-  els.accountStatus.classList.toggle("error", Boolean(message) && isError);
+  const storageWarning = !message && accountStorage?.warning ? accountStorage.warning : "";
+  const displayMessage = message || storageWarning;
+  const displayError = Boolean(isError || storageWarning);
+  els.accountStatus.textContent = displayMessage;
+  els.accountStatus.classList.toggle("hidden", !displayMessage);
+  els.accountStatus.classList.toggle("error", Boolean(displayMessage) && displayError);
 }
 
 function accountDisplayName(fallback = "Player") {
@@ -5783,6 +5899,7 @@ async function loadFriends() {
     if (error.status === 401) clearAccountSession();
     else throw error;
   }
+  if (landingView === "create") renderCreateFriendInvitePanel();
   if (landingView === "account") renderFriendsWorkspace();
 }
 
@@ -5901,6 +6018,7 @@ function openEndGameDialog(game) {
 
 function clearAccountSession() {
   account = null;
+  accountStorage = null;
   savedDecks = [];
   savedCollections = [];
   activeGames = [];
@@ -5918,6 +6036,7 @@ async function restoreAccountSession() {
   try {
     const result = await accountApi("/api/account");
     account = result.account;
+    accountStorage = result.storage || null;
     await loadAccountWorkspaceData();
   } catch {
     clearAccountSession();
@@ -5927,6 +6046,7 @@ async function restoreAccountSession() {
   if (!state) {
     landingView = "account";
     renderLanding();
+    setAccountStatus();
   }
 }
 
@@ -10207,12 +10327,13 @@ async function completeAccountAuthentication(path, username, password, extra = {
     body: JSON.stringify({ username, password, ...extra }),
   });
   account = result.account;
+  accountStorage = result.storage || null;
   accountWorkspaceTab = "decks";
   deckBuilderInitialized = false;
   collectionInitialized = false;
   await loadAccountWorkspaceData();
   accountMode = "login";
-  setAccountStatus("Signed in.");
+  setAccountStatus(accountStorage?.warning || "Signed in.", Boolean(accountStorage?.warning));
   renderLanding();
 }
 
@@ -10708,6 +10829,7 @@ els.guestLeaveForm.addEventListener("submit", async (event) => {
 els.singlePlayerInput.addEventListener("change", () => {
   updateRoomCreationControls();
 });
+els.playerCountInput.addEventListener("change", updateRoomCreationControls);
 
 els.roomPasswordForm.addEventListener("submit", async (event) => {
   event.preventDefault();

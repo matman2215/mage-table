@@ -3660,20 +3660,20 @@ const server = http.createServer(async (req, res) => {
         body.email,
         body.confirmPassword,
       );
-      return sendJson(res, 201, { account: result.account }, { "Set-Cookie": sessionCookie(req, result.sessionToken) });
+      return sendJson(res, 201, { account: result.account, storage: accountStore.storageInfo() }, { "Set-Cookie": sessionCookie(req, result.sessionToken) });
     }
 
     if (req.method === "POST" && requestUrl.pathname === "/api/accounts/login") {
       const body = await readBody(req);
       const result = accountStore.login(body.username, body.password);
       if (!result) return sendJson(res, 401, { error: "Username or password is incorrect.", code: "INVALID_LOGIN" });
-      return sendJson(res, 200, { account: result.account }, { "Set-Cookie": sessionCookie(req, result.sessionToken) });
+      return sendJson(res, 200, { account: result.account, storage: accountStore.storageInfo() }, { "Set-Cookie": sessionCookie(req, result.sessionToken) });
     }
 
     if (req.method === "GET" && requestUrl.pathname === "/api/account") {
       const account = authenticatedAccount(req, res);
       if (!account) return;
-      return sendJson(res, 200, { account });
+      return sendJson(res, 200, { account, storage: accountStore.storageInfo() });
     }
 
     if (req.method === "POST" && requestUrl.pathname === "/api/account/logout") {

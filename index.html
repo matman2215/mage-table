@@ -44,7 +44,7 @@
             <button id="joinGameButton" class="secondary" data-landing-action="join" type="button">Join Game</button>
             <button id="loginButton" class="secondary" data-landing-action="account" type="button">Log In</button>
           </div>
-          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.6.6</p>
+          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.6.7</p>
         </div>
         <section id="createModePanel" class="landing-subpanel create-mode-panel hidden">
           <header class="create-room-header">
@@ -81,6 +81,13 @@
               <option selected>4</option>
             </select>
           </label>
+          <section id="createFriendInvitePanel" class="create-friend-invite-panel hidden" aria-label="Invite friends">
+            <div class="create-friend-invite-heading">
+              <strong>Invite Friends</strong>
+              <span id="createFriendInviteSummary">Choose friends after picking a deck.</span>
+            </div>
+            <div id="createFriendInviteList" class="create-friend-invite-list"></div>
+          </section>
           <details id="inviteDebugDetails" class="debug-invite-options">
             <summary>Debug invite options</summary>
             <fieldset id="inviteMethodFieldset" class="invite-method-fieldset">

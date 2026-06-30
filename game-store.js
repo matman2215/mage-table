@@ -1,10 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
-
-function databasePathFromEnvironment() {
-  return process.env.MAGE_TABLE_DB_PATH || path.join(__dirname, "data", "mage-table.db");
-}
+const { databasePathFromEnvironment, storageInfo, warnIfEphemeralStorage } = require("./storage-config");
 
 function serializeRoom(room) {
   const {
@@ -67,9 +64,12 @@ class GameStore {
     this.databasePath = databasePath;
     if (databasePath !== ":memory:") fs.mkdirSync(path.dirname(databasePath), { recursive: true });
     this.db = new DatabaseSync(databasePath);
+    warnIfEphemeralStorage(databasePath);
     this.db.exec("PRAGMA foreign_keys = ON;");
     this.db.exec("PRAGMA journal_mode = WAL;");
+    this.db.exec("PRAGMA synchronous = FULL;");
     this.db.exec("PRAGMA busy_timeout = 5000;");
+    this.db.exec("PRAGMA wal_autocheckpoint = 100;");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS games (
         id TEXT PRIMARY KEY,
@@ -142,6 +142,19 @@ class GameStore {
     `);
   }
 
+  storageInfo() {
+    return storageInfo(this.databasePath);
+  }
+
+  flush() {
+    if (this.databasePath === ":memory:") return;
+    try {
+      this.db.exec("PRAGMA wal_checkpoint(PASSIVE);");
+    } catch {
+      // A passive checkpoint can be skipped while another connection is active.
+    }
+  }
+
   ensureColumn(table, column, definition) {
     const columns = this.db.prepare(`PRAGMA table_info(${table})`).all().map((row) => row.name);
     if (!columns.includes(column)) {
@@ -196,6 +209,7 @@ class GameStore {
         );
       });
       this.db.exec("COMMIT;");
+      this.flush();
     } catch (error) {
       this.db.exec("ROLLBACK;");
       throw error;
