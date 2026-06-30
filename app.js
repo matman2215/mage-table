@@ -541,6 +541,7 @@ let pendingCreateDeck = null;
 let pendingCreateFriendInviteIds = new Set();
 let pendingPlayDeck = null;
 let pendingJoinDeck = null;
+let pendingGameInviteAccept = null;
 let pendingPasswordJoin = null;
 let pendingEndGameId = "";
 let pendingDeleteDeckId = "";
@@ -5431,7 +5432,7 @@ function renderGameInviteRow(invite, direction) {
     accept.type = "button";
     accept.textContent = "Accept";
     accept.disabled = Boolean(room.roomFull);
-    accept.addEventListener("click", () => respondToGameInvite(invite.id, "accept"));
+    accept.addEventListener("click", () => openGameInviteDeckChoice(invite));
     const decline = document.createElement("button");
     decline.type = "button";
     decline.className = "secondary";
@@ -5738,15 +5739,28 @@ async function startGameWithDeck(deck) {
   if (playable) openCreateMode(playable);
 }
 
+function accountStartGameMode() {
+  return pendingGameInviteAccept ? "invite" : "start";
+}
+
 function renderAccountStartGameChoices() {
   if (!els.accountStartSavedDeckList) return;
   els.accountStartSavedDeckList.innerHTML = "";
+  const inviteMode = accountStartGameMode() === "invite";
+  const inviteRoom = pendingGameInviteAccept?.room || {};
   const playableDecks = savedDecks
     .filter((deck) => String(deck.decklist || "").trim())
     .sort((left, right) => String(left.name || "").localeCompare(String(right.name || "")));
-  els.accountStartGameSummary.textContent = playableDecks.length
-    ? "Choose a saved deck or use a decklist for this game."
-    : "No saved decks are ready yet. Use a decklist to start this game.";
+  els.accountStartGameSummary.textContent = inviteMode
+    ? playableDecks.length
+      ? `Accept ${inviteRoom.name || "this game invite"} with a saved deck or paste your own decklist.`
+      : `Accept ${inviteRoom.name || "this game invite"} and paste your own decklist.`
+    : playableDecks.length
+      ? "Choose a saved deck or use a decklist for this game."
+      : "No saved decks are ready yet. Use a decklist to start this game.";
+  if (els.accountStartOwnDecklistButton) {
+    els.accountStartOwnDecklistButton.textContent = inviteMode ? "Accept and Use Decklist" : "Use Decklist";
+  }
   if (!playableDecks.length) {
     const empty = document.createElement("p");
     empty.className = "empty-list-message";
@@ -5767,18 +5781,37 @@ function renderAccountStartGameChoices() {
     `;
     row.querySelector("button").addEventListener("click", () => {
       els.accountStartGameDialog.close();
-      openDeckPlayChoice(deck);
+      if (pendingGameInviteAccept) acceptGameInviteWithDeck(pendingGameInviteAccept.id, deck);
+      else openDeckPlayChoice(deck);
     });
     els.accountStartSavedDeckList.append(row);
   });
 }
 
 function openAccountStartGameDialog() {
+  pendingGameInviteAccept = null;
+  renderAccountStartGameChoices();
+  if (!els.accountStartGameDialog.open) els.accountStartGameDialog.showModal();
+}
+
+async function openGameInviteDeckChoice(invite) {
+  pendingGameInviteAccept = invite;
+  try {
+    await loadSavedDecks();
+  } catch (error) {
+    setAccountStatus(error.message, true);
+  }
   renderAccountStartGameChoices();
   if (!els.accountStartGameDialog.open) els.accountStartGameDialog.showModal();
 }
 
 function startGameWithoutDeck() {
+  if (pendingGameInviteAccept) {
+    const inviteId = pendingGameInviteAccept.id;
+    pendingGameInviteAccept = null;
+    acceptGameInviteWithDeck(inviteId, null);
+    return;
+  }
   pendingGameDeck = null;
   pendingCreateDeck = null;
   els.deckInput.value = "";
@@ -6026,6 +6059,44 @@ async function respondToGameInvite(inviteId, action) {
     renderFriendsWorkspace();
   } catch (error) {
     setAccountStatus(error.message, true);
+  }
+}
+
+async function acceptGameInviteWithDeck(inviteId, deck = null) {
+  const playable = deck ? playableDeck(deck) : null;
+  if (deck && !playable) {
+    renderAccountStartGameChoices();
+    if (!els.accountStartGameDialog.open) els.accountStartGameDialog.showModal();
+    return;
+  }
+  showGameLoading(
+    playable ? "Accepting Invite" : "Joining Game",
+    playable ? "Claiming your seat and resolving your saved deck." : "Claiming your seat. You can paste your decklist next.",
+  );
+  try {
+    const result = await accountApi(`/api/account/game-invites/${encodeURIComponent(inviteId)}/accept`, {
+      method: "POST",
+      body: "{}",
+    });
+    normalizeFriendsPayload(result.friends || {});
+    pendingGameInviteAccept = null;
+    history.replaceState(null, "", sameOriginRoomUrl(result.room.selfUrl));
+    enterRoomView(result.room);
+    if (playable) {
+      await sendAction("loadDeck", {
+        text: playable.decklist,
+        commander: playable.commander || "",
+        deckId: playable.id || "",
+        name: accountDisplayName(result.room.currentPlayer?.name || "Player"),
+      });
+    }
+    setAccountStatus(playable ? "Game invite accepted with saved deck." : "Game invite accepted.");
+  } catch (error) {
+    pendingGameInviteAccept = null;
+    setAccountStatus(error.message, true);
+    if (!state) renderFriendsWorkspace();
+  } finally {
+    hideGameLoading();
   }
 }
 
@@ -10803,7 +10874,10 @@ els.joinCodePasswordInput.addEventListener("input", () => setJoinRoomStatus());
 
 els.closeJoinWithDeckButton.addEventListener("click", () => els.joinWithDeckDialog.close());
 els.closeDeckPlayChoiceButton.addEventListener("click", () => els.deckPlayChoiceDialog.close());
-els.closeAccountStartGameButton.addEventListener("click", () => els.accountStartGameDialog.close());
+els.closeAccountStartGameButton.addEventListener("click", () => {
+  pendingGameInviteAccept = null;
+  els.accountStartGameDialog.close();
+});
 els.accountStartGameForm.addEventListener("submit", (event) => {
   event.preventDefault();
   if (event.submitter?.value === "decklist") {
