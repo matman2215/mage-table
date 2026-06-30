@@ -23,6 +23,7 @@ body {
   margin: 0;
   min-height: 100vh;
   overflow: hidden;
+  overflow-x: hidden;
   background: var(--bg);
   color: var(--ink);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -335,7 +336,8 @@ body.landing-mode::before {
 .landing-panel {
   width: min(680px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   place-self: center;
   grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
@@ -870,7 +872,8 @@ body.landing-mode .account-workspace-shell label {
   align-content: start;
   gap: 3px;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .account-workspace-shell .saved-deck-row {
@@ -1075,7 +1078,8 @@ body.landing-mode .account-workspace-shell label {
   height: clamp(180px, 34dvh, 360px);
   width: 100%;
   max-height: none;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   resize: none;
   font-size: 0.74rem;
 }
@@ -1189,7 +1193,8 @@ body.landing-mode .account-workspace-shell label {
   align-content: start;
   gap: 6px;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding-right: 3px;
 }
 
@@ -2624,7 +2629,8 @@ body.shift-cascade .deck-stack-card strong {
   }
 
   .card-inspector-tabs {
-    overflow-x: auto;
+    flex-wrap: wrap;
+    overflow-x: hidden;
   }
 }
 
@@ -3457,7 +3463,8 @@ body.shift-cascade .deck-stack-card strong {
 
 .active-games-list {
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .active-game-row {
@@ -3576,15 +3583,17 @@ body.shift-cascade .deck-stack-card strong {
 
 .friends-table-wrap {
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   border: 1px solid #293832;
   background: #0d1512;
 }
 
 .friends-table {
   width: 100%;
-  min-width: 720px;
+  min-width: 0;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 
 .friends-table th,
@@ -3593,6 +3602,8 @@ body.shift-cascade .deck-stack-card strong {
   padding: 10px;
   text-align: left;
   vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .friends-table th {
@@ -3677,7 +3688,8 @@ body.shift-cascade .deck-stack-card strong {
   align-content: start;
   gap: 8px;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .friends-list .friend-row {
@@ -3792,6 +3804,8 @@ body.shift-cascade .deck-stack-card strong {
 .active-lobbies-list {
   display: grid;
   min-height: 56px;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .saved-deck-row,
@@ -3845,7 +3859,7 @@ body.shift-cascade .deck-stack-card strong {
 }
 
 .save-deck-dialog-card .dialog-actions {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .deck-list-label {
@@ -3867,17 +3881,20 @@ body.shift-cascade .deck-stack-card strong {
 .account-start-game-card {
   width: min(560px, calc(100vw - 28px));
   max-height: min(680px, calc(100vh - 28px));
+  overflow-x: hidden;
 }
 
 .account-start-decks {
   min-height: 0;
+  overflow-x: hidden;
 }
 
 .account-start-saved-deck-list {
   display: grid;
   gap: 7px;
   max-height: min(360px, calc(100vh - 260px));
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding-right: 3px;
 }
 
@@ -3955,7 +3972,8 @@ body.shift-cascade .deck-stack-card strong {
   display: grid;
   gap: 6px;
   max-height: 162px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding-right: 3px;
 }
 
@@ -4256,7 +4274,8 @@ body.dark-mode .join-code-item code {
   display: grid;
   gap: 8px;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   background: rgba(246, 247, 243, 0.96);
   border-right: 1px solid var(--line);
   padding-right: 8px;
@@ -4308,7 +4327,8 @@ body.dark-mode .action-popover {
   gap: 12px;
   width: min(460px, calc(100vw - 56px));
   max-height: calc(100vh - 8px);
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 12px;
 }
 
@@ -4325,7 +4345,8 @@ body.dark-mode .action-popover {
   gap: 10px;
   width: min(780px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   border-color: rgba(159, 79, 22, 0.48);
   padding: 12px;
 }
@@ -4445,18 +4466,21 @@ body.dark-mode .combat-blocker-source {
 }
 
 .combat-blocker-source-list {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(58px, 1fr));
   gap: 7px;
   min-height: 74px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding-bottom: 3px;
+  max-height: min(216px, 34vh);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 3px;
 }
 
 .combat-blocker-source-card {
-  flex: 0 0 58px;
   width: 58px;
+  justify-self: center;
   cursor: grab;
+  touch-action: none;
 }
 
 .combat-blocker-source-card.dragging {
@@ -4520,6 +4544,26 @@ body.dark-mode .combat-blocker-source {
   padding: 7px;
 }
 
+.combat-attacker-dropzone {
+  width: min(100%, 172px);
+  min-height: 146px;
+}
+
+.combat-assignment-drop-active {
+  border-color: var(--accent);
+  background: rgba(42, 157, 143, 0.16);
+  box-shadow: inset 0 0 0 2px rgba(42, 157, 143, 0.28);
+}
+
+.combat-assignment-ghost {
+  position: fixed;
+  z-index: 5000;
+  pointer-events: none;
+  opacity: 0.9;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.42);
+}
+
 body.dark-mode .combat-blocker-dropzone {
   background: rgba(159, 79, 22, 0.08);
 }
@@ -4543,6 +4587,10 @@ body.dark-mode .combat-blocker-dropzone {
 .combat-assigned-blocker-card,
 .combat-blocker-result-card {
   width: 64px;
+}
+
+.combat-assigned-attacker-card {
+  width: 72px;
 }
 
 .combat-block-arrow {
@@ -4736,7 +4784,8 @@ body.dark-mode .combat-blocker-dropzone {
   display: grid;
   gap: 4px;
   max-height: 210px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   border-top: 1px solid var(--line);
   padding-top: 7px;
 }
@@ -5933,7 +5982,8 @@ body.dark-mode .private-zone .zone-header {
   grid-template-columns: repeat(auto-fit, minmax(var(--hand-card-width), var(--hand-card-width)));
   justify-content: center;
   align-items: end;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   height: 100%;
   max-height: 100%;
   margin-top: 0;
@@ -6276,7 +6326,8 @@ body.ctrl-zoom .card:hover {
   display: grid;
   gap: 8px;
   max-height: 180px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   font-size: 0.85rem;
   color: var(--muted);
 }
@@ -6500,6 +6551,8 @@ body.dark-mode kbd {
 .dialog-card {
   display: grid;
   gap: 14px;
+  max-width: calc(100vw - 28px);
+  overflow-x: hidden;
   padding: 18px;
 }
 
@@ -6574,7 +6627,8 @@ body.dark-mode kbd {
   grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
   gap: 10px;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding-right: 4px;
 }
 
@@ -6860,7 +6914,8 @@ body.dark-mode .recap-card {
 .chat-messages {
   display: grid;
   gap: 8px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: #fbfcfa;
@@ -6937,7 +6992,8 @@ body.dark-mode .recap-card {
   grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
   gap: 10px;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding-right: 4px;
 }
 
@@ -7019,7 +7075,8 @@ body.dark-mode .recap-card {
   display: grid;
   gap: 10px;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding-right: 4px;
 }
 
@@ -7453,7 +7510,8 @@ body.shift-cascade .equipped-card {
   z-index: 20;
   display: grid;
   place-items: center;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   background: rgba(246, 247, 243, 0.92);
   padding: 18px;
 }
@@ -7681,7 +7739,8 @@ body.cosmic-table-theme .counter-step {
 
 @media (max-width: 900px) {
   body {
-    overflow: auto;
+    overflow-y: auto;
+    overflow-x: hidden;
   }
 
   .landing-panel {

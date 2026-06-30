@@ -44,7 +44,7 @@
             <button id="joinGameButton" class="secondary" data-landing-action="join" type="button">Join Game</button>
             <button id="loginButton" class="secondary" data-landing-action="account" type="button">Log In</button>
           </div>
-          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.6.9</p>
+          <p class="terminal-footer" aria-hidden="true">SPELL LINK // FOUR SEATS MAX // ALPHA v0.6.11</p>
         </div>
         <section id="createModePanel" class="landing-subpanel create-mode-panel hidden">
           <header class="create-room-header">
@@ -696,7 +696,7 @@
     <div id="turnDock" class="turn-dock hidden">
       <button id="boardReferenceButton" class="secondary" type="button">Boards</button>
       <button id="instantButton" class="secondary" type="button">Instant</button>
-      <button id="combatPassButton" class="secondary" type="button">Combat Pass</button>
+      <button id="combatPassButton" class="secondary" type="button">Declare Attackers</button>
       <button id="combatTrickButton" class="secondary" type="button">Combat Trick</button>
       <button id="passPriorityButton" class="secondary" type="button">Pass Priority</button>
       <button id="drawButton" type="button">Draw</button>
@@ -1114,6 +1114,7 @@
           <textarea id="savedDeckListInput" rows="14" maxlength="100000" required></textarea>
         </label>
         <div class="dialog-actions">
+          <button value="cancel" class="secondary" type="submit">Cancel</button>
           <button id="submitSavedDeckButton" value="save" type="submit">Save Deck</button>
         </div>
       </form>
@@ -1128,7 +1129,10 @@
           </div>
           <button id="closeDeleteDeckButton" class="popover-close" type="button" title="Dismiss" aria-label="Dismiss delete confirmation">x</button>
         </header>
-        <button id="confirmDeleteDeckButton" class="danger" value="delete" type="submit">Delete Deck</button>
+        <div class="dialog-actions">
+          <button value="cancel" class="secondary" type="submit">Cancel</button>
+          <button id="confirmDeleteDeckButton" class="danger" value="delete" type="submit">Delete Deck</button>
+        </div>
       </form>
     </dialog>
 

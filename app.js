@@ -469,7 +469,9 @@ let dismissedCombatSnapshotId = "";
 let combatPanelMode = "overview";
 let combatBlockAssignments = {};
 let combatBlockSnapshotId = "";
-let combatDraggedBlockerId = "";
+let combatAttackAssignments = {};
+let combatAttackTrickArmed = false;
+let combatAssignmentDrag = null;
 let dismissedDiceNoticeId = "";
 let lastDiceResult = "No rolls yet";
 let pendingCountPrompt = null;
@@ -565,7 +567,7 @@ const keybindDefinitions = [
   { id: "selectAll", label: "Select all battlefield cards", defaultBinding: "a" },
   { id: "passPriority", label: "Pass priority", defaultBinding: "p" },
   { id: "takePriority", label: "Take instant priority", defaultBinding: "i" },
-  { id: "combatPass", label: "Pass combat priority", defaultBinding: "c" },
+  { id: "combatPass", label: "Declare attackers", defaultBinding: "c" },
   { id: "endTurn", label: "End turn", defaultBinding: "e" },
   { id: "draw", label: "Draw top card", defaultBinding: "d" },
   { id: "toggleTap", label: "Toggle tap or untap", defaultBinding: "t" },
@@ -6760,8 +6762,12 @@ function renderTurn() {
   els.turnCountText.textContent = `Turn ${Number(state.turnNumber) || 1}`;
   setDisabled(els.endTurnButton, !isMyTurn());
   setDisabled(els.drawButton, !canActNow());
-  setDisabled(els.combatPassButton, !isMyTurn());
-  setDisabled(els.combatTrickButton, !isMyTurn());
+  const resolvingCombatTrick = Boolean(state.combatSnapshot?.combatTrickPending && Number(state.combatSnapshot.attackerSeat) === Number(state.currentSeat) && isPriorityHolder());
+  const activeCombat = Boolean(state.combatSnapshot?.cards?.length);
+  els.combatPassButton.textContent = "Declare Attackers";
+  els.combatTrickButton.textContent = resolvingCombatTrick ? "Resolve Trick" : "Combat Trick";
+  setDisabled(els.combatPassButton, !isMyTurn() || activeCombat);
+  setDisabled(els.combatTrickButton, resolvingCombatTrick ? false : !isMyTurn() || activeCombat);
   setDisabled(els.instantButton, isMyTurn() || isPriorityHolder());
   setDisabled(els.passPriorityButton, !isPriorityHolder());
   els.instantButton.classList.toggle("hidden", solo);
@@ -6873,9 +6879,11 @@ function combatSnapshotRibbon() {
   const label = document.createElement("div");
   label.className = "combat-snapshot-label";
   const totals = snapshot.totals || { creatures: 0, power: 0, toughness: 0 };
+  const targets = combatSnapshotTargetNames(snapshot);
+  const targetText = targets.length ? ` toward ${targets.join(", ")}` : "";
   label.innerHTML = `
     <strong>&#8595;</strong>
-    <span>${escapeHtml(snapshot.attackerName || "Attacker")} attacking <b>${totals.power}/${totals.toughness}</b></span>
+    <span>${escapeHtml(snapshot.attackerName || "Attacker")} attacking${escapeHtml(targetText)} <b>${totals.power}/${totals.toughness}</b></span>
   `;
   const cards = document.createElement("div");
   cards.className = "combat-snapshot-cards";
@@ -6906,6 +6914,33 @@ function combatSnapshotRibbon() {
   return ribbon;
 }
 
+function combatVisibleSnapshotCards(snapshot, defenderSeat = snapshot?.defenderSeat) {
+  const cards = Array.isArray(snapshot?.cards) ? snapshot.cards : [];
+  if (!cards.some((card) => Number.isInteger(Number(card.targetSeat)))) return cards;
+  return cards.filter((card) => Number(card.targetSeat) === Number(defenderSeat));
+}
+
+function combatCardsTotal(cards = []) {
+  return cards.reduce((totals, card) => {
+    if (!card?.isCreature) return totals;
+    const quantity = Math.max(1, Number(card.quantity) || 1);
+    totals.creatures += quantity;
+    totals.power += Math.max(0, Number(card.totalPower) || 0);
+    totals.toughness += Math.max(0, Number(card.totalToughness) || 0);
+    return totals;
+  }, { creatures: 0, power: 0, toughness: 0 });
+}
+
+function combatSnapshotTargetNames(snapshot) {
+  const names = [];
+  (snapshot?.cards || []).forEach((card) => {
+    const name = card.targetName || snapshot.defenderName || "";
+    if (name && !names.includes(name)) names.push(name);
+  });
+  if (!names.length && snapshot?.defenderName) names.push(snapshot.defenderName);
+  return names;
+}
+
 function combatSnapshotCard(card) {
   const item = displayCardElement(card, card.typeLine || "Attacker", "combatSnapshot");
   item.classList.add("combat-snapshot-card");
@@ -6918,7 +6953,8 @@ function combatSnapshotCard(card) {
   const combatDetail = card.isCreature
     ? ` Total ${card.totalPower}/${card.totalToughness}${card.quantity > 1 ? ` from ${card.quantity} creatures.` : "."}`
     : "";
-  item.title = `${cardDisplayName(card)}.${combatDetail} Click to view the full attacking party or hold Control to zoom.`;
+  const targetDetail = card.targetName ? ` Attacking ${card.targetName}.` : "";
+  item.title = `${cardDisplayName(card)}.${targetDetail}${combatDetail} Click to view the full attacking party or hold Control to zoom.`;
   const openParty = (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -6935,7 +6971,7 @@ function combatBlockButton(snapshot, compact = false) {
   button.className = `combat-block-button secondary${compact ? " compact" : ""}`;
   const isDefender = Number(snapshot?.defenderSeat) === Number(state?.currentSeat);
   const trickPending = Boolean(snapshot?.combatTrickPending);
-  const hasAttackers = (snapshot?.cards || []).some((card) => card.isCreature && !card.damageApplied);
+  const hasAttackers = combatVisibleSnapshotCards(snapshot).some((card) => card.isCreature && !card.damageApplied);
   button.textContent = snapshot?.blockersDeclared
     ? compact ? "Blocks" : "Edit Blockers"
     : compact ? "Block" : "Declare Blockers";
@@ -6959,7 +6995,7 @@ function combatDamageButton(snapshot, compact = false) {
   button.className = `combat-damage-button${compact ? " compact" : ""}`;
   const isDefender = Number(snapshot?.defenderSeat) === Number(state?.currentSeat);
   const trickPending = Boolean(snapshot?.combatTrickPending);
-  const remainingCards = (snapshot?.cards || []).filter((card) => card.isCreature && !card.damageApplied);
+  const remainingCards = combatVisibleSnapshotCards(snapshot).filter((card) => card.isCreature && !card.damageApplied);
   const includesCommander = remainingCards.some((card) => card.isCommander);
   button.textContent = snapshot?.damageApplied
     ? includesCommander ? "Combat + Commander Applied" : "Damage Applied"
@@ -6985,6 +7021,282 @@ function combatDamageButton(snapshot, compact = false) {
   return button;
 }
 
+function openDeclareAttackersPanel(combatTrick = false) {
+  if (!state || !isMyTurn() || isSoloMode()) return;
+  combatAttackTrickArmed = Boolean(combatTrick);
+  initializeCombatAttackAssignments();
+  renderDeclareAttackersPanel();
+  closeActionPopovers(els.combatPopover);
+  els.combatPopover.classList.remove("hidden");
+}
+
+function initializeCombatAttackAssignments() {
+  combatAttackAssignments = {};
+  const defenders = combatDefenderCandidates();
+  defenders.forEach((player) => {
+    combatAttackAssignments[player.seat] = [];
+  });
+  const selected = selectedBattlefieldCardData().filter((card) => isCreatureCard(card));
+  const defaultDefender = defenders[0];
+  if (defaultDefender && selected.length) {
+    combatAttackAssignments[defaultDefender.seat] = selected.map((card) => card.id);
+  }
+}
+
+function combatDefenderCandidates() {
+  return (state?.players || []).filter((player) => Number(player.seat) !== Number(state.currentSeat));
+}
+
+function currentAttackerCandidates() {
+  const player = state?.players?.find((candidate) => Number(candidate.seat) === Number(state.currentSeat));
+  return (player?.battlefield || []).filter((card) => isCreatureCard(card));
+}
+
+function attachCombatAssignmentDrag(node, options = {}) {
+  node.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    combatAssignmentDrag = {
+      node,
+      id: options.id,
+      type: options.type || "card",
+      dropSelector: options.dropSelector,
+      onDrop: options.onDrop,
+      startX,
+      startY,
+      moved: false,
+      ghost: null,
+    };
+    node.setPointerCapture?.(event.pointerId);
+  });
+  node.addEventListener("pointermove", (event) => {
+    const drag = combatAssignmentDrag;
+    if (!drag || drag.node !== node) return;
+    const distance = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
+    if (distance < 3 && !drag.moved) return;
+    drag.moved = true;
+    event.preventDefault();
+    if (!drag.ghost) {
+      drag.ghost = node.cloneNode(true);
+      drag.ghost.classList.add("combat-assignment-ghost");
+      drag.ghost.style.width = `${Math.max(48, Math.round(node.getBoundingClientRect().width || 64))}px`;
+      document.body.append(drag.ghost);
+      node.classList.add("dragging");
+    }
+    drag.ghost.style.left = `${event.clientX + 12}px`;
+    drag.ghost.style.top = `${event.clientY + 12}px`;
+    document.querySelectorAll(".combat-assignment-drop-active").forEach((item) => item.classList.remove("combat-assignment-drop-active"));
+    const target = combatAssignmentDropTargetFromPoint(event, drag);
+    target?.classList.add("combat-assignment-drop-active");
+  });
+  node.addEventListener("pointerup", (event) => finishCombatAssignmentDrag(event, node));
+  node.addEventListener("pointercancel", (event) => cancelCombatAssignmentDrag(event, node));
+}
+
+function combatAssignmentDropTargetFromPoint(event, drag = combatAssignmentDrag) {
+  if (!drag?.dropSelector) return null;
+  if (drag.ghost) drag.ghost.style.pointerEvents = "none";
+  const elements = document.elementsFromPoint?.(event.clientX, event.clientY) || [document.elementFromPoint(event.clientX, event.clientY)].filter(Boolean);
+  if (drag.ghost) drag.ghost.style.pointerEvents = "";
+  return elements.map((element) => element.closest?.(drag.dropSelector)).find(Boolean) || null;
+}
+
+function finishCombatAssignmentDrag(event, node) {
+  const drag = combatAssignmentDrag;
+  if (!drag || drag.node !== node) return;
+  combatAssignmentDrag = null;
+  if (node.hasPointerCapture?.(event.pointerId)) node.releasePointerCapture(event.pointerId);
+  node.classList.remove("dragging");
+  const target = combatAssignmentDropTargetFromPoint(event, drag);
+  drag.ghost?.remove();
+  document.querySelectorAll(".combat-assignment-drop-active").forEach((item) => item.classList.remove("combat-assignment-drop-active"));
+  if (!drag.moved) return;
+  node.dataset.combatDragSuppressClick = "1";
+  setTimeout(() => {
+    if (node.dataset.combatDragSuppressClick === "1") delete node.dataset.combatDragSuppressClick;
+  }, 160);
+  event.preventDefault();
+  event.stopPropagation();
+  if (target && typeof drag.onDrop === "function") drag.onDrop(target);
+}
+
+function shouldSuppressCombatAssignmentClick(node, event) {
+  if (node.dataset.combatDragSuppressClick !== "1") return false;
+  delete node.dataset.combatDragSuppressClick;
+  event.preventDefault();
+  event.stopPropagation();
+  return true;
+}
+
+function cancelCombatAssignmentDrag(event, node) {
+  const drag = combatAssignmentDrag;
+  if (!drag || drag.node !== node) return;
+  combatAssignmentDrag = null;
+  if (node.hasPointerCapture?.(event.pointerId)) node.releasePointerCapture(event.pointerId);
+  node.classList.remove("dragging");
+  drag.ghost?.remove();
+  document.querySelectorAll(".combat-assignment-drop-active").forEach((item) => item.classList.remove("combat-assignment-drop-active"));
+}
+
+function renderDeclareAttackersPanel() {
+  const attackers = currentAttackerCandidates();
+  const defenders = combatDefenderCandidates();
+  els.combatPopoverTitle.textContent = combatAttackTrickArmed ? "Declare Attackers" : "Declare Attackers";
+  els.combatPopoverSummary.textContent = combatAttackTrickArmed
+    ? "Assign attackers to each defending player. Combat trick priority will stay hidden until a defender makes a blocking or damage decision."
+    : "Drag attacking creature copies under each defending player, then declare attackers.";
+  els.combatPopoverCards.innerHTML = "";
+  els.combatPopoverCards.className = "combat-block-builder combat-attack-builder";
+
+  const grid = document.createElement("section");
+  grid.className = "combat-blocker-grid combat-attacker-grid";
+  defenders.forEach((defender) => grid.append(attackerAssignmentColumn(defender, attackers)));
+
+  const available = document.createElement("section");
+  available.className = "combat-blocker-source combat-attacker-source";
+  const availableTitle = document.createElement("h3");
+  availableTitle.textContent = "Available Attackers";
+  const availableList = document.createElement("div");
+  availableList.className = "combat-blocker-source-list combat-attacker-source-list";
+  if (!attackers.length) {
+    const empty = document.createElement("p");
+    empty.className = "dialog-note";
+    empty.textContent = "No creature permanents are currently available to attack.";
+    availableList.append(empty);
+  }
+  attackers.forEach((attacker) => availableList.append(attackerSourceElement(attacker)));
+  available.append(availableTitle, availableList);
+  els.combatPopoverCards.append(grid, available);
+
+  els.combatPopoverActions.innerHTML = "";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "secondary";
+  cancel.textContent = "Cancel";
+  cancel.addEventListener("click", () => {
+    combatAttackAssignments = {};
+    combatAttackTrickArmed = false;
+    els.combatPopover.classList.add("hidden");
+  });
+  const submit = document.createElement("button");
+  submit.type = "button";
+  submit.textContent = "Declare Attackers";
+  submit.addEventListener("click", async () => {
+    setDisabled(submit, true);
+    try {
+      await sendAction("combatPass", {
+        assignments: combatAttackPayload(),
+        combatTrick: combatAttackTrickArmed,
+      });
+      combatAttackAssignments = {};
+      combatAttackTrickArmed = false;
+      combatPanelMode = "overview";
+      if (!els.combatPopover.classList.contains("hidden")) renderCombatPanel();
+    } catch (error) {
+      alert(error.message);
+      setDisabled(submit, false);
+    }
+  });
+  els.combatPopoverActions.append(cancel, submit);
+}
+
+function attackerSourceElement(attacker) {
+  const item = displayCardElement(attacker, attacker.typeLine || "Attacker", "combatAttackerSource");
+  item.classList.add("combat-blocker-source-card", "combat-attacker-source-card");
+  item.dataset.attackerId = attacker.id;
+  attachCombatAssignmentDrag(item, {
+    id: attacker.id,
+    type: "attacker",
+    dropSelector: ".combat-attacker-dropzone",
+    onDrop: (zone) => {
+      addAttackerAssignment(Number(zone.dataset.defenderSeat), attacker.id);
+      renderDeclareAttackersPanel();
+    },
+  });
+  item.addEventListener("click", (event) => {
+    if (shouldSuppressCombatAssignmentClick(item, event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openReadOnlyCardDialog(attacker, "Available attacker");
+  });
+  return item;
+}
+
+function attackerAssignmentColumn(defender, attackers) {
+  const column = document.createElement("article");
+  column.className = "combat-blocker-column combat-attacker-column";
+  const title = document.createElement("div");
+  title.className = "combat-blocker-column-title";
+  title.innerHTML = `<strong>${escapeHtml(defender.name || `Player ${Number(defender.seat) + 1}`)}</strong><span>${escapeHtml(defender.commander || "Defender")}</span>`;
+  const zone = document.createElement("div");
+  zone.className = "combat-blocker-dropzone combat-attacker-dropzone";
+  zone.dataset.defenderSeat = String(defender.seat);
+  zone.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  const assignedIds = combatAttackAssignments[defender.seat] || [];
+  if (!assignedIds.length) {
+    const empty = document.createElement("span");
+    empty.className = "combat-empty-blocker-zone";
+    empty.textContent = "No attackers";
+    zone.append(empty);
+  }
+  assignedIds.forEach((attackerId) => {
+    const attacker = attackers.find((candidate) => candidate.id === attackerId);
+    if (!attacker) return;
+    zone.append(assignedAttackerElement(defender.seat, attacker));
+  });
+  column.append(title, zone);
+  return column;
+}
+
+function assignedAttackerElement(defenderSeat, attacker) {
+  const wrap = document.createElement("div");
+  wrap.className = "combat-assigned-blocker combat-assigned-attacker";
+  const card = displayCardElement(attacker, attacker.typeLine || "Attacker", "combatAttackerAssigned");
+  card.classList.add("combat-assigned-blocker-card", "combat-assigned-attacker-card");
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "combat-remove-blocker";
+  remove.textContent = "x";
+  remove.title = "Remove attacker";
+  remove.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    removeAttackerAssignment(defenderSeat, attacker.id);
+    renderDeclareAttackersPanel();
+  });
+  wrap.append(card, remove);
+  return wrap;
+}
+
+function addAttackerAssignment(defenderSeat, attackerId) {
+  if (!Number.isInteger(Number(defenderSeat)) || !attackerId) return;
+  Object.keys(combatAttackAssignments).forEach((seat) => {
+    combatAttackAssignments[seat] = (combatAttackAssignments[seat] || []).filter((id) => id !== attackerId);
+  });
+  const current = combatAttackAssignments[defenderSeat] || [];
+  if (!current.includes(attackerId)) current.push(attackerId);
+  combatAttackAssignments[defenderSeat] = current;
+}
+
+function removeAttackerAssignment(defenderSeat, attackerId) {
+  combatAttackAssignments[defenderSeat] = (combatAttackAssignments[defenderSeat] || []).filter((id) => id !== attackerId);
+}
+
+function combatAttackPayload() {
+  return Object.entries(combatAttackAssignments)
+    .map(([defenderSeat, attackerIds]) => ({
+      defenderSeat: Number(defenderSeat),
+      attackerIds,
+    }))
+    .filter((entry) => entry.attackerIds.length);
+}
+
 function openCombatPanel() {
   if (!state?.combatSnapshot?.cards?.length) return;
   renderCombatPanel();
@@ -7004,7 +7316,12 @@ function renderCombatPanel() {
     return;
   }
   combatPanelMode = "overview";
-  const totals = snapshot.totals || { creatures: 0, power: 0, toughness: 0 };
+  const activeCards = combatVisibleSnapshotCards(snapshot);
+  const totals = combatCardsTotal(activeCards);
+  const allTargets = combatSnapshotTargetNames(snapshot);
+  const targetScope = allTargets.length > 1
+    ? ` Current defender: ${snapshot.defenderName || "the defending player"}.`
+    : "";
   els.combatPopoverTitle.textContent = `${snapshot.attackerName || "Attacker"} Attacking`;
   const commanderDamage = Array.isArray(snapshot.commanderDamage) ? snapshot.commanderDamage : [];
   const damageStatus = snapshot.damageApplied
@@ -7020,10 +7337,10 @@ function renderCombatPanel() {
         ? " Combat trick window used."
         : " Combat trick mode is active."
     : "";
-  els.combatPopoverSummary.textContent = `${snapshot.cards.length} card${snapshot.cards.length === 1 ? "" : "s"} attacking ${snapshot.defenderName || "the defending player"}. Total attacking power: ${totals.power}. Party toughness: ${totals.toughness}.${blockStatus}${trickStatus}${damageStatus}`;
+  els.combatPopoverSummary.textContent = `${activeCards.length} card${activeCards.length === 1 ? "" : "s"} attacking ${snapshot.defenderName || "the defending player"}.${targetScope} Total attacking power: ${totals.power}. Party toughness: ${totals.toughness}.${blockStatus}${trickStatus}${damageStatus}`;
   els.combatPopoverCards.innerHTML = "";
   els.combatPopoverCards.className = "combat-popover-cards";
-  snapshot.cards.forEach((card) => {
+  activeCards.forEach((card) => {
     const wrap = document.createElement("article");
     wrap.className = `combat-popover-card-wrap${card.isCommander ? " commander-attacker" : ""}${card.damageApplied ? " damage-applied" : ""}`;
     const item = displayCardElement(card, card.typeLine || "Attacker", "combatPanel");
@@ -7105,7 +7422,7 @@ function combatDeclaredBlockersElement(blockers) {
 
 function renderCombatBlockerPanel(snapshot) {
   initializeCombatBlockAssignments(snapshot);
-  const attackers = (snapshot.cards || []).filter((card) => card.isCreature && !card.damageApplied);
+  const attackers = combatVisibleSnapshotCards(snapshot).filter((card) => card.isCreature && !card.damageApplied);
   const blockers = currentBlockerCandidates();
   els.combatPopoverTitle.textContent = "Declare Blockers";
   els.combatPopoverSummary.textContent = `${snapshot.attackerName || "The attacking player"} is attacking ${snapshot.defenderName || "you"}. Drag your creature copies below each attacker, then submit blockers. Empty blocker zones are allowed.`;
@@ -7177,19 +7494,17 @@ function blockerSourceElement(blocker) {
   const item = displayCardElement(blocker, blocker.typeLine || "Blocker", "combatBlockerSource");
   item.classList.add("combat-blocker-source-card");
   item.dataset.blockerId = blocker.id;
-  item.draggable = true;
-  item.addEventListener("dragstart", (event) => {
-    combatDraggedBlockerId = blocker.id;
-    item.classList.add("dragging");
-    event.dataTransfer.effectAllowed = "copy";
-    event.dataTransfer.setData("application/x-mage-table-blocker-id", blocker.id);
-    event.dataTransfer.setData("text/plain", blocker.id);
-  });
-  item.addEventListener("dragend", () => {
-    combatDraggedBlockerId = "";
-    item.classList.remove("dragging");
+  attachCombatAssignmentDrag(item, {
+    id: blocker.id,
+    type: "blocker",
+    dropSelector: ".combat-blocker-dropzone",
+    onDrop: (zone) => {
+      addBlockerAssignment(zone.dataset.attackerId, blocker.id);
+      renderCombatBlockerPanel(state.combatSnapshot);
+    },
   });
   item.addEventListener("click", (event) => {
+    if (shouldSuppressCombatAssignmentClick(item, event)) return;
     event.preventDefault();
     event.stopPropagation();
     openReadOnlyCardDialog(blocker, "Available blocker");
@@ -7208,28 +7523,6 @@ function blockerAssignmentColumn(snapshot, attacker, blockers) {
   const zone = document.createElement("div");
   zone.className = "combat-blocker-dropzone";
   zone.dataset.attackerId = attacker.id;
-  zone.addEventListener("dragenter", (event) => {
-    if (!combatDraggedBlockerId) return;
-    event.preventDefault();
-    zone.classList.add("drop-active");
-  });
-  zone.addEventListener("dragover", (event) => {
-    event.preventDefault();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
-    zone.classList.add("drop-active");
-  });
-  zone.addEventListener("dragleave", () => zone.classList.remove("drop-active"));
-  zone.addEventListener("drop", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    zone.classList.remove("drop-active");
-    const blockerId = event.dataTransfer.getData("application/x-mage-table-blocker-id")
-      || event.dataTransfer.getData("text/plain")
-      || combatDraggedBlockerId;
-    combatDraggedBlockerId = "";
-    addBlockerAssignment(attacker.id, blockerId);
-    renderCombatBlockerPanel(snapshot);
-  });
   const assignedIds = combatBlockAssignments[attacker.id] || [];
   if (!assignedIds.length) {
     const empty = document.createElement("span");
@@ -9066,10 +9359,7 @@ async function tapSelectedBattlefieldCards(mode = "toggle") {
 }
 
 async function sendCombatPass(combatTrick = false) {
-  await sendAction("combatPass", {
-    cardIds: selectedBattlefieldCardData().map((card) => card.id),
-    combatTrick: Boolean(combatTrick),
-  });
+  openDeclareAttackersPanel(combatTrick);
 }
 
 async function moveSelectedBattlefieldCards(toZone, positions = {}) {
@@ -10872,8 +11162,15 @@ els.joinCodeInput.addEventListener("input", () => {
 
 els.joinCodePasswordInput.addEventListener("input", () => setJoinRoomStatus());
 
-els.closeJoinWithDeckButton.addEventListener("click", () => els.joinWithDeckDialog.close());
-els.closeDeckPlayChoiceButton.addEventListener("click", () => els.deckPlayChoiceDialog.close());
+els.closeJoinWithDeckButton.addEventListener("click", () => {
+  pendingJoinDeck = null;
+  pendingPasswordJoin = null;
+  els.joinWithDeckDialog.close();
+});
+els.closeDeckPlayChoiceButton.addEventListener("click", () => {
+  pendingPlayDeck = null;
+  els.deckPlayChoiceDialog.close();
+});
 els.closeAccountStartGameButton.addEventListener("click", () => {
   pendingGameInviteAccept = null;
   els.accountStartGameDialog.close();
@@ -10913,6 +11210,8 @@ els.joinWithDeckCodeInput.addEventListener("input", () => {
 els.joinWithDeckForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (event.submitter?.value !== "join") {
+    pendingJoinDeck = null;
+    pendingPasswordJoin = null;
     els.joinWithDeckDialog.close();
     return;
   }
@@ -11008,7 +11307,13 @@ els.seatSelect.addEventListener("change", () => {
 els.endTurnButton.addEventListener("click", () => sendAction("turn"));
 els.instantButton.addEventListener("click", () => sendAction("takePriority"));
 els.combatPassButton.addEventListener("click", () => sendCombatPass());
-els.combatTrickButton.addEventListener("click", () => sendCombatPass(true));
+els.combatTrickButton.addEventListener("click", () => {
+  if (state?.combatSnapshot?.combatTrickPending && Number(state.combatSnapshot.attackerSeat) === Number(state.currentSeat)) {
+    sendAction("passPriority");
+    return;
+  }
+  sendCombatPass(true);
+});
 els.passPriorityButton.addEventListener("click", () => sendAction("passPriority"));
 
 els.diceButton.addEventListener("click", () => {
@@ -11562,6 +11867,41 @@ document.addEventListener("pointerdown", (event) => {
     });
   }
 });
+
+function resetDialogCancelState(dialog) {
+  if (dialog === els.roomPasswordDialog) {
+    pendingPasswordJoin = null;
+    setDisabled(els.submitRoomPasswordButton, false);
+  }
+  if (dialog === els.joinWithDeckDialog) {
+    pendingJoinDeck = null;
+    pendingPasswordJoin = null;
+    els.joinWithDeckPasswordLabel.classList.add("hidden");
+    els.joinWithDeckPasswordInput.required = false;
+    els.joinWithDeckPasswordInput.value = "";
+  }
+  if (dialog === els.deckPlayChoiceDialog) pendingPlayDeck = null;
+  if (dialog === els.accountStartGameDialog) {
+    pendingGameInviteAccept = null;
+    pendingGameDeck = null;
+  }
+  if (dialog === els.deleteDeckDialog) pendingDeleteDeckId = "";
+  if (dialog === els.endGameDialog) {
+    pendingEndGameId = "";
+    setDisabled(els.confirmEndGameButton, false);
+  }
+  if (dialog === els.countDialog) pendingCountPrompt = null;
+}
+
+document.addEventListener("submit", (event) => {
+  if (event.submitter?.value !== "cancel") return;
+  const dialog = event.target.closest("dialog");
+  if (!dialog) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  resetDialogCancelState(dialog);
+  dialog.close("cancel");
+}, true);
 
 document.querySelectorAll("dialog").forEach((dialog) => {
   dialog.addEventListener("click", (event) => {

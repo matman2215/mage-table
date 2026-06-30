@@ -250,7 +250,9 @@ test("declared blockers persist and combat trick priority returns to attacker", 
   });
   assert.equal(state.priorityMode, "combat");
   assert.equal(state.prioritySeat, 1);
-  assert.equal(state.combatSnapshot.combatTrick, true);
+  assert.equal(state.combatSnapshot.combatTrick, false);
+  assert.equal(state.combatSnapshot.combatTrickArmed, true);
+  assert.equal(viewRoom(state, "seat-1", "http://test").combatSnapshot.combatTrickArmed, undefined);
 
   await applyAction(state, state.players[1], {
     type: "declareBlockers",
@@ -277,6 +279,46 @@ test("declared blockers persist and combat trick priority returns to attacker", 
   await applyAction(state, state.players[1], { type: "takeCombatDamage" });
   assert.equal(state.players[1].life, 35);
   assert.equal(state.combatSnapshot.damageApplied, true);
+});
+
+test("attackers can be assigned to different defending players", async () => {
+  const state = room();
+  state.players.push(player(2));
+  state.clock.playerMs.push(0);
+  state.players[0].battlefield.push(
+    card("attacker-a", "Attacker A", { owner: 0, power: "3", toughness: "3" }),
+    card("attacker-b", "Attacker B", { owner: 0, power: "4", toughness: "4" }),
+  );
+
+  await applyAction(state, state.players[0], {
+    type: "combatPass",
+    assignments: [
+      { defenderSeat: 1, attackerIds: ["attacker-a"] },
+      { defenderSeat: 2, attackerIds: ["attacker-b"] },
+    ],
+  });
+
+  assert.equal(state.priorityMode, "combat");
+  assert.equal(state.prioritySeat, 1);
+  assert.deepEqual(state.combatSnapshot.defenderQueue, [1, 2]);
+  assert.equal(state.combatSnapshot.cards.find((card) => card.id === "attacker-a").targetSeat, 1);
+  assert.equal(state.combatSnapshot.cards.find((card) => card.id === "attacker-b").targetSeat, 2);
+
+  await applyAction(state, state.players[1], { type: "takeCombatDamage" });
+  assert.equal(state.players[1].life, 37);
+  assert.equal(state.players[2].life, 40);
+  assert.equal(state.prioritySeat, 2);
+  assert.equal(state.combatSnapshot.defenderName, "Player 3");
+  assert.equal(state.combatSnapshot.damageApplied, false);
+
+  await applyAction(state, state.players[2], { type: "takeCombatDamage" });
+  assert.equal(state.players[2].life, 36);
+  assert.equal(state.prioritySeat, 0);
+  assert.equal(state.combatSnapshot.damageApplied, true);
+
+  await applyAction(state, state.players[0], { type: "passPriority" });
+  assert.equal(state.priorityMode, "turn");
+  assert.equal(state.combatSnapshot, null);
 });
 
 test("tapping a land records produced mana at the next checkpoint", async () => {

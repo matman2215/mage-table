@@ -675,7 +675,7 @@ function viewRoom(room, token, origin) {
     stack: room.stack.map((card) => cardForViewer(card, currentPlayer.seat)),
     chat: room.chat,
     playtestOpponent: room.players.length === 1 ? room.playtestOpponent : null,
-    combatSnapshot: room.combatSnapshot || null,
+    combatSnapshot: combatSnapshotForViewer(room.combatSnapshot, currentPlayer.seat),
     diceNotice: room.diceNotice || null,
     reveals: (room.reveals || []).filter((reveal) => Number(reveal.expiresAt) > Date.now()),
     canUndo: Boolean(room.undoStack?.length),
@@ -2934,10 +2934,70 @@ function combatCardSnapshot(cards) {
     .slice(0, 16);
 }
 
+function combatSnapshotForViewer(snapshot, viewerSeat) {
+  if (!snapshot) return null;
+  const copy = {
+    ...snapshot,
+    cards: Array.isArray(snapshot.cards) ? snapshot.cards : [],
+    blockers: Array.isArray(snapshot.blockers) ? snapshot.blockers : [],
+  };
+  delete copy.combatTrickArmed;
+  return copy;
+}
+
+function combatTrickIsArmed(snapshot) {
+  return Boolean(snapshot?.combatTrickArmed || snapshot?.combatTrick);
+}
+
+function combatCardsForDefender(snapshot, defenderSeat = snapshot?.defenderSeat) {
+  const cards = Array.isArray(snapshot?.cards) ? snapshot.cards : [];
+  if (!cards.some((card) => Number.isInteger(Number(card.targetSeat)))) return cards;
+  return cards.filter((card) => Number(card.targetSeat) === Number(defenderSeat));
+}
+
+function combatPartyTotalsByDefender(cards, defenderSeat) {
+  return combatPartyTotals(cards.filter((card) => Number(card.targetSeat) === Number(defenderSeat)));
+}
+
+function nextCombatDefenderSeat(snapshot, currentSeat) {
+  const queue = Array.isArray(snapshot?.defenderQueue) ? snapshot.defenderQueue.map(Number) : [];
+  if (!queue.length) return null;
+  const complete = new Set((snapshot.defenderStepsComplete || []).map(Number));
+  if (Number.isInteger(Number(currentSeat))) complete.add(Number(currentSeat));
+  return queue.find((seat) => !complete.has(Number(seat))) ?? null;
+}
+
+function markCombatDefenderComplete(snapshot, seat) {
+  const complete = new Set((snapshot.defenderStepsComplete || []).map(Number));
+  complete.add(Number(seat));
+  snapshot.defenderStepsComplete = [...complete];
+}
+
+function advanceCombatAfterDefenderDecision(room, snapshot, defenderSeat) {
+  markCombatDefenderComplete(snapshot, defenderSeat);
+  const nextDefender = nextCombatDefenderSeat(snapshot, defenderSeat);
+  if (nextDefender !== null) {
+    snapshot.defenderSeat = nextDefender;
+    snapshot.defenderName = room.players[nextDefender]?.name || `Player ${Number(nextDefender) + 1}`;
+    room.priorityMode = "combat";
+    room.prioritySeat = nextDefender;
+    return;
+  }
+  room.priorityMode = "combat";
+  room.prioritySeat = Number(snapshot.attackerSeat);
+}
+
+function combatDefenderDamageIsComplete(snapshot, defenderSeat) {
+  return combatCardsForDefender(snapshot, defenderSeat)
+    .filter((card) => card.isCreature)
+    .every((card) => card.damageApplied);
+}
+
 function applyCombatDamage(room, actor, snapshot, requestedCards, label = "the attacking party") {
   if (room.priorityMode !== "combat" || !snapshot) throw new Error("There is no active combat damage to take.");
   if (actor.seat !== Number(snapshot.defenderSeat)) throw new Error("Only the defending player can take this combat damage.");
-  const cards = (requestedCards || []).filter((card) => card.isCreature && !card.damageApplied);
+  const defenderCards = new Set(combatCardsForDefender(snapshot, actor.seat).map((card) => String(card.id)));
+  const cards = (requestedCards || []).filter((card) => card.isCreature && !card.damageApplied && defenderCards.has(String(card.id)));
   if (!cards.length) throw new Error("That combat damage has already been applied.");
 
   const damage = cards.reduce((total, card) => total + Math.max(0, Math.round(Number(card.totalPower) || 0)), 0);
@@ -2989,7 +3049,7 @@ function cardCanBlockMoreThanOnce(card) {
 function combatBlockAssignments(room, actor, snapshot, assignments = []) {
   if (!snapshot) throw new Error("There is no active combat to block.");
   if (actor.seat !== Number(snapshot.defenderSeat)) throw new Error("Only the defending player can declare blockers.");
-  const attackerIds = new Set((snapshot.cards || []).filter((card) => card.isCreature && !card.damageApplied).map((card) => String(card.id)));
+  const attackerIds = new Set(combatCardsForDefender(snapshot, actor.seat).filter((card) => card.isCreature && !card.damageApplied).map((card) => String(card.id)));
   const battlefield = new Map((actor.battlefield || []).map((card) => [String(card.id), card]));
   const usedBlockers = new Set();
   const blocks = [];
@@ -3018,9 +3078,11 @@ function combatBlockAssignments(room, actor, snapshot, assignments = []) {
 function openCombatTrickPriority(room, snapshot, reason) {
   room.priorityMode = "instant";
   room.prioritySeat = Number(snapshot.attackerSeat);
+  snapshot.combatTrick = true;
+  snapshot.combatTrickArmed = false;
   snapshot.combatTrickPending = reason;
   snapshot.combatTrickResolved = true;
-  addLog(room, `Combat trick priority returned to ${snapshot.attackerName || "the attacking player"} before ${reason === "damage" ? "combat damage" : "blockers resolve"}.`);
+  addLog(room, `A combat trick has been enabled. Priority passed to ${snapshot.attackerName || "the attacking player"} before ${reason === "damage" ? "combat damage" : "blockers resolve"}.`);
 }
 
 async function applyAction(room, actor, body) {
@@ -3085,30 +3147,73 @@ async function applyAction(room, actor, body) {
       assertActivePlayer(room, actor);
       if (room.players.length <= 1) throw new Error("Combat priority is only available in multiplayer.");
       commitStatistics(room, "combat priority passed");
-      room.priorityMode = "combat";
-      room.prioritySeat = nextSeat(room, actor.seat);
       const selectedIds = new Set((Array.isArray(body.cardIds) ? body.cardIds : []).map((cardId) => String(cardId || "")).filter(Boolean));
-      const attackers = selectedIds.size
-        ? actor.battlefield.filter((card) => selectedIds.has(card.id))
-        : [];
-      const attackerCards = combatCardSnapshot(attackers);
+      const defendersBySeat = new Map(room.players
+        .filter((player) => Number(player.seat) !== Number(actor.seat))
+        .map((player) => [Number(player.seat), player]));
+      const groupedAttackers = [];
+      const usedAttackers = new Set();
+      (Array.isArray(body.assignments) ? body.assignments : []).forEach((entry) => {
+        const defenderSeat = Number(entry?.defenderSeat);
+        const defender = defendersBySeat.get(defenderSeat);
+        if (!defender) return;
+        const attackerIds = new Set((Array.isArray(entry?.attackerIds) ? entry.attackerIds : [])
+          .map((cardId) => String(cardId || ""))
+          .filter(Boolean));
+        if (!attackerIds.size) return;
+        const cards = actor.battlefield.filter((card) => {
+          if (!attackerIds.has(String(card.id)) || usedAttackers.has(String(card.id))) return false;
+          const stats = cardCombatStats(card);
+          if (!stats.isCreature) return false;
+          usedAttackers.add(String(card.id));
+          return true;
+        });
+        if (cards.length) groupedAttackers.push({ defender, cards });
+      });
+      if (!groupedAttackers.length && selectedIds.size) {
+        const defender = room.players[nextSeat(room, actor.seat)];
+        const cards = actor.battlefield.filter((card) => selectedIds.has(String(card.id)) && cardCombatStats(card).isCreature);
+        if (defender && cards.length) groupedAttackers.push({ defender, cards });
+      }
+      const declaredGroups = groupedAttackers.map((group) => ({
+        defender: group.defender,
+        cards: combatCardSnapshot(group.cards).map((card) => ({
+          ...card,
+          targetSeat: group.defender.seat,
+          targetName: group.defender.name,
+        })),
+      })).filter((group) => group.cards.length);
+      if (!declaredGroups.length) throw new Error("Choose at least one attacking creature.");
+      const attackerCards = declaredGroups.flatMap((group) => group.cards);
+      const firstDefender = declaredGroups[0].defender;
+      room.priorityMode = "combat";
+      room.prioritySeat = firstDefender.seat;
       room.combatSnapshot = {
         id: id("combat"),
         attackerSeat: actor.seat,
         attackerName: actor.name,
-        defenderSeat: room.prioritySeat,
-        defenderName: room.players[room.prioritySeat].name,
+        defenderSeat: firstDefender.seat,
+        defenderName: firstDefender.name,
+        defenderQueue: declaredGroups.map((group) => group.defender.seat),
+        defenderStepsComplete: [],
         cards: attackerCards,
         totals: combatPartyTotals(attackerCards),
+        defenderTotals: declaredGroups.map((group) => ({
+          seat: group.defender.seat,
+          name: group.defender.name,
+          totals: combatPartyTotals(group.cards),
+        })),
         blockers: [],
         blockersDeclared: false,
-        combatTrick: Boolean(body.combatTrick),
+        combatTrick: false,
+        combatTrickArmed: Boolean(body.combatTrick),
         combatTrickPending: "",
         combatTrickResolved: false,
         damageApplied: false,
         at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
-      addLog(room, `${actor.name} passed priority for blockers to ${room.players[room.prioritySeat].name}${body.combatTrick ? " with combat trick priority reserved" : ""}.`, actor, {
+      const defenderNames = declaredGroups.map((group) => group.defender.name).join(", ");
+      addLog(room, `${actor.name} declared attackers toward ${defenderNames}.`, actor, {
         kind: "combat",
         cards: room.combatSnapshot.cards,
       });
@@ -3119,14 +3224,17 @@ async function applyAction(room, actor, body) {
       if (room.priorityMode !== "combat" || !snapshot) throw new Error("There is no active combat to block.");
       if (!playerHasPriority(room, actor)) throw new Error("You do not have priority.");
       const blocks = combatBlockAssignments(room, actor, snapshot, body.assignments);
-      snapshot.blockers = blocks;
+      const activeAttackerIds = new Set(combatCardsForDefender(snapshot, actor.seat).map((card) => String(card.id)));
+      snapshot.blockers = [
+        ...(Array.isArray(snapshot.blockers) ? snapshot.blockers : []).filter((entry) => !activeAttackerIds.has(String(entry.attackerId))),
+        ...blocks,
+      ];
       snapshot.blockersDeclared = true;
       const totalBlockers = blocks.reduce((total, entry) => total + entry.blockers.length, 0);
-      if (snapshot.combatTrick && !snapshot.combatTrickResolved) {
+      if (combatTrickIsArmed(snapshot) && !snapshot.combatTrickResolved) {
         openCombatTrickPriority(room, snapshot, "blockers");
       } else {
-        room.prioritySeat = Number(snapshot.attackerSeat);
-        room.priorityMode = "combat";
+        advanceCombatAfterDefenderDecision(room, snapshot, actor.seat);
       }
       addLog(room, `${actor.name} declared ${totalBlockers} blocker${totalBlockers === 1 ? "" : "s"}.`, actor, {
         kind: "combat",
@@ -3137,27 +3245,29 @@ async function applyAction(room, actor, body) {
     }
     case "takeCombatDamage": {
       const snapshot = room.combatSnapshot;
-      if (snapshot?.combatTrick && !snapshot.combatTrickResolved) {
+      if (combatTrickIsArmed(snapshot) && !snapshot.combatTrickResolved) {
         if (room.priorityMode !== "combat" || !playerHasPriority(room, actor)) throw new Error("You do not have priority.");
         if (actor.seat !== Number(snapshot.defenderSeat)) throw new Error("Only the defending player can take this combat damage.");
         openCombatTrickPriority(room, snapshot, "damage");
         break;
       }
-      applyCombatDamage(room, actor, snapshot, snapshot?.cards || [], "the attacking party");
+      applyCombatDamage(room, actor, snapshot, combatCardsForDefender(snapshot, actor.seat), "the attacking party");
+      if (combatDefenderDamageIsComplete(snapshot, actor.seat)) advanceCombatAfterDefenderDecision(room, snapshot, actor.seat);
       break;
     }
     case "takeCombatCardDamage": {
       const snapshot = room.combatSnapshot;
       if (!snapshot) throw new Error("There is no active combat damage to take.");
-      if (snapshot.combatTrick && !snapshot.combatTrickResolved) {
+      if (combatTrickIsArmed(snapshot) && !snapshot.combatTrickResolved) {
         if (room.priorityMode !== "combat" || !playerHasPriority(room, actor)) throw new Error("You do not have priority.");
         if (actor.seat !== Number(snapshot.defenderSeat)) throw new Error("Only the defending player can take this combat damage.");
         openCombatTrickPriority(room, snapshot, "damage");
         break;
       }
-      const card = snapshot.cards.find((candidate) => candidate.id === body.cardId);
+      const card = combatCardsForDefender(snapshot, actor.seat).find((candidate) => candidate.id === body.cardId);
       if (!card || !card.isCreature) throw new Error("That attacking creature was not found.");
       applyCombatDamage(room, actor, snapshot, [card], card.displayName || card.name || "that creature");
+      if (combatDefenderDamageIsComplete(snapshot, actor.seat)) advanceCombatAfterDefenderDecision(room, snapshot, actor.seat);
       break;
     }
     case "takePriority": {
@@ -3181,7 +3291,14 @@ async function applyAction(room, actor, body) {
         room.priorityMode = "combat";
         room.prioritySeat = Number(combatSnapshot.defenderSeat);
         combatSnapshot.combatTrickPending = "";
-        addLog(room, `${actor.name} passed combat trick priority back to ${room.players[room.prioritySeat].name}.`, actor);
+        addLog(room, `${actor.name} resolved the combat trick and passed priority back to ${room.players[room.prioritySeat].name}.`, actor);
+        break;
+      }
+      if (combatSnapshot && room.priorityMode === "combat" && actor.seat === Number(combatSnapshot.attackerSeat)) {
+        room.priorityMode = "turn";
+        room.prioritySeat = Number(room.activePlayer) || 0;
+        room.combatSnapshot = null;
+        addLog(room, `${actor.name} ended combat priority.`, actor);
         break;
       }
       const next = nextSeat(room, actor.seat);
