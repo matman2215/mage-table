@@ -3878,31 +3878,53 @@ body.shift-cascade .deck-stack-card strong {
   width: min(430px, calc(100vw - 28px));
 }
 
-.account-start-game-card {
+#accountStartGameDialog {
+  box-sizing: border-box;
   width: min(560px, calc(100vw - 28px));
+  max-width: calc(100vw - 28px);
+  overflow-x: hidden;
+}
+
+.account-start-game-card {
+  box-sizing: border-box;
+  width: min(560px, calc(100vw - 28px));
+  max-width: calc(100vw - 28px);
   max-height: min(680px, calc(100vh - 28px));
   overflow-x: hidden;
 }
 
+.account-start-game-card * {
+  min-width: 0;
+}
+
+.account-start-game-card .dialog-note {
+  overflow-wrap: anywhere;
+}
+
 .account-start-decks {
   min-height: 0;
+  max-width: 100%;
   overflow-x: hidden;
 }
 
 .account-start-saved-deck-list {
   display: grid;
   gap: 7px;
+  max-width: 100%;
   max-height: min(360px, calc(100vh - 260px));
   overflow-y: auto;
   overflow-x: hidden;
-  padding-right: 3px;
+  box-sizing: border-box;
+  padding-inline-end: 3px;
 }
 
 .account-start-deck-row {
+  box-sizing: border-box;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
+  max-width: 100%;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: rgba(142, 231, 214, 0.06);
@@ -3929,8 +3951,10 @@ body.shift-cascade .deck-stack-card strong {
 
 .account-start-deck-row button {
   min-height: 32px;
+  max-width: 100%;
   padding: 0 10px;
   font-size: 0.72rem;
+  white-space: nowrap;
 }
 
 .create-friend-invite-panel {
@@ -4450,6 +4474,7 @@ body.dark-mode .action-popover {
 .combat-blocker-source {
   display: grid;
   gap: 7px;
+  justify-items: center;
   min-width: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -4464,21 +4489,27 @@ body.dark-mode .combat-blocker-source {
 .combat-blocker-source h3 {
   margin: 0;
   font-size: 0.78rem;
+  text-align: center;
 }
 
 .combat-blocker-source-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
-  justify-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-content: flex-start;
+  align-items: flex-start;
   gap: 10px;
+  width: 100%;
   min-height: 104px;
   max-height: min(250px, 36vh);
   overflow-y: auto;
   overflow-x: hidden;
-  padding-right: 3px;
+  box-sizing: border-box;
+  padding-inline: 3px;
 }
 
 .combat-blocker-source-card {
+  flex: 0 0 76px;
   width: 76px;
   justify-self: center;
   cursor: grab;
@@ -4497,6 +4528,8 @@ body.dark-mode .combat-blocker-source {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   justify-content: center;
+  justify-items: center;
+  place-content: start center;
   gap: 12px;
   align-items: start;
 }
@@ -4543,8 +4576,10 @@ body.dark-mode .combat-blocker-source {
 .combat-blocker-dropzone {
   display: grid;
   gap: 8px;
+  justify-items: center;
   place-items: center;
   align-content: start;
+  text-align: center;
   width: 146px;
   min-height: 248px;
   max-height: 420px;
@@ -4605,8 +4640,14 @@ body.dark-mode .combat-blocker-dropzone {
 .combat-declared-blocker {
   display: grid;
   justify-items: center;
+  justify-self: center;
+  text-align: center;
   gap: 3px;
   position: relative;
+}
+
+.combat-assigned-attacker {
+  flex: 0 0 auto;
 }
 
 .combat-assigned-blocker-card,
@@ -7971,6 +8012,25 @@ body.cosmic-table-theme .counter-step {
   .saved-deck-actions,
   .active-lobby-actions {
     flex-wrap: wrap;
+  }
+
+  .account-start-game-card {
+    width: calc(100vw - 20px);
+    max-width: calc(100vw - 20px);
+  }
+
+  #accountStartGameDialog {
+    width: calc(100vw - 20px);
+    max-width: calc(100vw - 20px);
+  }
+
+  .account-start-deck-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .account-start-deck-row button {
+    width: 100%;
   }
 
   .combat-popover-cards {

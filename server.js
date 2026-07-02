@@ -2993,8 +2993,9 @@ function advanceCombatAfterDefenderDecision(room, snapshot, defenderSeat) {
     room.prioritySeat = nextDefender;
     return;
   }
-  room.priorityMode = "combat";
-  room.prioritySeat = Number(snapshot.attackerSeat);
+  room.priorityMode = "turn";
+  room.prioritySeat = Number(room.activePlayer) || 0;
+  room.combatSnapshot = null;
 }
 
 function combatDefenderDamageIsComplete(snapshot, defenderSeat) {

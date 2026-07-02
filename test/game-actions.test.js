@@ -228,8 +228,9 @@ test("combat damage can be taken per creature without double counting", async ()
 
   await applyAction(state, state.players[1], { type: "takeCombatDamage" });
   assert.equal(state.players[1].life, 35);
-  assert.equal(state.combatSnapshot.damageTaken, 5);
-  assert.equal(state.combatSnapshot.damageApplied, true);
+  assert.equal(state.priorityMode, "turn");
+  assert.equal(state.prioritySeat, 0);
+  assert.equal(state.combatSnapshot, null);
 });
 
 test("declared blockers persist and combat trick priority returns to attacker", async () => {
@@ -290,7 +291,9 @@ test("declared blockers persist and combat trick priority returns to attacker", 
 
   await applyAction(state, state.players[1], { type: "takeCombatDamage" });
   assert.equal(state.players[1].life, 35);
-  assert.equal(state.combatSnapshot.damageApplied, true);
+  assert.equal(state.priorityMode, "turn");
+  assert.equal(state.prioritySeat, 0);
+  assert.equal(state.combatSnapshot, null);
 });
 
 test("attackers can be assigned to different defending players", async () => {
@@ -325,11 +328,8 @@ test("attackers can be assigned to different defending players", async () => {
 
   await applyAction(state, state.players[2], { type: "takeCombatDamage" });
   assert.equal(state.players[2].life, 36);
-  assert.equal(state.prioritySeat, 0);
-  assert.equal(state.combatSnapshot.damageApplied, true);
-
-  await applyAction(state, state.players[0], { type: "passPriority" });
   assert.equal(state.priorityMode, "turn");
+  assert.equal(state.prioritySeat, 0);
   assert.equal(state.combatSnapshot, null);
 });
 
@@ -352,9 +352,9 @@ test("declared blockers hold defender priority until pass priority", async () =>
   assert.equal(state.combatSnapshot.blockersDeclared, true);
 
   await applyAction(state, state.players[1], { type: "passPriority" });
-  assert.equal(state.priorityMode, "combat");
+  assert.equal(state.priorityMode, "turn");
   assert.equal(state.prioritySeat, 0);
-  assert.deepEqual(state.combatSnapshot.blockerLocks, [1]);
+  assert.equal(state.combatSnapshot, null);
 });
 
 test("tapping a land records produced mana at the next checkpoint", async () => {
